@@ -200,8 +200,15 @@ async def _deliver_due_messages_impl():
 
                 medicine_name = ""
                 medicines = parent.get("medicine_list") or []
-                if medicines and isinstance(medicines[0], dict):
-                    medicine_name = medicines[0].get("name", "")
+                if medicines:
+                    # Find the medicine whose reminder_time matches this slot
+                    for med in medicines:
+                        if isinstance(med, dict) and med.get("reminder_time") == hhmm:
+                            medicine_name = med.get("name", "")
+                            break
+                    # Fallback to first medicine if no time match found
+                    if not medicine_name and isinstance(medicines[0], dict):
+                        medicine_name = medicines[0].get("name", "")
 
                 result = await send_dynamic_checkin(
                     db,

@@ -343,12 +343,12 @@ export default function Onboarding() {
                       editing the number after verifying correctly re-locks it. */}
                   <PhoneVerificationCard
                     label="Your number"
-                    phone={user?.phone}
-                    verified={user?.phone_verified}
+                    phone={child.phone}
+                    verified={phoneVerified}
                     onSend={(phone) => api.post("/auth/otp/send", { phone_number: phone })}
                     onVerify={(phone, code) => api.post("/auth/otp/verify", { phone_number: phone, code })}
                     onResend={(phone) => api.post("/auth/otp/resend", { phone_number: phone })}
-                    onVerified={async () => { await load(); }}
+                    onVerified={async (phone) => { setVerifiedPhone(phone); await refreshUser(); }}
                     testid="child-phone-verify"
                   />
 

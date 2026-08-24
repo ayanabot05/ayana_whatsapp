@@ -49,7 +49,7 @@ export function PhoneVerificationCard({
     try {
       await onSend(phone);
       setSent(true);
-      toast.success(`Code sent to ${phone}`);
+      toast.success(`SMS code sent to ${phone}`);
     } catch (e) {
       toast.error(formatApiError(e.response?.data?.detail) || "Could not send code.");
     } finally {
@@ -107,7 +107,7 @@ export function PhoneVerificationCard({
             data-testid={`${testid}-send`}
             className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-ayana-primary text-white text-xs font-medium hover:bg-ayana-primary-hover disabled:opacity-50"
           >
-            {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />} Verify number
+            {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />} Send SMS code
           </button>
         ) : null}
       </div>

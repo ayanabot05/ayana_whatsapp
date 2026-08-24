@@ -232,7 +232,7 @@ export default function Dashboard() {
                               <button
                                 onClick={async () => {
                                   try {
-                                    await api.put(`/parents/${p.id}/language`, langSuggestions[p.id].suggested_language);
+                                    await api.put(`/parents/${p.id}/language`, null, { params: { language: langSuggestions[p.id].suggested_language } });
                                     toast.success(`Language updated to ${langSuggestions[p.id].suggested_language === "te" ? "Telugu" : langSuggestions[p.id].suggested_language === "hi" ? "Hindi" : langSuggestions[p.id].suggested_language}.`);
                                     load();
                                   } catch (e) { toast.error(formatApiError(e.response?.data?.detail)); }

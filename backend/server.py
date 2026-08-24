@@ -1952,6 +1952,19 @@ async def whatsapp_webhook(request: Request):
                     )
                     if handled:
                         continue
+                else:
+                    # Text, audio, and image messages — record reply for
+                    # distress detection, mood tracking, voice transcription,
+                    # and session refresh.
+                    await _record_reply(
+                        from_number=from_number,
+                        body_text=body_text,
+                        num_media=num_media,
+                        button_payload=button_payload,
+                        media_url=media_url,
+                        media_content_type=media_content_type,
+                        raw_payload=message,
+                    )
 
     return Response(status_code=200, content="ok")
 
