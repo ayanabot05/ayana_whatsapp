@@ -499,7 +499,7 @@ async def list_parents(user: dict = Depends(get_current_user)):
     return [serialize(d) for d in docs]
 
 @api.post("/parents")
-async def create_parent(payload: ParentInput, user: dict = Depends(get_current_user)):
+async def create_parent(payload: ParentInput, user: dict = Depends(get_current_user), _csrf: None = Depends(validate_csrf_token)):
     uid = scope(user)
     # ── Enforce plan parent limit ──
     ps = await db.payment_state.find_one({"user_id": uid})
@@ -526,7 +526,7 @@ async def create_parent(payload: ParentInput, user: dict = Depends(get_current_u
     return serialize(await db.parents.find_one({"_id": res.inserted_id}))
 
 @api.put("/parents/{parent_id}")
-async def update_parent(parent_id: str, payload: ParentInput, user: dict = Depends(get_current_user)):
+async def update_parent(parent_id: str, payload: ParentInput, user: dict = Depends(get_current_user), _csrf: None = Depends(validate_csrf_token)):
     parent = await db.parents.find_one({"_id": ObjectId(parent_id), "user_id": scope(user), "deleted_at": None})
     if not parent:
         raise HTTPException(status_code=404, detail="Parent not found")
@@ -553,7 +553,7 @@ async def update_parent(parent_id: str, payload: ParentInput, user: dict = Depen
     return updated
 
 @api.delete("/parents/{parent_id}")
-async def delete_parent(parent_id: str, user: dict = Depends(get_current_user)):
+async def delete_parent(parent_id: str, user: dict = Depends(get_current_user), _csrf: None = Depends(validate_csrf_token)):
     await db.parents.update_one({"_id": ObjectId(parent_id), "user_id": scope(user)},
                                 {"$set": {"deleted_at": datetime.now(timezone.utc)}})
     await db.schedules.update_many({"parent_id": ObjectId(parent_id)}, {"$set": {"deleted_at": datetime.now(timezone.utc), "active": False}})
@@ -568,7 +568,7 @@ async def get_emergency_contacts(parent_id: str, user: dict = Depends(get_curren
     return {"contacts": parent.get("emergency_contacts", [])}
 
 @api.put("/parents/{parent_id}/emergency-contacts")
-async def set_emergency_contacts(parent_id: str, payload: EmergencyContactsInput, user: dict = Depends(get_current_user)):
+async def set_emergency_contacts(parent_id: str, payload: EmergencyContactsInput, user: dict = Depends(get_current_user), _csrf: None = Depends(validate_csrf_token)):
     parent = await db.parents.find_one({"_id": ObjectId(parent_id), "user_id": scope(user), "deleted_at": None})
     if not parent:
         raise HTTPException(status_code=404, detail="Parent not found")
@@ -622,7 +622,7 @@ async def admin_update_emergency_event(event_id: str, payload: EmergencyEventUpd
 
 # ---------------- Two-way moments (child -> parent) ----------------
 @api.post("/moments/upload-image")
-async def upload_moment_image(file: UploadFile = File(...), user: dict = Depends(get_current_user)):
+async def upload_moment_image(file: UploadFile = File(...), user: dict = Depends(get_current_user), _csrf: None = Depends(validate_csrf_token)):
     """Upload an image for a moment. Re-encodes with Pillow to strip metadata
     and ensure only valid image content is saved."""
     MAX_SIZE = 5 * 1024 * 1024  # 5 MB max
@@ -751,7 +751,7 @@ async def serve_uploaded_image(filename: str, sig: str = Query(...), exp: int = 
     return Response(content=data, media_type=record.get("content_type") or content_type)
 
 @api.post("/moments")
-async def send_moment_api(payload: MomentInput, user: dict = Depends(get_current_user)):
+async def send_moment_api(payload: MomentInput, user: dict = Depends(get_current_user), _csrf: None = Depends(validate_csrf_token)):
     parent = await db.parents.find_one({"_id": ObjectId(payload.parent_id), "user_id": scope(user), "deleted_at": None})
     if not parent:
         raise HTTPException(status_code=404, detail="Parent not found")
