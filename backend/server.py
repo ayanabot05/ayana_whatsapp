@@ -1875,6 +1875,19 @@ async def whatsapp_webhook(request: Request):
             value = change.get("value", {})
             # Silently acknowledge status updates (delivery receipts)
             if value.get("statuses"):
+                for status in value["statuses"]:
+                    st = status.get("status")
+                    if st == "failed":
+                        errors = status.get("errors", [])
+                        logger.warning(
+                            "[webhook] Delivery FAILED for message %s to %s: %s",
+                            status.get("id"), status.get("recipient_id"), errors,
+                        )
+                    else:
+                        logger.info(
+                            "[webhook] Status update: message %s to %s -> %s",
+                            status.get("id"), status.get("recipient_id"), st,
+                        )
                 continue
             for message in value.get("messages", []):
                 from_number = message.get("from", "")
