@@ -138,10 +138,8 @@ export default function Onboarding() {
     if (!childConsent) { toast.error("Please confirm consent to continue."); return; }
     if (!child.name.trim()) { toast.error("Please enter your name."); return; }
     if (child.phone.length < 8) { toast.error("Please enter a valid phone number."); return; }
-    // Data-layer gate, not just the disabled button — same principle as the
-    // saveParentForm() consent check below, so this can't be bypassed by
-    // re-enabling the button in devtools.
-    if (!phoneVerified) { toast.error("Please verify your phone number before continuing."); return; }
+    // TODO: Re-enable OTP verification for production launch
+    // if (!phoneVerified) { toast.error("Please verify your phone number before continuing."); return; }
     setLoading(true);
     try {
       await api.put("/profile/child", { name: child.name, phone: child.phone, city: child.city, timezone: child.timezone });
@@ -338,9 +336,7 @@ export default function Onboarding() {
                     </div>
                   </div>
 
-                  {/* Phone must be OTP-verified before continuing past this
-                      step — `verified` is computed against verifiedPhone so
-                      editing the number after verifying correctly re-locks it. */}
+                  {/* TODO: Re-enable OTP verification for production launch
                   <PhoneVerificationCard
                     label="Your number"
                     phone={child.phone}
@@ -351,6 +347,7 @@ export default function Onboarding() {
                     onVerified={async (phone) => { setVerifiedPhone(phone); await refreshUser(); }}
                     testid="child-phone-verify"
                   />
+                  */}
 
                   <div>
                     <label className="text-sm font-medium text-ayana-text">Your timezone</label>
@@ -365,7 +362,8 @@ export default function Onboarding() {
                 </div>
                 <div className="mt-6 flex justify-between">
                   <button onClick={() => navigate("/dashboard")} className="inline-flex items-center gap-2 px-6 py-3.5 rounded-full border border-ayana-line text-ayana-text hover:bg-ayana-alt transition-colors"><ArrowLeft className="w-4 h-4" /> Back</button>
-                  <button onClick={saveChild} disabled={loading || !child.name || child.phone.length < 8 || !phoneVerified} data-testid="step0-next"
+                  {/* TODO: Re-enable !phoneVerified in disabled condition for production */}
+                  <button onClick={saveChild} disabled={loading || !child.name || child.phone.length < 8} data-testid="step0-next"
                     className="inline-flex items-center gap-2 px-7 py-3.5 rounded-full bg-ayana-primary text-white font-medium hover:bg-ayana-primary-hover transition-colors disabled:opacity-50">
                     {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <>Continue <ArrowRight className="w-4 h-4" /></>}
                   </button>

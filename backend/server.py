@@ -480,18 +480,38 @@ async def refresh_token(request: Request, response: Response):
     return {"access_token": new_access, "refresh_token": new_refresh, "user": serialize(user)}
 
 # ---------------- Child profile ----------------
-@api.put("/profile/child")
-async def update_child(payload: ChildProfileInput, user: dict = Depends(get_current_user)):
-    await db.users.update_one({"_id": user["_id"]}, {"$set": {
-        "name": payload.name.strip(),
-        "phone": payload.phone.strip(),
-        "city": payload.city,
-        "timezone": payload.timezone,
-        "onboarding_step": max(user.get("onboarding_step", 0), 1),
-    }})
-    await audit(user["_id"], "update_child_profile")
-    return serialize(await db.users.find_one({"_id": user["_id"]}))
-
+@api.put("/profile/child") 
+async def update_child( 
+    payload: ChildProfileInput, 
+    user: dict = Depends(get_current_user), 
+    _csrf: None = Depends(validate_csrf_token), 
+): 
+    phone = payload.phone.strip() 
+ 
+    # Security: ensure this exact number was OTP verified 
+    if not user.get("phone_verified") or user.get("phone_verified_number") != phone: 
+        raise HTTPException( 
+            status_code=403, 
+            detail="Please verify this phone number before saving." 
+        ) 
+ 
+    await db.users.update_one( 
+        {"_id": user["_id"]}, 
+        {"$set": { 
+            "name": payload.name.strip(), 
+            "phone": phone, 
+            "phone_verified": True, 
+            "city": payload.city, 
+            "timezone": payload.timezone, 
+            "onboarding_step": max(user.get("onboarding_step", 0), 1), 
+        }} 
+    ) 
+ 
+    await audit(user["_id"], "update_child_profile") 
+ 
+    return serialize( 
+        await db.users.find_one({"_id": user["_id"]}) 
+    )
 # ---------------- Parents ----------------
 @api.get("/parents")
 async def list_parents(user: dict = Depends(get_current_user)):
@@ -1267,16 +1287,40 @@ async def otp_send(request: Request, payload: OtpSendInput):
     return {"ok": True, "status": result["status"], "phone": result["phone"], "expires_at": result["expires_at"], "detail": result.get("detail"), "dev_code": result.get("dev_code")}
 
 @api.post("/auth/otp/verify")
-async def otp_verify(request: Request, payload: OtpVerifyInput, user: dict = Depends(get_current_user)):
+async def otp_verify(
+    request: Request,
+    payload: OtpVerifyInput,
+    user: dict = Depends(get_current_user)
+):
     result = await verify_otp_code(payload.phone_number, payload.code)
+
     if not result["ok"]:
         code = result.get("code", "invalid")
         status = 429 if code == "too_many_attempts" else 400
         raise HTTPException(status_code=status, detail=result["detail"])
+
     phone = result["phone"]
-    await db.users.update_one({"_id": user["_id"]}, {"$set": {"phone_verified": True, "phone": phone, "phone_verified_at": datetime.now(timezone.utc)}})
-    await audit(str(user["_id"]), "phone_verified", {})
-    return {"ok": True, "phone_verified": True}
+
+    await db.users.update_one(
+        {"_id": user["_id"]},
+        {"$set": {
+            "phone_verified": True,
+            "phone_verified_number": phone,
+            "phone_verified_at": datetime.now(timezone.utc),
+        }}
+    )
+
+    await audit(
+        str(user["_id"]),
+        "phone_verified",
+        {"phone": phone}
+    )
+
+    return {
+        "ok": True,
+        "phone_verified": True,
+        "phone": phone
+    }
 
 @api.post("/auth/otp/resend")
 async def otp_resend(request: Request, payload: OtpResendInput):
