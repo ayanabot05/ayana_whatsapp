@@ -1025,44 +1025,55 @@ async def message_logs(
     total = await db.message_logs.count_documents(query)
     docs = await db.message_logs.find(query).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
     return {"total": total, "skip": skip, "limit": limit, "items": [serialize(d) for d in docs]}
-
 @api.post("/whatsapp/send-test")
 @api.post("/messages/send-test")
 async def send_test(payload: SendTestInput, user: dict = Depends(get_current_user), _csrf: None = Depends(validate_csrf_token), _rl: None = Depends(api_rate_limit_dependency)):
-    parent = await db.parents.find_one({"_id": ObjectId(payload.parent_id), "user_id": scope(user), "deleted_at": None})
+    try:
+        parent_oid = ObjectId(payload.parent_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid parent_id format")
+
+    parent = await db.parents.find_one({"_id": parent_oid, "user_id": scope(user), "deleted_at": None})
     if not parent:
         raise HTTPException(status_code=404, detail="Parent not found")
 
     slot_type = payload.category or "morning_wish"
-    session_open = await is_session_open(db, parent["_id"])
+    try:
+        session_open = await is_session_open(db, parent["_id"])
+    except Exception:
+        session_open = False
 
     plan_id = await _get_plan_id(user)
     variants_per_slot = plan_limits(plan_id)["variants_per_slot"]
     day_index = datetime.now(timezone.utc).timetuple().tm_yday
 
-    if session_open:
-        if slot_type in ["medicine", "bp_check", "sugar_check"]:
-            result = await send_dynamic_checkin(db, parent, slot_type, day_index, variants_per_slot, medicine_name="your medicine")
+    try:
+        if session_open:
+            if slot_type in ["medicine", "bp_check", "sugar_check"]:
+                result = await send_dynamic_checkin(db, parent, slot_type, day_index, variants_per_slot, medicine_name="your medicine")
+            else:
+                result = await send_dynamic_checkin(db, parent, slot_type, day_index, variants_per_slot)
         else:
-            result = await send_dynamic_checkin(db, parent, slot_type, day_index, variants_per_slot)
-    else:
-        if slot_type in ["medicine", "bp_check", "sugar_check", "water", "health_check"]:
-            result = await send_medicine_template(db, parent, day_index, variants_per_slot, medicine_name="your medicine")
-        elif slot_type in ["breakfast", "lunch", "dinner", "afternoon_checkin"]:
-            result = await send_meal_template(db, parent, meal_type=slot_type, day_index=day_index, variants_per_slot=variants_per_slot)
-        elif slot_type in ["goodnight", "love_note", "how_feeling"]:
-            result = await send_mood_template(db, parent, category=slot_type, day_index=day_index, variants_per_slot=variants_per_slot)
-        else:
-            result = await send_whatsapp_opener(db, parent, day_index, variants_per_slot)
+            if slot_type in ["medicine", "bp_check", "sugar_check", "water", "health_check"]:
+                result = await send_medicine_template(db, parent, day_index, variants_per_slot, medicine_name="your medicine")
+            elif slot_type in ["breakfast", "lunch", "dinner", "afternoon_checkin"]:
+                result = await send_meal_template(db, parent, meal_type=slot_type, day_index=day_index, variants_per_slot=variants_per_slot)
+            elif slot_type in ["goodnight", "love_note", "how_feeling"]:
+                result = await send_mood_template(db, parent, category=slot_type, day_index=day_index, variants_per_slot=variants_per_slot)
+            else:
+                result = await send_whatsapp_opener(db, parent, day_index, variants_per_slot)
+    except Exception as e:
+        logger.error(f"[send-test] failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"WhatsApp send failed: {str(e)[:300]}")
 
     msg_status = result.get("status", "failed")
-    # Log this manual send as a message_log so it appears in the log history
     msg_type = "reminder" if slot_type in ["medicine", "bp_check", "sugar_check", "water", "health_check"] else "checkin"
     now_utc = datetime.now(timezone.utc)
     try:
         p_tz = ZoneInfo(parent.get("timezone", "Asia/Kolkata"))
     except Exception:
         p_tz = ZoneInfo("Asia/Kolkata")
+
     await db.message_logs.insert_one({
         "user_id": scope(user), "parent_id": parent["_id"],
         "category": slot_type, "msg_type": msg_type, "status": msg_status,
@@ -1070,8 +1081,6 @@ async def send_test(payload: SendTestInput, user: dict = Depends(get_current_use
     })
     await audit(user["_id"], "send_test", {"parent_id": str(parent["_id"]), "slot_type": slot_type, "session_open": session_open, "template_used": result.get("template_type", "dynamic")})
     return {"ok": True, "status": msg_status, "detail": result.get("detail"), "session_open": session_open, "template_type": result.get("template_type", "dynamic")}
-
-
 # ── Say-hi: child can send a warm test message to a parent before full activation ──
 SAY_HI_COPY = {
     "en": "💛 Hi {parent_name}! Your child has set up AYANA to stay close. You'll get gentle daily check-ins — just tap or speak, no app needed. We'll start sending tomorrow morning. Take care!",
@@ -1274,22 +1283,31 @@ async def cancel_invite(invite_id: str, user: dict = Depends(get_current_user), 
 # ---------------- Monthly reports (NEW) ----------------
 @api.get("/reports/monthly")
 async def get_monthly_report(parent_id: str, period: str, user: dict = Depends(get_current_user)):
-    parent = await db.parents.find_one({"_id": ObjectId(parent_id), "user_id": scope(user), "deleted_at": None})
+    try:
+        pid = ObjectId(parent_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid parent_id format")
+    parent = await db.parents.find_one({"_id": pid, "user_id": scope(user), "deleted_at": None})
     if not parent:
         raise HTTPException(status_code=404, detail="Parent not found")
-    report = await db.monthly_reports.find_one({"user_id": scope(user), "parent_id": ObjectId(parent_id), "period": period})
+    report = await db.monthly_reports.find_one({"user_id": scope(user), "parent_id": pid, "period": period})
     if not report:
         raise HTTPException(status_code=404, detail="No report generated for that period yet.")
     return serialize(report)
 
 @api.post("/reports/monthly/generate")
 async def generate_monthly_report_now(parent_id: str, period: str, user: dict = Depends(get_current_user), _csrf: None = Depends(validate_csrf_token)):
-    """Manual 'generate now' action — no automatic monthly cron is wired up yet
-    (see README 'Open items': report delivery channel is still undecided)."""
-    parent = await db.parents.find_one({"_id": ObjectId(parent_id), "user_id": scope(user), "deleted_at": None})
+    try:
+        pid = ObjectId(parent_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid parent_id format")
+    try:
+        year, month = (int(x) for x in period.split("-"))
+    except Exception:
+        raise HTTPException(status_code=400, detail="period must be YYYY-MM")
+    parent = await db.parents.find_one({"_id": pid, "user_id": scope(user), "deleted_at": None})
     if not parent:
         raise HTTPException(status_code=404, detail="Parent not found")
-    year, month = (int(x) for x in period.split("-"))
     plan_id = await _get_plan_id(user)
     report = await generate_monthly_report(scope(user), parent["_id"], plan_id, year, month)
     await audit(user["_id"], "generate_monthly_report", {"parent_id": parent_id, "period": period})
