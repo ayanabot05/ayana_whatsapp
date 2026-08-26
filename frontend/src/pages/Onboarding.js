@@ -8,7 +8,6 @@ import { api, formatApiError } from "../lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { TIMEZONES } from "@/lib/constants";
 import { PhoneInput } from "@/components/PhoneInput";
-import { PhoneVerificationCard } from "@/components/PhoneVerificationCard";
 import { PricingCards } from "@/components/PricingCards";
 import { ParentCareForm, blankParentForm, blankMedicine } from "@/components/ParentCareForm";
 import { toast } from "sonner";
@@ -18,12 +17,11 @@ import { cleanHabits } from "../lib/formHelpers";
 
 const STEPS = ["Welcome", "Your plan", "Your parents", "Activate"];
 
-// ── Component ─────────────────────────────────────────────────────
 export default function Onboarding() {
   const { user, config, refreshUser } = useAuth();
   const navigate = useNavigate();
   const [step, setStep] = useState(() => {
-    const s = user?.onboarding_step ?? 0;
+    const s = user?.onboarding_step?? 0;
     return Math.min(Math.max(s, 0), 3);
   });
   const [loading, setLoading] = useState(false);
@@ -35,21 +33,10 @@ export default function Onboarding() {
     timezone: user?.timezone || "Asia/Kolkata",
   });
   const [childConsent, setChildConsent] = useState(false);
-
-  // Tracks the exact phone number that was last successfully OTP-verified
-  // (not just a boolean) so phoneVerified below is *computed*, not stored.
-  // That way, editing the phone field after verifying correctly drops the
-  // "Verified" badge instead of leaving a stale checkmark on a number
-  // nobody actually confirmed — mirrors the emergency-detection principle
-  // of never letting something unverified silently pass as fine.
-  const [verifiedPhone, setVerifiedPhone] = useState(user?.phone_verified ? user.phone : null);
-  const phoneVerified = !!child.phone && child.phone === verifiedPhone;
-
   const [planId, setPlanId] = useState("nitya");
 
-  // ── Plan limits — everything is derived from the selected plan ─
-  const plans = useMemo(() => config?.plans?.length ? config.plans : FALLBACK_PLANS, [config]);
-  const currencies = config?.currencies?.length ? config.currencies : FALLBACK_CURRENCIES;
+  const plans = useMemo(() => config?.plans?.length? config.plans : FALLBACK_PLANS, [config]);
+  const currencies = config?.currencies?.length? config.currencies : FALLBACK_CURRENCIES;
   const plan = useMemo(() => plans.find((p) => p.id === planId), [plans, planId]);
   const limits = useMemo(() => plan?.limits || { checkins: 2, reminders: 2, parents: 1, templates_per_day: 4 }, [plan]);
   const parentLimit = limits.parents || 1;
@@ -61,10 +48,8 @@ export default function Onboarding() {
     { time: "21:00", category: "goodnight", type: "checkin" },
   ].slice(0, maxCheckins), [maxCheckins]);
 
-  // Same base shape ParentCareForm/Dashboard use, just seeded with the
-  // plan-appropriate default check-ins.
   const newBlankParent = useCallback(
-    () => ({ ...blankParentForm(), messages: defaultMessages() }),
+    () => ({...blankParentForm(), messages: defaultMessages() }),
     [defaultMessages]
   );
 
@@ -74,19 +59,17 @@ export default function Onboarding() {
   const [editingParentId, setEditingParentId] = useState(null);
   const [parentConsent, setParentConsent] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
-  const [scheduleIds, setScheduleIds] = useState({}); // parent_id -> schedule_id
-
+  const [scheduleIds, setScheduleIds] = useState({});
   const [newMed, setNewMed] = useState(blankMedicine());
 
-  // ── Effects ───────────────────────────────────────────────────
   useEffect(() => { if (user?.onboarding_complete || user?.household_owner_id) navigate("/dashboard"); }, [user?.onboarding_complete, user?.household_owner_id, navigate]);
 
   useEffect(() => {
-    if (user && !user.onboarding_complete) {
-      const serverStep = Math.min(Math.max(user.onboarding_step ?? 0, 0), 3);
+    if (user &&!user.onboarding_complete) {
+      const serverStep = Math.min(Math.max(user.onboarding_step?? 0, 0), 3);
       setStep(serverStep);
       setChild((prev) => ({
-        ...prev,
+       ...prev,
         name: user.name || prev.name,
         phone: user.phone || prev.phone,
         city: user.city || prev.city,
@@ -95,18 +78,10 @@ export default function Onboarding() {
     }
   }, [user, user?.onboarding_complete, user?.onboarding_step, user?.name, user?.phone, user?.city, user?.timezone]);
 
-  // Keep verifiedPhone in sync with the server's view of things — covers
-  // the case where refreshUser() (called from onVerified below) resolves
-  // after this component already re-rendered once, or a returning user
-  // whose phone was verified in a previous session.
-  useEffect(() => {
-    if (user?.phone_verified && user?.phone) setVerifiedPhone(user.phone);
-  }, [user?.phone_verified, user?.phone]);
-
   useEffect(() => {
     api.get("/payment/state").then(({ data }) => {
       const currentPlan = data?.state?.plan || "nitya";
-      setPlanId(["nitya", "bandham", "raksha"].includes(currentPlan) ? currentPlan : "nitya");
+      setPlanId(["nitya", "bandham", "raksha"].includes(currentPlan)? currentPlan : "nitya");
     }).catch(() => {});
 
     api.get("/parents").then(({ data }) => {
@@ -116,30 +91,24 @@ export default function Onboarding() {
 
     api.get("/schedules").then(({ data }) => {
       const map = {};
-      for (const s of (data || [])) {
-        map[s.parent_id] = s.id;
-      }
+      for (const s of (data || [])) map[s.parent_id] = s.id;
       setScheduleIds(map);
     }).catch(() => {});
   }, []);
 
   useEffect(() => {
-    if (parentsLoaded && parentsList.length === 0 && !parentForm) {
+    if (parentsLoaded && parentsList.length === 0 &&!parentForm) {
       setParentForm(newBlankParent());
       setEditingParentId(null);
     }
   }, [parentsLoaded, parentsList.length, parentForm, newBlankParent]);
 
-  // ── Styles ────────────────────────────────────────────────────
   const inputCls = "w-full px-4 py-3 rounded-xl border border-ayana-line bg-white focus:outline-none focus:ring-2 focus:ring-ayana-bright/50 focus:border-ayana-bright transition";
 
-  // ── Step actions ──────────────────────────────────────────────
   const saveChild = async () => {
     if (!childConsent) { toast.error("Please confirm consent to continue."); return; }
     if (!child.name.trim()) { toast.error("Please enter your name."); return; }
     if (child.phone.length < 8) { toast.error("Please enter a valid phone number."); return; }
-    // TODO: Re-enable OTP verification for production launch
-    // if (!phoneVerified) { toast.error("Please verify your phone number before continuing."); return; }
     setLoading(true);
     try {
       await api.put("/profile/child", { name: child.name, phone: child.phone, city: child.city, timezone: child.timezone });
@@ -177,12 +146,10 @@ export default function Onboarding() {
       const schedRes = await api.get("/schedules");
       const mySched = (schedRes.data || []).find(s => s.parent_id === p.id);
       if (mySched) {
-        // Only keep check-in messages (not medicine_sync entries)
-        messages = (mySched.messages || []).filter(m => m.type !== "reminder" && m.source !== "medicine_sync");
+        messages = (mySched.messages || []).filter(m => m.type!== "reminder" && m.source!== "medicine_sync");
         if (messages.length === 0) messages = defaultMessages();
-        setScheduleIds(prev => ({ ...prev, [p.id]: mySched.id }));
+        setScheduleIds(prev => ({...prev, [p.id]: mySched.id }));
       }
-
       setEditingParentId(p.id);
       setParentConsent(true);
       setNewMed(blankMedicine());
@@ -220,27 +187,21 @@ export default function Onboarding() {
     if (!parentConsent) { toast.error("Please confirm you have your parent's consent."); return; }
     if (parentForm.messages.length === 0) { toast.error("Add at least one daily check-in."); return; }
     if (parentForm.messages.length > maxCheckins) { toast.error(`Your plan allows up to ${maxCheckins} check-ins. Remove some or upgrade.`); return; }
-
     setLoading(true);
     try {
-      const { messages, ...parentData } = parentForm;
-      // Clean habits — strip empty time strings to null
+      const { messages,...parentData } = parentForm;
       parentData.habits = cleanHabits(parentData.habits);
-
       let savedParent;
       if (editingParentId) {
         const { data } = await api.put(`/parents/${editingParentId}`, parentData);
         savedParent = data;
-        setParentsList((list) => list.map((p) => (p.id === editingParentId ? data : p)));
+        setParentsList((list) => list.map((p) => (p.id === editingParentId? data : p)));
       } else {
         const { data } = await api.post("/parents", parentData);
         savedParent = data;
         setParentsList((list) => [...list, data]);
         await api.post("/consent", { consent_type: "parent", agreed: true, text: `Consent confirmed for parent ${parentForm.name}.` });
       }
-
-      // Save schedule — only check-in messages go here.
-      // Medicine reminders are auto-synced by the backend via medicine_sync.py
       const existingSchedId = scheduleIds[savedParent.id];
       const schedPayload = { parent_id: savedParent.id, mode: planId, messages, active: true };
       let dropped = savedParent.medicine_reminders_dropped;
@@ -249,11 +210,10 @@ export default function Onboarding() {
         dropped = dropped || schedData?.medicine_reminders_dropped;
       } else {
         const { data: schedData } = await api.post("/schedules", schedPayload);
-        setScheduleIds(prev => ({ ...prev, [savedParent.id]: schedData.id }));
+        setScheduleIds(prev => ({...prev, [savedParent.id]: schedData.id }));
         dropped = dropped || schedData?.medicine_reminders_dropped;
       }
-
-      toast.success(editingParentId ? "Parent updated." : "Parent added!");
+      toast.success(editingParentId? "Parent updated." : "Parent added!");
       if (dropped?.length) {
         toast.warning(`Your plan couldn't fit all medicine reminder times — dropped: ${dropped.join(", ")}. Upgrade for more, or adjust times.`, { duration: 8000 });
       }
@@ -269,7 +229,7 @@ export default function Onboarding() {
     setDeletingId(p.id);
     try {
       await api.delete(`/parents/${p.id}`);
-      setParentsList((list) => list.filter((x) => x.id !== p.id));
+      setParentsList((list) => list.filter((x) => x.id!== p.id));
       toast.success(`Removed ${p.name}.`);
     } catch (e) { toast.error(formatApiError(e.response?.data?.detail)); } finally { setDeletingId(null); }
   };
@@ -286,7 +246,6 @@ export default function Onboarding() {
 
   const parentNames = parentsList.map((p) => p.name).filter(Boolean).join(", ");
 
-  // ── Render ────────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-warm-cream relative">
       <div className="absolute inset-0 pointer-events-none" style={{ background: "radial-gradient(1200px 500px at 100% -5%, rgba(217,108,74,0.06), transparent), radial-gradient(900px 500px at -10% 10%, rgba(44,76,59,0.06), transparent)" }} aria-hidden="true" />
@@ -299,8 +258,8 @@ export default function Onboarding() {
           <div className="flex gap-1.5">
             {STEPS.map((s, i) => (
               <div key={s} className="flex-1">
-                <div className={`h-1.5 rounded-full transition-colors duration-300 ${i <= step ? "bg-ayana-bright" : "bg-ayana-line"}`} />
-                <p className={`mt-1.5 text-[11px] ${i === step ? "text-ayana-bright font-semibold" : "text-ayana-muted"} hidden sm:block`}>{s}</p>
+                <div className={`h-1.5 rounded-full transition-colors duration-300 ${i <= step? "bg-ayana-bright" : "bg-ayana-line"}`} />
+                <p className={`mt-1.5 text- ${i === step? "text-ayana-bright font-semibold" : "text-ayana-muted"} hidden sm:block`}>{s}</p>
               </div>
             ))}
           </div>
@@ -310,8 +269,6 @@ export default function Onboarding() {
       <div className="relative max-w-3xl mx-auto px-5 sm:px-8 py-10 lg:py-14">
         <AnimatePresence mode="wait">
           <motion.div key={step} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }} transition={{ duration: 0.35 }}>
-
-            {/* ━━━ Step 0: Welcome ━━━ */}
             {step === 0 && (
               <div>
                 <div className="text-center mb-8">
@@ -323,35 +280,21 @@ export default function Onboarding() {
                   <h3 className="font-display text-lg font-medium text-ayana-text">A little about you</h3>
                   <div>
                     <label className="text-sm font-medium text-ayana-text">Your name</label>
-                    <input value={child.name} onChange={(e) => setChild({ ...child, name: e.target.value })} data-testid="child-name" className={`mt-1.5 ${inputCls}`} />
+                    <input value={child.name} onChange={(e) => setChild({...child, name: e.target.value })} data-testid="child-name" className={`mt-1.5 ${inputCls}`} />
                   </div>
                   <div className="grid sm:grid-cols-2 gap-4">
                     <div>
                       <label className="text-sm font-medium text-ayana-text">Your phone</label>
-                      <div className="mt-1.5"><PhoneInput value={child.phone} onChange={(v) => setChild({ ...child, phone: v })} testid="child-phone" /></div>
+                      <div className="mt-1.5"><PhoneInput value={child.phone} onChange={(v) => setChild({...child, phone: v })} testid="child-phone" /></div>
                     </div>
                     <div>
                       <label className="text-sm font-medium text-ayana-text">Your city (optional)</label>
-                      <input value={child.city} onChange={(e) => setChild({ ...child, city: e.target.value })} data-testid="child-city" placeholder="London" className={`mt-1.5 ${inputCls}`} />
+                      <input value={child.city} onChange={(e) => setChild({...child, city: e.target.value })} data-testid="child-city" placeholder="London" className={`mt-1.5 ${inputCls}`} />
                     </div>
                   </div>
-
-                  {/* TODO: Re-enable OTP verification for production launch
-                  <PhoneVerificationCard
-                    label="Your number"
-                    phone={child.phone}
-                    verified={phoneVerified}
-                    onSend={(phone) => api.post("/auth/otp/send", { phone_number: phone })}
-                    onVerify={(phone, code) => api.post("/auth/otp/verify", { phone_number: phone, code })}
-                    onResend={(phone) => api.post("/auth/otp/resend", { phone_number: phone })}
-                    onVerified={async (phone) => { setVerifiedPhone(phone); await refreshUser(); }}
-                    testid="child-phone-verify"
-                  />
-                  */}
-
                   <div>
                     <label className="text-sm font-medium text-ayana-text">Your timezone</label>
-                    <select value={child.timezone} onChange={(e) => setChild({ ...child, timezone: e.target.value })} data-testid="child-timezone" className={`mt-1.5 ${inputCls}`}>
+                    <select value={child.timezone} onChange={(e) => setChild({...child, timezone: e.target.value })} data-testid="child-timezone" className={`mt-1.5 ${inputCls}`}>
                       {TIMEZONES.map((tz) => <option key={tz.value} value={tz.value}>{tz.label}</option>)}
                     </select>
                   </div>
@@ -362,16 +305,13 @@ export default function Onboarding() {
                 </div>
                 <div className="mt-6 flex justify-between">
                   <button onClick={() => navigate("/dashboard")} className="inline-flex items-center gap-2 px-6 py-3.5 rounded-full border border-ayana-line text-ayana-text hover:bg-ayana-alt transition-colors"><ArrowLeft className="w-4 h-4" /> Back</button>
-                  {/* TODO: Re-enable !phoneVerified in disabled condition for production */}
-                  <button onClick={saveChild} disabled={loading || !child.name || child.phone.length < 8} data-testid="step0-next"
+                  <button onClick={saveChild} disabled={loading ||!child.name || child.phone.length < 8} data-testid="step0-next"
                     className="inline-flex items-center gap-2 px-7 py-3.5 rounded-full bg-ayana-primary text-white font-medium hover:bg-ayana-primary-hover transition-colors disabled:opacity-50">
-                    {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <>Continue <ArrowRight className="w-4 h-4" /></>}
+                    {loading? <Loader2 className="w-4 h-4 animate-spin" /> : <>Continue <ArrowRight className="w-4 h-4" /></>}
                   </button>
                 </div>
               </div>
             )}
-
-            {/* ━━━ Step 1: Plan ━━━ */}
             {step === 1 && (
               <div>
                 <div className="mb-8 text-center">
@@ -384,18 +324,15 @@ export default function Onboarding() {
                 </div>
               </div>
             )}
-
-            {/* ━━━ Step 2: Parents ━━━ */}
             {step === 2 && (
               <div>
                 <div className="mb-6">
                   <h1 className="font-display text-3xl font-semibold text-ayana-text">Who are we caring for?</h1>
                   <p className="mt-3 text-ayana-secondary">
-                    Your <span className="font-medium text-ayana-text">{plan?.name || "plan"}</span> covers up to {parentLimit} parent{parentLimit === 1 ? "" : "s"}, {maxCheckins} daily check-ins, and {limits.reminders || 2} medicine reminders per parent.
+                    Your <span className="font-medium text-ayana-text">{plan?.name || "plan"}</span> covers up to {parentLimit} parent{parentLimit === 1? "" : "s"}, {maxCheckins} daily check-ins, and {limits.reminders || 2} medicine reminders per parent.
                     {" "}{parentsList.length}/{parentLimit} added.
                   </p>
                 </div>
-
                 {parentsList.length > 0 && (
                   <div className="mb-5 space-y-3">
                     {parentsList.map((p) => (
@@ -404,63 +341,47 @@ export default function Onboarding() {
                           <p className="font-medium text-ayana-text">{p.name} <span className="text-ayana-muted font-normal capitalize">· {p.relationship}</span></p>
                           <p className="text-sm text-ayana-secondary">{p.phone}</p>
                           {(p.medicine_list || []).length > 0 && (
-                            <p className="text-xs text-ayana-muted mt-1">💊 {p.medicine_list.length} medicine{p.medicine_list.length !== 1 ? "s" : ""}</p>
+                            <p className="text-xs text-ayana-muted mt-1">💊 {p.medicine_list.length} medicine{p.medicine_list.length!== 1? "s" : ""}</p>
                           )}
                         </div>
                         <div className="flex items-center gap-1">
                           <button onClick={() => openEditParent(p)} className="p-2.5 rounded-full text-ayana-secondary hover:bg-ayana-alt hover:text-ayana-text transition-colors"><Pencil className="w-4 h-4" /></button>
                           <button onClick={() => deleteParent(p)} disabled={deletingId === p.id} className="p-2.5 rounded-full text-ayana-secondary hover:bg-red-50 hover:text-red-500 transition-colors disabled:opacity-50">
-                            {deletingId === p.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                            {deletingId === p.id? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
                           </button>
                         </div>
                       </div>
                     ))}
                   </div>
                 )}
-
                 {!parentForm && parentsList.length < parentLimit && (
                   <button onClick={openAddParent} data-testid="add-parent" className="mb-5 inline-flex items-center gap-2 px-5 py-3 rounded-full border border-dashed border-ayana-line text-ayana-text hover:bg-ayana-alt transition-colors">
-                    <Plus className="w-4 h-4" /> Add {parentsList.length === 0 ? "a parent" : "another parent"}
+                    <Plus className="w-4 h-4" /> Add {parentsList.length === 0? "a parent" : "another parent"}
                   </button>
                 )}
-
                 {parentForm && (
                   <div className="bg-white rounded-2xl border border-ayana-line overflow-hidden shadow-sm" data-testid="parent-form">
                     <div className="bg-ayana-alt/50 border-b border-ayana-line px-7 py-4 flex items-center justify-between">
-                      <h3 className="font-display font-medium text-ayana-text">{editingParentId ? "Edit parent" : "Add a parent"}</h3>
+                      <h3 className="font-display font-medium text-ayana-text">{editingParentId? "Edit parent" : "Add a parent"}</h3>
                       <button onClick={closeParentForm} className="text-sm text-ayana-muted hover:text-ayana-text">Cancel</button>
                     </div>
-
                     <div className="p-7 space-y-10">
-                      <ParentCareForm
-                        form={parentForm}
-                        setForm={setParentForm}
-                        newMed={newMed}
-                        setNewMed={setNewMed}
-                        config={config}
-                        limits={limits}
-                        plan={plan}
-                        idPrefix="parent"
-                      />
-
-                      {/* ── Consent + Save ── */}
+                      <ParentCareForm form={parentForm} setForm={setParentForm} newMed={newMed} setNewMed={setNewMed} config={config} limits={limits} plan={plan} idPrefix="parent" />
                       <div className="pt-4 border-t border-ayana-line">
                         <label className="flex items-start gap-3 cursor-pointer">
                           <input type="checkbox" checked={parentConsent} onChange={(e) => setParentConsent(e.target.checked)} data-testid="parent-consent" className="mt-1 w-4 h-4 accent-ayana-primary" />
                           <span className="text-sm text-ayana-secondary">I confirm my parent is aware of and consents to receiving these caring messages on WhatsApp.</span>
                         </label>
                       </div>
-
                       <div className="flex justify-end pt-2">
-                        <button onClick={saveParentForm} disabled={loading || !parentForm.name || parentForm.phone.length < 8 || !parentConsent} data-testid="save-parent"
+                        <button onClick={saveParentForm} disabled={loading ||!parentForm.name || parentForm.phone.length < 8 ||!parentConsent} data-testid="save-parent"
                           className="inline-flex items-center gap-2 px-8 py-4 rounded-full bg-ayana-primary text-white font-semibold hover:bg-ayana-primary-hover transition-colors shadow-md disabled:opacity-50">
-                          {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <>{editingParentId ? "Save changes" : "Confirm parent"} <Check className="w-4 h-4" /></>}
+                          {loading? <Loader2 className="w-4 h-4 animate-spin" /> : <>{editingParentId? "Save changes" : "Confirm parent"} <Check className="w-4 h-4" /></>}
                         </button>
                       </div>
                     </div>
                   </div>
                 )}
-
                 <div className="mt-8 flex justify-between">
                   <button onClick={() => setStep(1)} className="inline-flex items-center gap-2 px-6 py-3.5 rounded-full border border-ayana-line text-ayana-text hover:bg-ayana-alt transition-colors"><ArrowLeft className="w-4 h-4" /> Back</button>
                   <button onClick={() => setStep(3)} disabled={loading || parentsList.length === 0 || parentForm} data-testid="step2-next"
@@ -470,25 +391,21 @@ export default function Onboarding() {
                 </div>
               </div>
             )}
-
-            {/* ━━━ Step 3: Activate ━━━ */}
             {step === 3 && (
               <div className="text-center">
                 <span className="inline-flex w-16 h-16 rounded-2xl bg-ayana-whatsapp/15 items-center justify-center mb-5"><MessageCircle className="w-8 h-8 text-ayana-whatsapp" strokeWidth={1.5} /></span>
                 <h1 className="font-display text-3xl font-semibold text-ayana-text">Ready to activate their care circle</h1>
                 <p className="mt-3 text-ayana-secondary max-w-lg mx-auto">We'll send a warm welcome + a short how-to-reply guide to {parentNames || "your parent"} on WhatsApp, then begin daily check-ins.</p>
-
                 <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-3">
                   <button onClick={() => setStep(2)} className="inline-flex items-center gap-2 px-6 py-3.5 rounded-full border border-ayana-line text-ayana-text hover:bg-ayana-alt transition-colors"><ArrowLeft className="w-4 h-4" /> Edit parents</button>
                   <button onClick={activate} disabled={loading} data-testid="activate-care-circle"
                     className="inline-flex items-center gap-2 px-8 py-4 rounded-full text-white font-semibold transition-shadow shadow-lg hover:shadow-xl disabled:opacity-50"
                     style={{ background: "linear-gradient(135deg, #FF6B35, #FF8555)" }}>
-                    {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <>Activate Care Circle <ArrowRight className="w-4 h-4" /></>}
+                    {loading? <Loader2 className="w-4 h-4 animate-spin" /> : <>Activate Care Circle <ArrowRight className="w-4 h-4" /></>}
                   </button>
                 </div>
               </div>
             )}
-
           </motion.div>
         </AnimatePresence>
       </div>

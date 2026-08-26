@@ -58,16 +58,6 @@ class InviteInput(BaseModel):
     email: str
     parent_id: str = ""
 
-class OtpSendInput(BaseModel):
-    phone_number: str
-
-class OtpVerifyInput(BaseModel):
-    phone_number: str
-    code: str
-
-class OtpResendInput(BaseModel):
-    phone_number: str
-
 from auth import (
     hash_password, verify_password, create_access_token, serialize,
     get_current_user, get_current_admin, seed_admin,
@@ -84,7 +74,6 @@ from pricing import PLANS, CURRENCIES, PLAN_BY_ID, plan_limits, resolve_plan_id
 from scheduler import start_scheduler, shutdown_scheduler
 from email_sender import send_invite_email
 from monthly_report import generate_monthly_report
-from otp import create_and_send_otp, verify_otp_code
 from sarvam_stt import transcribe_voice_note
 from distress_detection import assess_transcript
 from whatsapp import (
@@ -488,19 +477,13 @@ async def update_child(
 ): 
     phone = payload.phone.strip() 
  
-    # Security: ensure this exact number was OTP verified 
-    if not user.get("phone_verified") or user.get("phone_verified_number") != phone: 
-        raise HTTPException( 
-            status_code=403, 
-            detail="Please verify this phone number before saving." 
-        ) 
- 
+    # OTP verification removed for now — phone is saved as submitted,
+    # no longer gated on a prior /auth/otp/verify call.
     await db.users.update_one( 
         {"_id": user["_id"]}, 
         {"$set": { 
             "name": payload.name.strip(), 
             "phone": phone, 
-            "phone_verified": True, 
             "city": payload.city, 
             "timezone": payload.timezone, 
             "onboarding_step": max(user.get("onboarding_step", 0), 1), 
@@ -1275,100 +1258,6 @@ async def accept_invite_by_token(token: str, user: dict = Depends(get_current_us
     await db.circle_invites.update_one({"_id": invite["_id"]}, {"$set": {"status": "accepted", "accepted_at": now, "member_id": str(user["_id"])}})
     await audit(str(user["_id"]), "circle_invite_accepted", {"invite_id": str(invite["_id"])})
     return {"ok": True, "owner_id": invite["owner_id"]}
-
-# ---------------- OTP ----------------
-@api.post("/auth/otp/send")
-async def otp_send(request: Request, payload: OtpSendInput):
-    result = await create_and_send_otp(payload.phone_number)
-    if result["status"] == "rate_limited":
-        raise HTTPException(status_code=429, detail=result["detail"], headers={"Retry-After": str(result.get("retry_after_seconds", 600))})
-    if result["status"] == "failed":
-        raise HTTPException(status_code=503, detail=result["detail"])
-    return {"ok": True, "status": result["status"], "phone": result["phone"], "expires_at": result["expires_at"], "detail": result.get("detail"), "dev_code": result.get("dev_code")}
-
-@api.post("/auth/otp/verify")
-async def otp_verify(
-    request: Request,
-    payload: OtpVerifyInput,
-    user: dict = Depends(get_current_user)
-):
-    result = await verify_otp_code(payload.phone_number, payload.code)
-
-    if not result["ok"]:
-        code = result.get("code", "invalid")
-        status = 429 if code == "too_many_attempts" else 400
-        raise HTTPException(status_code=status, detail=result["detail"])
-
-    phone = result["phone"]
-
-    await db.users.update_one(
-        {"_id": user["_id"]},
-        {"$set": {
-            "phone_verified": True,
-            "phone_verified_number": phone,
-            "phone_verified_at": datetime.now(timezone.utc),
-        }}
-    )
-
-    await audit(
-        str(user["_id"]),
-        "phone_verified",
-        {"phone": phone}
-    )
-
-    return {
-        "ok": True,
-        "phone_verified": True,
-        "phone": phone
-    }
-
-@api.post("/auth/otp/resend")
-async def otp_resend(request: Request, payload: OtpResendInput):
-    result = await create_and_send_otp(payload.phone_number)
-    if result["status"] == "rate_limited":
-        raise HTTPException(status_code=429, detail=result["detail"], headers={"Retry-After": str(result.get("retry_after_seconds", 600))})
-    if result["status"] == "failed":
-        raise HTTPException(status_code=503, detail=result["detail"])
-    return {"ok": True, "status": result["status"], "expires_at": result["expires_at"], "detail": result.get("detail"), "dev_code": result.get("dev_code")}
-
-# ---------------- Parent OTP ----------------
-@api.post("/parents/{parent_id}/otp/send")
-async def parent_otp_send(parent_id: str, request: Request, user: dict = Depends(get_current_user)):
-    parent = await db.parents.find_one({"_id": ObjectId(parent_id), "user_id": scope(user), "deleted_at": None})
-    if not parent:
-        raise HTTPException(status_code=404, detail="Parent not found")
-    result = await create_and_send_otp(parent["phone"])
-    if result["status"] == "rate_limited":
-        raise HTTPException(status_code=429, detail=result["detail"], headers={"Retry-After": str(result.get("retry_after_seconds", 600))})
-    if result["status"] == "failed":
-        raise HTTPException(status_code=503, detail=result["detail"])
-    return {"ok": True, "status": result["status"], "phone": result["phone"], "expires_at": result["expires_at"], "detail": result.get("detail"), "dev_code": result.get("dev_code")}
-
-@api.post("/parents/{parent_id}/otp/verify")
-async def parent_otp_verify(parent_id: str, request: Request, payload: OtpVerifyInput, user: dict = Depends(get_current_user), _csrf: None = Depends(validate_csrf_token)):
-    parent = await db.parents.find_one({"_id": ObjectId(parent_id), "user_id": scope(user), "deleted_at": None})
-    if not parent:
-        raise HTTPException(status_code=404, detail="Parent not found")
-    result = await verify_otp_code(payload.phone_number, payload.code)
-    if not result["ok"]:
-        code = result.get("code", "invalid")
-        status = 429 if code == "too_many_attempts" else 400
-        raise HTTPException(status_code=status, detail=result["detail"])
-    await db.parents.update_one({"_id": ObjectId(parent_id)}, {"$set": {"phone_verified": True, "phone_verified_at": datetime.now(timezone.utc)}})
-    await audit(str(user["_id"]), "parent_phone_verified", {"parent_id": parent_id})
-    return {"ok": True, "phone_verified": True}
-
-@api.post("/parents/{parent_id}/otp/resend")
-async def parent_otp_resend(parent_id: str, request: Request, user: dict = Depends(get_current_user)):
-    parent = await db.parents.find_one({"_id": ObjectId(parent_id), "user_id": scope(user), "deleted_at": None})
-    if not parent:
-        raise HTTPException(status_code=404, detail="Parent not found")
-    result = await create_and_send_otp(parent["phone"])
-    if result["status"] == "rate_limited":
-        raise HTTPException(status_code=429, detail=result["detail"], headers={"Retry-After": str(result.get("retry_after_seconds", 600))})
-    if result["status"] == "failed":
-        raise HTTPException(status_code=503, detail=result["detail"])
-    return {"ok": True, "status": result["status"], "expires_at": result["expires_at"], "detail": result.get("detail")}
 
 @api.delete("/circle/member/{member_id}")
 async def remove_member(member_id: str, user: dict = Depends(get_current_user), _csrf: None = Depends(validate_csrf_token)):

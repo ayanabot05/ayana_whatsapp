@@ -3,14 +3,13 @@ import { useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Users, CalendarHeart, MessageCircle, CheckCircle2, Plus, Pencil, Trash2,
-  Loader2, ShieldCheck, Clock, Power, AlertTriangle, Crown, Send, UserPlus, Mail, Activity, Eye, EyeOff,
+  Loader2, ShieldCheck, Clock, Power, AlertTriangle, Crown, Send, UserPlus, Mail, Activity,
   BarChart3, RefreshCw, TrendingUp
 } from "lucide-react";
 import { Navbar } from "@/components/Navbar";
 import { api, formatApiError } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { LANG_LABELS } from "@/lib/constants";
-import { PhoneVerificationCard } from "@/components/PhoneVerificationCard";
 import { CATEGORY_ICONS, normalizeCategory } from "@/components/ScheduleEditor";
 import { ParentCareForm, blankParentForm, blankMedicine } from "@/components/ParentCareForm";
 import { cleanHabits } from "@/lib/formHelpers";
@@ -32,9 +31,7 @@ const buildFeelingMap = (feelingMap) => ({
 });
 
 export default function Dashboard() {
-  // Patch 1: pull refreshUser from useAuth so the owner's own phone card
-  // can refresh `user.phone_verified` immediately after OTP verification.
-  const { user, config, logout, refreshUser } = useAuth();
+  const { user, config, logout } = useAuth();
   const { emoji: FEELING_EMOJI, label: FEELING_LABEL } = buildFeelingMap(config?.feeling_map);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -54,7 +51,7 @@ export default function Dashboard() {
         api.get(`/parents/${p.id}/language-suggestion`).then((r) => ({ parentId: p.id, suggestion: r.data })).catch(() => ({ parentId: p.id, suggestion: null }))
       )
     ),
-    enabled: !!parentsQuery.data?.length,
+    enabled:!!parentsQuery.data?.length,
     staleTime: 5 * 60 * 1000,
   });
 
@@ -88,22 +85,22 @@ export default function Dashboard() {
     queryFn: () => api.get("/account/audit").then((r) => r.data),
   });
 
-  const parents = parentsQuery.data ?? [];
+  const parents = parentsQuery.data?? [];
   const langSuggestions = (langSuggestionsQuery.data || []).reduce((acc, item) => {
     if (item.suggestion) acc[item.parentId] = item.suggestion;
     return acc;
   }, {});
-  const schedules = schedulesQuery.data ?? [];
-  const activation = activationQuery.data ?? {};
-  const payment = paymentQuery.data ?? { plan: "nitya" };
-  const circle = circleQuery.data ?? { role: "owner", members: [], invites: [] };
-  const auditLogs = useMemo(() => auditQuery.data ?? [], [auditQuery.data]);
+  const schedules = schedulesQuery.data?? [];
+  const activation = activationQuery.data?? {};
+  const payment = paymentQuery.data?? { plan: "nitya" };
+  const circle = circleQuery.data?? { role: "owner", members: [], invites: [] };
+  const auditLogs = useMemo(() => auditQuery.data?? [], [auditQuery.data]);
 
   const loading = [parentsQuery, schedulesQuery, checkinsQuery, activationQuery, paymentQuery, circleQuery, auditQuery]
-    .some((q) => q.isLoading);
+   .some((q) => q.isLoading);
 
   const anyError = [parentsQuery, schedulesQuery, checkinsQuery, activationQuery, paymentQuery, circleQuery, auditQuery]
-    .some((q) => q.isError);
+   .some((q) => q.isError);
 
   useEffect(() => {
     if (anyError) toast.error("Could not load your data.");
@@ -114,8 +111,8 @@ export default function Dashboard() {
   const categories = useMemo(() => config?.categories || [], [config]);
   const relationships = config?.relationships || [];
   const languages = config?.languages || [];
-  const plans = payment?.plans?.length ? payment.plans : (config?.plans || []);
-  const currencies = payment?.currencies?.length ? payment.currencies : (config?.currencies || []);
+  const plans = payment?.plans?.length? payment.plans : (config?.plans || []);
+  const currencies = payment?.currencies?.length? payment.currencies : (config?.currencies || []);
   const catByKey = useMemo(() => Object.fromEntries(categories.map(normalizeCategory).map((c) => [c.key, c])), [categories]);
   const planId = payment?.state?.plan || payment?.plan || "nitya";
   const plan = plans.find((p) => p.id === planId) || plans[0];
@@ -148,7 +145,7 @@ export default function Dashboard() {
     { icon: Users, label: "Parents", value: parents.length, color: "text-ayana-bright", bg: "rgba(255,107,53,0.12)" },
     { icon: CalendarHeart, label: "Active schedules", value: schedules.filter((s) => s.active).length, color: "text-ayana-mint", bg: "rgba(47,230,167,0.14)" },
     { icon: MessageCircle, label: "Messages sent (7d)", value: totalMessagesSent, color: "text-ayana-sky", bg: "rgba(61,184,232,0.14)" },
-    { icon: CheckCircle2, label: "Care circle", value: activation.whatsapp_activated ? "Active" : "Off", color: "text-ayana-coral", bg: "rgba(255,92,122,0.12)" },
+    { icon: CheckCircle2, label: "Care circle", value: activation.whatsapp_activated? "Active" : "Off", color: "text-ayana-coral", bg: "rgba(255,92,122,0.12)" },
   ];
 
   if (loading) return <div className="min-h-screen bg-ayana-bg"><Navbar /><div className="flex items-center justify-center py-40"><Loader2 className="w-8 h-8 animate-spin text-ayana-primary" /></div></div>;
@@ -162,19 +159,19 @@ export default function Dashboard() {
           <div>
             <h1 className="font-display text-3xl font-semibold text-ayana-text">Hello, {user?.name?.split(" ")[0]} 👋</h1>
             <p className="mt-1 text-ayana-secondary flex items-center gap-2">Here's how your care circle is doing.
-              <span className={`inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-0.5 rounded-full ${planId !== "nitya" ? "bg-ayana-sun/20 text-[#B8860B]" : "bg-ayana-mint/20 text-[#0D9668]"}`} data-testid="plan-badge">
-                {planId !== "nitya" && <Crown className="w-3 h-3" />}{plan?.name || "AYANA Nitya"} · Trial
+              <span className={`inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-0.5 rounded-full ${planId!== "nitya"? "bg-ayana-sun/20 text-[#B8860B]" : "bg-ayana-mint/20 text-[#0D9668]"}`} data-testid="plan-badge">
+                {planId!== "nitya" && <Crown className="w-3 h-3" />}{plan?.name || "AYANA Nitya"} · Trial
               </span>
             </p>
           </div>
-          {!activation.whatsapp_activated && !user?.household_owner_id && (
+          {!activation.whatsapp_activated &&!user?.household_owner_id && (
             <button
-              onClick={() => navigate(user?.onboarding_step >= 5 ? "/activation" : "/onboarding")}
+              onClick={() => navigate(user?.onboarding_step >= 5? "/activation" : "/onboarding")}
               data-testid="finish-setup"
               className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full text-white text-sm font-semibold shadow-md hover:shadow-lg transition-shadow"
               style={{ background: "linear-gradient(135deg, #FF6B35, #FF8555)" }}
             >
-              {user?.onboarding_step >= 5 ? "Activate WhatsApp" : "Finish setup"}
+              {user?.onboarding_step >= 5? "Activate WhatsApp" : "Finish setup"}
             </button>
           )}
         </div>
@@ -196,7 +193,7 @@ export default function Dashboard() {
             <TabsTrigger value="parents" data-testid="tab-parents">Parents</TabsTrigger>
             <TabsTrigger value="checkins" data-testid="tab-checkins">
               Check-ins
-              {(checkinsQuery.data?.alerts?.length ?? 0) > 0 && (
+              {(checkinsQuery.data?.alerts?.length?? 0) > 0 && (
                 <span className="ml-1.5 inline-block w-1.5 h-1.5 rounded-full bg-red-500" title="Needs attention" />
               )}
             </TabsTrigger>
@@ -213,11 +210,11 @@ export default function Dashboard() {
               <ParentDialog relationships={relationships} languages={languages} config={config} limits={limits} plan={plan} onSaved={load}
                 trigger={<button data-testid="add-parent" className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-ayana-primary text-white text-sm font-medium hover:bg-ayana-primary-hover transition-colors"><Plus className="w-4 h-4" /> Add parent</button>} />
             </div>
-            {parents.length === 0 ? <EmptyState text="No parents added yet." /> : (
+            {parents.length === 0? <EmptyState text="No parents added yet." /> : (
               <div className="grid sm:grid-cols-2 gap-4" data-testid="parents-list">
                 {parents.map((p) => {
                   const parentSchedule = schedules.find((s) => s.parent_id === p.id);
-                  const activeSchedule = parentSchedule?.active ?? true;
+                  const activeSchedule = parentSchedule?.active?? true;
                   return (
                     <div key={p.id} className="bg-white rounded-xl border border-ayana-line p-5">
                       <div className="flex justify-between items-start">
@@ -227,13 +224,13 @@ export default function Dashboard() {
                           {langSuggestions[p.id]?.suggested_language && (
                             <div className="mt-1 flex items-center gap-1.5">
                               <span className="text-xs px-2 py-0.5 rounded-full bg-ayana-accent/10 text-ayana-accent">
-                                💡 Detected {langSuggestions[p.id].suggested_language === "te" ? "Telugu" : langSuggestions[p.id].suggested_language === "hi" ? "Hindi" : langSuggestions[p.id].suggested_language}
+                                💡 Detected {langSuggestions[p.id].suggested_language === "te"? "Telugu" : langSuggestions[p.id].suggested_language === "hi"? "Hindi" : langSuggestions[p.id].suggested_language}
                               </span>
                               <button
                                 onClick={async () => {
                                   try {
                                     await api.put(`/parents/${p.id}/language`, null, { params: { language: langSuggestions[p.id].suggested_language } });
-                                    toast.success(`Language updated to ${langSuggestions[p.id].suggested_language === "te" ? "Telugu" : langSuggestions[p.id].suggested_language === "hi" ? "Hindi" : langSuggestions[p.id].suggested_language}.`);
+                                    toast.success(`Language updated to ${langSuggestions[p.id].suggested_language === "te"? "Telugu" : langSuggestions[p.id].suggested_language === "hi"? "Hindi" : langSuggestions[p.id].suggested_language}.`);
                                     load();
                                   } catch (e) { toast.error(formatApiError(e.response?.data?.detail)); }
                                 }}
@@ -277,7 +274,7 @@ export default function Dashboard() {
                               />
                             </div>
                             <div className="flex flex-wrap gap-1.5 mt-1.5">
-                              {parentSchedule.messages.filter(m => m.type !== "reminder" && m.source !== "medicine_sync").map((m, i) => {
+                              {parentSchedule.messages.filter(m => m.type!== "reminder" && m.source!== "medicine_sync").map((m, i) => {
                                 const Icon = CATEGORY_ICONS[catByKey[m.category]?.icon] || MessageCircle;
                                 return (
                                   <span key={i} className="inline-flex items-center gap-1 text-xs text-ayana-secondary">
@@ -292,7 +289,7 @@ export default function Dashboard() {
                           <div className="flex flex-wrap gap-1 pt-1">
                             {(p.medicine_list || []).map((m, i) => (
                               <span key={i} className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-ayana-alt border border-ayana-line text-ayana-secondary">
-                                💊 {m.name}{m.dose ? ` ${m.dose}` : ""}
+                                💊 {m.name}{m.dose? ` ${m.dose}` : ""}
                               </span>
                             ))}
                           </div>
@@ -341,51 +338,17 @@ export default function Dashboard() {
                 <p><span className="text-ayana-muted">Phone:</span> {user?.phone}</p>
                 <p className="flex items-center gap-2">
                   <span className="text-ayana-muted">Plan:</span> {plan?.name} · <span className="capitalize">{payment?.state?.status || "trial"}</span>
-                  {circle?.role !== "member" && (
+                  {circle?.role!== "member" && (
                     <button onClick={() => setActiveTab("plan")} data-testid="manage-plan" className="text-xs font-medium text-ayana-accent underline underline-offset-2 hover:text-ayana-accent-hover">Manage plan</button>
                   )}
                 </p>
                 <p className="flex items-center gap-2"><ShieldCheck className="w-4 h-4 text-ayana-primary" /> Consent on file · Privacy-first</p>
               </div>
-              {/* Patch 1: onVerified refreshes the auth user so the
-                  "Verified" badge updates immediately, without a manual
-                  page reload. */}
-              <PhoneVerificationCard
-                label="Your number"
-                phone={user?.phone}
-                verified={user?.phone_verified}
-                onSend={(phone) => api.post("/auth/otp/send", { phone_number: phone })}
-                onVerify={(phone, code) => api.post("/auth/otp/verify", { phone_number: phone, code })}
-                onResend={(phone) => api.post("/auth/otp/resend", { phone_number: phone })}
-                onVerified={async () => { await refreshUser(); }}
-                testid="child-phone-verify"
-              />
             </div>
-
-            {parents.length > 0 && (
-              <div className="mt-6 space-y-4">
-                {parents.map((p) => (
-                  // Patch 1 (parents): onVerified invalidates the dashboard
-                  // queries so parentsQuery refetches and p.phone_verified
-                  // reflects the new state right away.
-                  <PhoneVerificationCard
-                    key={p.id}
-                    label={p.name || "Parent"}
-                    phone={p.phone}
-                    verified={p.phone_verified}
-                    onSend={(phone) => api.post(`/parents/${p.id}/otp/send`)}
-                    onVerify={(phone, code) => api.post(`/parents/${p.id}/otp/verify`, { phone_number: phone, code })}
-                    onResend={(phone) => api.post(`/parents/${p.id}/otp/resend`)}
-                    onVerified={async () => { await load(); }}
-                    testid={`parent-phone-verify-${p.id}`}
-                  />
-                ))}
-              </div>
-            )}
 
             <div className="mt-6 bg-white rounded-xl border border-ayana-line p-6">
               <h3 className="font-display text-lg font-medium text-ayana-text mb-4 flex items-center gap-2">Activity History</h3>
-              {relevantLogs.length === 0 ? (
+              {relevantLogs.length === 0? (
                 <p className="text-sm text-ayana-muted">No account activity recorded yet.</p>
               ) : (
                 <div className="space-y-3" data-testid="audit-log-list">
@@ -440,11 +403,11 @@ function CheckinsTab({ parents, data, catByKey, revealedReplies, setRevealedRepl
   const alerts = data?.alerts || [];
   const toggleDay = (parentId, dayKey) => {
     const key = `${parentId}:${dayKey}`;
-    setOpenDay((prev) => ({ ...prev, [key]: !prev[key] }));
+    setOpenDay((prev) => ({...prev, [key]:!prev[key] }));
   };
 
   const acknowledge = async (alert, idx) => {
-    if (alert.kind !== "emergency") return;
+    if (alert.kind!== "emergency") return;
     setAcking(idx);
     try {
       await api.put(`/emergency-events/${alert.event_id}`, { status: "reviewed" });
@@ -465,14 +428,14 @@ function CheckinsTab({ parents, data, catByKey, revealedReplies, setRevealedRepl
             <div
               key={i}
               className={`rounded-xl p-3 flex items-center gap-3 text-sm border ${
-                a.kind === "emergency" ? "bg-red-50 text-red-700 border-red-200" : "bg-amber-50 text-amber-700 border-amber-200"
+                a.kind === "emergency"? "bg-red-50 text-red-700 border-red-200" : "bg-amber-50 text-amber-700 border-amber-200"
               }`}
               data-testid={`alert-${a.kind}-${i}`}
             >
               <AlertTriangle className="w-4 h-4 shrink-0" />
               <span className="flex-1">
                 {a.kind === "emergency"
-                  ? `${a.parent_name} may need attention — sent "${a.body}"`
+                 ? `${a.parent_name} may need attention — sent "${a.body}"`
                   : `${a.parent_name} replied "need help" and hasn't been acknowledged`}
               </span>
               {a.kind === "emergency" && (
@@ -482,7 +445,7 @@ function CheckinsTab({ parents, data, catByKey, revealedReplies, setRevealedRepl
                   data-testid={`ack-${i}`}
                   className="shrink-0 text-xs font-medium px-2.5 py-1 rounded-full border border-red-300 text-red-700 hover:bg-red-100 transition-colors disabled:opacity-50"
                 >
-                  {acking === i ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Mark reviewed"}
+                  {acking === i? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Mark reviewed"}
                 </button>
               )}
             </div>
@@ -490,7 +453,7 @@ function CheckinsTab({ parents, data, catByKey, revealedReplies, setRevealedRepl
         </div>
       )}
 
-      {parentDays.length === 0 ? (
+      {parentDays.length === 0? (
         <div data-testid="checkins-empty">
           <EmptyState text="No check-ins delivered yet. They'll appear here once messages start going out." />
         </div>
@@ -506,29 +469,29 @@ function CheckinsTab({ parents, data, catByKey, revealedReplies, setRevealedRepl
                   {today && today.total > 0 && (
                     <span
                       className={`text-xs px-2.5 py-1 rounded-full font-medium ${
-                        today.replied === today.total ? "bg-green-100 text-green-700" :
-                        today.replied === 0 ? "bg-ayana-muted/15 text-ayana-muted" : "bg-amber-100 text-amber-700"
+                        today.replied === today.total? "bg-green-100 text-green-700" :
+                        today.replied === 0? "bg-ayana-muted/15 text-ayana-muted" : "bg-amber-100 text-amber-700"
                       }`}
                     >
                       {today.replied} of {today.total} replied
                     </span>
                   )}
                 </div>
-                {!today || today.messages.length === 0 ? (
+                {!today || today.messages.length === 0? (
                   <p className="text-sm text-ayana-muted">Nothing sent yet today.</p>
                 ) : (
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                     {today.messages.map((m) => {
-                      const notSent = m.status !== "sent" && m.status !== "simulated";
+                      const notSent = m.status!== "sent" && m.status!== "simulated";
                       const ok = m.reply_status === "done" || m.replied;
                       return (
                         <div key={m.id} className="bg-ayana-alt/60 rounded-lg p-2.5 text-center">
                           <p className="text-xs font-medium text-ayana-text">{catByKey[m.category]?.label || m.category}</p>
-                          <p className={`text-[11px] mt-1 ${notSent ? "text-red-600" : ok ? "text-green-600" : "text-amber-600"}`}>
-                            {notSent ? "Not sent" :
-                             m.reply_status === "done" ? "Confirmed" :
-                             m.reply_status === "skipped" ? "Skipped" :
-                             m.replied ? `Replied ${m.time}` : `Waiting, sent ${m.time}`}
+                          <p className={`text- mt-1 ${notSent? "text-red-600" : ok? "text-green-600" : "text-amber-600"}`}>
+                            {notSent? "Not sent" :
+                             m.reply_status === "done"? "Confirmed" :
+                             m.reply_status === "skipped"? "Skipped" :
+                             m.replied? `Replied ${m.time}` : `Waiting, sent ${m.time}`}
                           </p>
                         </div>
                       );
@@ -541,7 +504,7 @@ function CheckinsTab({ parents, data, catByKey, revealedReplies, setRevealedRepl
                 <div className="flex flex-col gap-1.5">
                   {rest.map((d) => {
                     const key = `${pd.parent_id}:${d.day_key}`;
-                    const isOpen = !!openDay[key];
+                    const isOpen =!!openDay[key];
                     return (
                       <div key={d.day_key} className="bg-white border border-ayana-line rounded-lg overflow-hidden">
                         <button
@@ -556,13 +519,13 @@ function CheckinsTab({ parents, data, catByKey, revealedReplies, setRevealedRepl
                                 <span
                                   key={m.id}
                                   className={`w-1.5 h-1.5 rounded-full ${
-                                    m.replied || m.reply_status === "done" ? "bg-green-500" :
-                                    m.status !== "sent" && m.status !== "simulated" ? "bg-red-500" : "bg-ayana-muted/40"
+                                    m.replied || m.reply_status === "done"? "bg-green-500" :
+                                    m.status!== "sent" && m.status!== "simulated"? "bg-red-500" : "bg-ayana-muted/40"
                                   }`}
                                 />
                               ))}
                             </span>
-                            <span className={d.replied === d.total ? "text-green-600" : "text-ayana-muted"}>{d.replied} of {d.total}</span>
+                            <span className={d.replied === d.total? "text-green-600" : "text-ayana-muted"}>{d.replied} of {d.total}</span>
                           </span>
                         </button>
                         {isOpen && (
@@ -571,10 +534,10 @@ function CheckinsTab({ parents, data, catByKey, revealedReplies, setRevealedRepl
                               <div key={m.id} className="px-4 py-2.5 flex items-center gap-3 text-xs">
                                 <span className="text-ayana-muted w-12 shrink-0">{m.time}</span>
                                 <span className="flex-1 text-ayana-text">{catByKey[m.category]?.label || m.category}</span>
-                                <span className={`px-2 py-0.5 rounded-full ${m.status === "sent" || m.status === "simulated" ? "bg-ayana-whatsapp/15 text-ayana-whatsapp" : "bg-red-100 text-red-600"}`}>
+                                <span className={`px-2 py-0.5 rounded-full ${m.status === "sent" || m.status === "simulated"? "bg-ayana-whatsapp/15 text-ayana-whatsapp" : "bg-red-100 text-red-600"}`}>
                                   {m.status}
                                 </span>
-                                {m.replied ? (
+                                {m.replied? (
                                   <button
                                     onClick={() =>
                                       setRevealedReplies((prev) => {
@@ -585,15 +548,15 @@ function CheckinsTab({ parents, data, catByKey, revealedReplies, setRevealedRepl
                                       })
                                     }
                                     className="px-2 py-0.5 rounded-full bg-green-100 text-green-700 flex items-center gap-1"
-                                    aria-label={revealedReplies.has(m.id) ? "Hide reply content" : "Show reply content"}
+                                    aria-label={revealedReplies.has(m.id)? "Hide reply content" : "Show reply content"}
                                   >
-                                    replied {revealedReplies.has(m.id) ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                                    replied {revealedReplies.has(m.id)? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
                                   </button>
                                 ) : (
                                   <span className="px-2 py-0.5 rounded-full bg-ayana-muted/15 text-ayana-muted">no reply</span>
                                 )}
                                 {m.replied && revealedReplies.has(m.id) && m.reply?.body && (
-                                  <span className="text-ayana-secondary italic truncate max-w-[200px]">&#8220;{m.reply.body}&#8221;</span>
+                                  <span className="text-ayana-secondary italic truncate max-w-">&#8220;{m.reply.body}&#8221;</span>
                                 )}
                               </div>
                             ))}
@@ -618,7 +581,7 @@ function ParentDialog({ parent, config, limits, plan, schedules = [], onSaved, t
   const [newMed, setNewMed] = useState(blankMedicine());
   const maxCheckins = limits?.checkins || 2;
 
-  const existingSchedule = parent ? schedules.find((s) => s.parent_id === parent.id) : null;
+  const existingSchedule = parent? schedules.find((s) => s.parent_id === parent.id) : null;
   const getDefaultMessages = () => [
     { time: "08:00", category: "morning_wish", type: "checkin" },
     { time: "13:00", category: "lunch", type: "checkin" },
@@ -626,10 +589,10 @@ function ParentDialog({ parent, config, limits, plan, schedules = [], onSaved, t
   ].slice(0, maxCheckins);
 
   const buildFormFromParent = () => {
-    if (!parent) return { ...blankParentForm(), messages: getDefaultMessages() };
+    if (!parent) return {...blankParentForm(), messages: getDefaultMessages() };
     const sched = schedules.find((s) => s.parent_id === parent.id);
     const schedMessages = sched?.messages
-      ? sched.messages.filter((m) => m.type !== "reminder" && m.source !== "medicine_sync")
+     ? sched.messages.filter((m) => m.type!== "reminder" && m.source!== "medicine_sync")
       : getDefaultMessages();
     return {
       name: parent.name || "",
@@ -644,12 +607,10 @@ function ParentDialog({ parent, config, limits, plan, schedules = [], onSaved, t
       other_parent_name: parent.other_parent_name || "",
       medicine_list: parent.medicine_list || [],
       habits: parent.habits || blankParentForm().habits,
-      messages: schedMessages.length ? schedMessages : getDefaultMessages(),
+      messages: schedMessages.length? schedMessages : getDefaultMessages(),
     };
   };
 
-  // Patch 4: lazy init — buildFormFromParent() (which scans `schedules`)
-  // now only runs once, on mount, instead of on every render.
   const [form, setForm] = useState(() => buildFormFromParent());
 
   useEffect(() => {
@@ -657,28 +618,24 @@ function ParentDialog({ parent, config, limits, plan, schedules = [], onSaved, t
       setForm(buildFormFromParent());
       setNewMed(blankMedicine());
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, parent, schedules]);
 
   const save = async () => {
-    // Patch 2: enforce the plan's check-in limit before submitting, same
-    // guard as Onboarding.js's saveParentForm, so editing from the
-    // Dashboard can't silently exceed the plan.
     if (form.messages.length > maxCheckins) {
       toast.error(`Your plan allows up to ${maxCheckins} check-ins. Remove some or upgrade.`);
       return;
     }
     setBusy(true);
     try {
-      const { messages, ...parentData } = form;
-      const payload = { ...parentData, habits: cleanHabits(form.habits) };
-      const { data } = parent ? await api.put(`/parents/${parent.id}`, payload) : await api.post("/parents", payload);
+      const { messages,...parentData } = form;
+      const payload = {...parentData, habits: cleanHabits(form.habits) };
+      const { data } = parent? await api.put(`/parents/${parent.id}`, payload) : await api.post("/parents", payload);
 
       const schedPayload = {
         parent_id: data.id || parent?.id,
         mode: plan?.id || "nitya",
         messages: messages,
-        active: existingSchedule?.active ?? true,
+        active: existingSchedule?.active?? true,
       };
       if (existingSchedule) {
         await api.put(`/schedules/${existingSchedule.id}`, schedPayload);
@@ -697,8 +654,8 @@ function ParentDialog({ parent, config, limits, plan, schedules = [], onSaved, t
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) setNewMed(blankMedicine()); setOpen(o); }}>
       <DialogTrigger asChild>{trigger}</DialogTrigger>
-      <DialogContent className="bg-ayana-bg max-h-[90vh] overflow-y-auto sm:max-w-2xl">
-        <DialogHeader><DialogTitle className="font-display">{parent ? "Edit parent" : "Add parent"}</DialogTitle><DialogDescription className="sr-only">Enter your parent's details, medicines, and routine.</DialogDescription></DialogHeader>
+      <DialogContent className="bg-ayana-bg max-h- overflow-y-auto sm:max-w-2xl">
+        <DialogHeader><DialogTitle className="font-display">{parent? "Edit parent" : "Add parent"}</DialogTitle><DialogDescription className="sr-only">Enter your parent's details, medicines, and routine.</DialogDescription></DialogHeader>
         <ParentCareForm
           form={form}
           setForm={setForm}
@@ -712,11 +669,11 @@ function ParentDialog({ parent, config, limits, plan, schedules = [], onSaved, t
         {existingSchedule && (
           <div className="flex items-center gap-2 text-xs -mt-4">
             <Power className="w-4 h-4 text-ayana-muted" />
-            <span className="text-ayana-secondary">Currently <span className={existingSchedule.active ? "text-green-600 font-medium" : "text-red-600 font-medium"}>{existingSchedule.active ? "active" : "paused"}</span></span>
+            <span className="text-ayana-secondary">Currently <span className={existingSchedule.active? "text-green-600 font-medium" : "text-red-600 font-medium"}>{existingSchedule.active? "active" : "paused"}</span></span>
           </div>
         )}
         <DialogFooter>
-          <button onClick={save} disabled={busy || !form.name || form.phone.length < 8} data-testid="pd-save" className="inline-flex items-center gap-2 px-6 py-2.5 rounded-full bg-ayana-primary text-white text-sm font-medium hover:bg-ayana-primary-hover disabled:opacity-50">{busy && <Loader2 className="w-4 h-4 animate-spin" />} Save</button>
+          <button onClick={save} disabled={busy ||!form.name || form.phone.length < 8} data-testid="pd-save" className="inline-flex items-center gap-2 px-6 py-2.5 rounded-full bg-ayana-primary text-white text-sm font-medium hover:bg-ayana-primary-hover disabled:opacity-50">{busy && <Loader2 className="w-4 h-4 animate-spin" />} Save</button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -749,7 +706,7 @@ function SendTestDialog({ parent, categories, trigger }) {
           </select>
         </div>
         <DialogFooter>
-          <button onClick={send} disabled={busy} data-testid="send-test-confirm" className="inline-flex items-center gap-2 px-6 py-2.5 rounded-full bg-ayana-whatsapp text-white text-sm font-medium hover:opacity-90 disabled:opacity-50">{busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />} Send now</button>
+          <button onClick={send} disabled={busy} data-testid="send-test-confirm" className="inline-flex items-center gap-2 px-6 py-2.5 rounded-full bg-ayana-whatsapp text-white text-sm font-medium hover:opacity-90 disabled:opacity-50">{busy? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />} Send now</button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -789,7 +746,7 @@ function CircleTab({ circle, planId, plan, parents, reload }) {
         <h2 className="font-display text-lg font-medium text-ayana-text flex items-center gap-2"><Users className="w-4 h-4 text-ayana-primary" /> Family co-care {isCarePlus && <span className="text-xs px-2 py-0.5 rounded-full bg-ayana-accent/10 text-ayana-accent inline-flex items-center gap-1"><Crown className="w-3 h-3" /> Raksha</span>}</h2>
         <p className="mt-1 text-sm text-ayana-secondary">Invite siblings to help care for the same parents. They'll share your parents, schedules and replies (but can't change billing).</p>
 
-        {!isCarePlus ? (
+        {!isCarePlus? (
           <div className="mt-4 rounded-xl bg-ayana-alt p-4 flex items-start gap-3">
             <Crown className="w-5 h-5 text-ayana-accent shrink-0 mt-0.5" />
             <div>
@@ -809,7 +766,7 @@ function CircleTab({ circle, planId, plan, parents, reload }) {
                 <option value="">All parents</option>
                 {parents.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
               </select>
-              <button onClick={invite} disabled={busy || !email} data-testid="invite-send" className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-full bg-ayana-primary text-white text-sm font-medium hover:bg-ayana-primary-hover disabled:opacity-50">{busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserPlus className="w-4 h-4" />} Invite</button>
+              <button onClick={invite} disabled={busy ||!email} data-testid="invite-send" className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-full bg-ayana-primary text-white text-sm font-medium hover:bg-ayana-primary-hover disabled:opacity-50">{busy? <Loader2 className="w-4 h-4 animate-spin" /> : <UserPlus className="w-4 h-4" />} Invite</button>
             </div>
             {lastLink && <p className="mt-2 text-xs text-ayana-muted break-all">Invite link (email sending coming soon): <span className="text-ayana-primary">{lastLink}</span></p>}
             <p className="mt-2 text-xs text-ayana-muted">{(circle.members?.length || 0) + (circle.invites?.length || 0)} / {circle.max_members} members used</p>
@@ -865,8 +822,8 @@ function PlanTab({ plans, currencies, planId, plan, usage, circle, reload, curre
       <div className="bg-white rounded-xl border border-ayana-line p-5" data-testid="plan-usage">
         <h2 className="font-display text-lg font-medium text-ayana-text mb-3">Current usage</h2>
         <div className="flex flex-wrap gap-2 text-sm">
-          <span className="px-3 py-1.5 rounded-full bg-ayana-alt text-ayana-secondary">{usage.parents ?? 0}/{plan?.limits?.parents ?? "–"} parents</span>
-          <span className="px-3 py-1.5 rounded-full bg-ayana-alt text-ayana-secondary">{usage.family_members_used ?? 0}/{plan?.limits?.family_members ?? 0} care-circle members</span>
+          <span className="px-3 py-1.5 rounded-full bg-ayana-alt text-ayana-secondary">{usage.parents?? 0}/{plan?.limits?.parents?? "–"} parents</span>
+          <span className="px-3 py-1.5 rounded-full bg-ayana-alt text-ayana-secondary">{usage.family_members_used?? 0}/{plan?.limits?.family_members?? 0} care-circle members</span>
           {usage.recovery_schedules > 0 && <span className="px-3 py-1.5 rounded-full bg-ayana-accent/10 text-ayana-accent">Recovery mode active on {usage.recovery_schedules} schedule(s)</span>}
         </div>
         <p className="mt-3 text-xs text-ayana-muted">Downgrading below your current usage will be blocked until you free up the difference — we'll tell you exactly what to remove.</p>
@@ -874,7 +831,7 @@ function PlanTab({ plans, currencies, planId, plan, usage, circle, reload, curre
 
       <div className="bg-white rounded-xl border border-ayana-line p-6">
         <h2 className="font-display text-lg font-medium text-ayana-text mb-4">Change your plan</h2>
-        {plans.length === 0 ? (
+        {plans.length === 0? (
           <div className="flex flex-col items-center gap-3 py-8 text-center" data-testid="plans-unavailable">
             <Loader2 className="w-5 h-5 animate-spin text-ayana-muted" />
             <p className="text-sm text-ayana-secondary">Couldn't load plan options right now.</p>
@@ -894,16 +851,16 @@ function ReportsTab({ parents, plan, user }) {
   const monthOptions = useMemo(() => {
     const opts = [];
     const now = new Date();
-    const signupDate = user?.created_at ? new Date(user.created_at) : null;
+    const signupDate = user?.created_at? new Date(user.created_at) : null;
     const signupYear = signupDate?.getFullYear();
-    const signupMonth = signupDate ? signupDate.getMonth() : null;
+    const signupMonth = signupDate? signupDate.getMonth() : null;
 
     let d = new Date(now.getFullYear(), now.getMonth(), 1);
     while (true) {
       const value = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
       const label = d.toLocaleDateString(undefined, { month: "long", year: "numeric" });
       opts.push({ value, label });
-      if (signupMonth != null && d.getFullYear() === signupYear && d.getMonth() === signupMonth) break;
+      if (signupMonth!= null && d.getFullYear() === signupYear && d.getMonth() === signupMonth) break;
       if (opts.length >= 12) break;
       d.setMonth(d.getMonth() - 1);
     }
@@ -919,7 +876,7 @@ function ReportsTab({ parents, plan, user }) {
   const supportsMoodGraph = (plan?.limits?.variants_per_slot || 0) >= 7;
 
   const fetchReport = useCallback(async () => {
-    if (!parentId || !period) return;
+    if (!parentId ||!period) return;
     setStatus("loading");
     setReport(null);
     try {
@@ -941,7 +898,7 @@ function ReportsTab({ parents, plan, user }) {
   }, [fetchReport]);
 
   const generate = async () => {
-    if (!parentId || !period) return;
+    if (!parentId ||!period) return;
     setBusy(true);
     try {
       const { data } = await api.post("/reports/monthly/generate", null, { params: { parent_id: parentId, period } });
@@ -971,7 +928,7 @@ function ReportsTab({ parents, plan, user }) {
           {monthOptions.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
         </select>
         <button onClick={generate} disabled={busy} data-testid="report-generate" className="inline-flex items-center gap-2 px-4 py-2 rounded-full border border-ayana-line text-ayana-text text-sm font-medium hover:bg-ayana-alt transition-colors disabled:opacity-50">
-          {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />} {report ? "Regenerate" : "Generate report"}
+          {busy? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />} {report? "Regenerate" : "Generate report"}
         </button>
       </div>
       <p className="text-xs text-ayana-muted flex items-center gap-1">
@@ -995,14 +952,14 @@ function ReportsTab({ parents, plan, user }) {
             ].map((s) => (
               <div key={s.label} className="bg-white rounded-xl border border-ayana-line p-4">
                 <s.icon className="w-4 h-4 text-ayana-primary mb-2" strokeWidth={1.75} />
-                <p className="font-display text-2xl font-semibold text-ayana-text">{s.value ?? 0}</p>
+                <p className="font-display text-2xl font-semibold text-ayana-text">{s.value?? 0}</p>
                 <p className="text-xs text-ayana-muted">{s.label}</p>
               </div>
             ))}
           </div>
 
-          {supportsMoodGraph ? (
-            report.mood_graph?.length > 0 ? (
+          {supportsMoodGraph? (
+            report.mood_graph?.length > 0? (
               <div className="bg-white rounded-xl border border-ayana-line p-5">
                 <h3 className="font-display text-base font-medium text-ayana-text mb-1 flex items-center gap-2"><TrendingUp className="w-4 h-4 text-ayana-primary" /> Mood this month</h3>
                 {report.trend_note && <p className="text-sm text-ayana-secondary mb-4">{report.trend_note}</p>}
@@ -1010,7 +967,7 @@ function ReportsTab({ parents, plan, user }) {
                   <LineChart data={chartData}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#E5DFD3" />
                     <XAxis dataKey="day" tick={{ fontSize: 12 }} />
-                    <YAxis domain={[0, 1]} ticks={[0, 0.5, 1]} tickFormatter={(v) => ({ 0: "Not well", 0.5: "Okay", 1: "Good" }[v] ?? v)} width={70} tick={{ fontSize: 11 }} />
+                    <YAxis domain={[0, 1]} ticks={[0, 0.5, 1]} tickFormatter={(v) => ({ 0: "Not well", 0.5: "Okay", 1: "Good" }[v]?? v)} width={70} tick={{ fontSize: 11 }} />
                     <Tooltip formatter={(v, n, p) => [p.payload.feeling?.replace("_", " ") || "—", "Feeling"]} />
                     <Line type="monotone" dataKey="score" stroke="#C05A46" strokeWidth={2} dot={{ r: 3 }} connectNulls />
                   </LineChart>
