@@ -97,10 +97,10 @@ export default function Dashboard() {
   const auditLogs = useMemo(() => auditQuery.data?? [], [auditQuery.data]);
 
   const loading = [parentsQuery, schedulesQuery, checkinsQuery, activationQuery, paymentQuery, circleQuery, auditQuery]
-   .some((q) => q.isLoading);
+  .some((q) => q.isLoading);
 
   const anyError = [parentsQuery, schedulesQuery, checkinsQuery, activationQuery, paymentQuery, circleQuery, auditQuery]
-   .some((q) => q.isError);
+  .some((q) => q.isError);
 
   useEffect(() => {
     if (anyError) toast.error("Could not load your data.");
@@ -435,7 +435,7 @@ function CheckinsTab({ parents, data, catByKey, revealedReplies, setRevealedRepl
               <AlertTriangle className="w-4 h-4 shrink-0" />
               <span className="flex-1">
                 {a.kind === "emergency"
-                 ? `${a.parent_name} may need attention — sent "${a.body}"`
+                ? `${a.parent_name} may need attention — sent "${a.body}"`
                   : `${a.parent_name} replied "need help" and hasn't been acknowledged`}
               </span>
               {a.kind === "emergency" && (
@@ -550,7 +550,7 @@ function CheckinsTab({ parents, data, catByKey, revealedReplies, setRevealedRepl
                                     className="px-2 py-0.5 rounded-full bg-green-100 text-green-700 flex items-center gap-1"
                                     aria-label={revealedReplies.has(m.id)? "Hide reply content" : "Show reply content"}
                                   >
-                                    replied {revealedReplies.has(m.id)? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                                    replied
                                   </button>
                                 ) : (
                                   <span className="px-2 py-0.5 rounded-full bg-ayana-muted/15 text-ayana-muted">no reply</span>
@@ -592,7 +592,7 @@ function ParentDialog({ parent, config, limits, plan, schedules = [], onSaved, t
     if (!parent) return {...blankParentForm(), messages: getDefaultMessages() };
     const sched = schedules.find((s) => s.parent_id === parent.id);
     const schedMessages = sched?.messages
-     ? sched.messages.filter((m) => m.type!== "reminder" && m.source!== "medicine_sync")
+    ? sched.messages.filter((m) => m.type!== "reminder" && m.source!== "medicine_sync")
       : getDefaultMessages();
     return {
       name: parent.name || "",
@@ -618,6 +618,7 @@ function ParentDialog({ parent, config, limits, plan, schedules = [], onSaved, t
       setForm(buildFormFromParent());
       setNewMed(blankMedicine());
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, parent, schedules]);
 
   const save = async () => {
