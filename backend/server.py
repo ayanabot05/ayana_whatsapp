@@ -2046,7 +2046,6 @@ async def admin_schedules(
         .limit(limit)
         .to_list(limit)
     )
-    # Enrich with parent and user names
     parent_ids = {str(d["parent_id"]) for d in docs}
     user_ids = {str(d["user_id"]) for d in docs}
     parents_map = {str(p["_id"]): p.get("name", "Unknown") for p in await db.parents.find({"_id": {"$in": [ObjectId(pid) for pid in parent_ids]}}).to_list(100)}
@@ -2060,28 +2059,11 @@ async def admin_schedules(
         out.append(s)
     return {"total": total, "skip": skip, "limit": limit, "items": out}
 
-
-app.include_router(api)
-
-# Stripe payments router (endpoints are self-prefixed with /api). Kept in a
-# separate module; only actually reachable when PAYMENTS_ENABLED=true.
+# ---- END OF API ROUTES ----
+# Routers must be included AFTER all @api routes are defined, and at the very end
 from payments import payments_router
+app.include_router(api)
 app.include_router(payments_router)
 
-# Build a strict allowed-origins list.
-# Default to localhost for dev; set CORS_ORIGINS=https://yourdomain.com in production.
-_cors_origins = [
-    o.strip()
-    for o in os.environ.get("CORS_ORIGINS", "http://localhost:3000").split(",")
-    if o.strip()
-]
-app.add_middleware(
-    CORSMiddleware,
-    allow_credentials=True,
-    allow_origins=_cors_origins,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "X-Hub-Signature-256", "X-Dev-Token", "Stripe-Signature", "X-CSRF-Token"],
-)
 
-
-# Startup and shutdown are handled by the lifespan context manager above.
+# Startup and shutdown are handled by the lifespan context manager above
