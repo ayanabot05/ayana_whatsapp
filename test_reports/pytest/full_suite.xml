@@ -1,0 +1,469 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="12" skipped="0" tests="219" time="32.152" timestamp="2026-08-28T15:54:23.558467+00:00" hostname="agent-env-e28be5ef-5068-4052-9c07-e8210b8e1e4a"><testcase classname="tests.test_whatsapp_routing.TestParseIntent" name="test_button_payload_feeling_good" time="0.001" /><testcase classname="tests.test_whatsapp_routing.TestParseIntent" name="test_button_payload_done_medicine" time="0.000" /><testcase classname="tests.test_whatsapp_routing.TestParseIntent" name="test_button_payload_skip" time="0.000" /><testcase classname="tests.test_whatsapp_routing.TestParseIntent" name="test_button_payload_reengagement_ok" time="0.000" /><testcase classname="tests.test_whatsapp_routing.TestParseIntent" name="test_button_payload_reengagement_help" time="0.000" /><testcase classname="tests.test_whatsapp_routing.TestParseIntent" name="test_numeric_shortcut_1_checkin" time="0.000" /><testcase classname="tests.test_whatsapp_routing.TestParseIntent" name="test_numeric_shortcut_2_checkin" time="0.000" /><testcase classname="tests.test_whatsapp_routing.TestParseIntent" name="test_numeric_shortcut_3_checkin" time="0.000" /><testcase classname="tests.test_whatsapp_routing.TestParseIntent" name="test_numeric_shortcut_1_reminder" time="0.000" /><testcase classname="tests.test_whatsapp_routing.TestParseIntent" name="test_numeric_shortcut_2_reminder" time="0.000" /><testcase classname="tests.test_whatsapp_routing.TestParseIntent" name="test_free_text_returns_text_intent" time="0.000" /><testcase classname="tests.test_whatsapp_routing.TestParseIntent" name="test_empty_body_no_payload_returns_text" time="0.000" /><testcase classname="tests.test_whatsapp_routing.TestParseIntent" name="test_payload_takes_priority_over_numeric_body" time="0.000" /><testcase classname="tests.test_models_validation" name="test_register_input" time="0.001" /><testcase classname="tests.test_models_validation" name="test_medicine_item" time="0.000" /><testcase classname="tests.test_models_validation" name="test_parent_input" time="0.000" /><testcase classname="tests.test_models_validation" name="test_schedule_input_limit_messages" time="0.000" /><testcase classname="tests.test_models_validation" name="test_emergency_contact" time="0.000" /><testcase classname="tests.test_models_validation" name="test_habits_input" time="0.000" /><testcase classname="tests.test_models_validation" name="test_child_profile_input" time="0.000" /><testcase classname="tests.test_models_validation" name="test_login_input" time="0.000" /><testcase classname="tests.test_rate_limit_unit" name="test_check_otp_send_rate_limit_under_limit" time="0.004" /><testcase classname="tests.test_rate_limit_unit" name="test_check_otp_send_rate_limit_at_limit" time="0.003" /><testcase classname="tests.test_rate_limit_unit" name="test_check_login_rate_limit_under_limit" time="0.003"><failure message="AttributeError: 'coroutine' object has no attribute 'get'">mock_redis = &lt;AsyncMock id='280372832345232'&gt;
+
+    @pytest.mark.asyncio
+    async def test_check_login_rate_limit_under_limit(mock_redis):
+        pipe_mock = AsyncMock()
+        mock_redis.pipeline.return_value = pipe_mock
+        pipe_mock.execute.return_value = [str(LOGIN_ATTEMPT_LIMIT - 1), None]
+    
+&gt;       allowed, retry_after = await check_login_rate_limit("test@example.com", "127.0.0.1")
+                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_rate_limit_unit.py:43: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+email = 'test@example.com', ip = '127.0.0.1'
+
+    async def check_login_rate_limit(email: str, ip: str) -&gt; Tuple[bool, Optional[int]]:
+        """
+        Check if login attempt is allowed.
+        Returns (allowed, retry_after_seconds).
+        """
+        r = await get_redis()
+        if r is None:
+            return True, None  # Allow if Redis unavailable
+        key = _login_attempt_key(email, ip)
+    
+        # Get current count and lockout info
+        pipe = r.pipeline()
+&gt;       pipe.get(f"{key}:count")
+        ^^^^^^^^
+E       AttributeError: 'coroutine' object has no attribute 'get'
+
+rate_limit.py:160: AttributeError</failure></testcase><testcase classname="tests.test_rate_limit_unit" name="test_check_login_rate_limit_lockout" time="0.003"><failure message="AttributeError: 'coroutine' object has no attribute 'get'">mock_redis = &lt;AsyncMock id='280372830957008'&gt;
+
+    @pytest.mark.asyncio
+    async def test_check_login_rate_limit_lockout(mock_redis):
+        pipe_mock = AsyncMock()
+        mock_redis.pipeline.return_value = pipe_mock
+        pipe_mock.execute.return_value = [str(LOGIN_ATTEMPT_LIMIT), None]
+    
+&gt;       allowed, retry_after = await check_login_rate_limit("test@example.com", "127.0.0.1")
+                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_rate_limit_unit.py:53: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+email = 'test@example.com', ip = '127.0.0.1'
+
+    async def check_login_rate_limit(email: str, ip: str) -&gt; Tuple[bool, Optional[int]]:
+        """
+        Check if login attempt is allowed.
+        Returns (allowed, retry_after_seconds).
+        """
+        r = await get_redis()
+        if r is None:
+            return True, None  # Allow if Redis unavailable
+        key = _login_attempt_key(email, ip)
+    
+        # Get current count and lockout info
+        pipe = r.pipeline()
+&gt;       pipe.get(f"{key}:count")
+        ^^^^^^^^
+E       AttributeError: 'coroutine' object has no attribute 'get'
+
+rate_limit.py:160: AttributeError</failure></testcase><testcase classname="tests.test_rate_limit_unit" name="test_check_api_rate_limit_under_limit" time="0.003" /><testcase classname="tests.test_rate_limit_unit" name="test_check_api_rate_limit_over_limit" time="0.056" /><testcase classname="tests.test_rate_limit_unit" name="test_graceful_degradation" time="0.002" /><testcase classname="tests.test_rate_limit_unit" name="test_clear_login_attempts" time="0.002" /><testcase classname="tests.test_ayana_api.TestAuth" name="test_register_new_user" time="1.039" /><testcase classname="tests.test_replies_and_i18n.TestSimulateReplyParsing" name="test_text_1_maps_to_good" time="1.007" /><testcase classname="tests.test_replies_and_i18n.TestSimulateReplyParsing" name="test_text_2_maps_to_okay" time="0.498" /><testcase classname="tests.test_ayana_api.TestAuth" name="test_register_duplicate_email" time="0.434" /><testcase classname="tests.test_ayana_api.TestAuth" name="test_register_invalid_phone" time="0.001" /><testcase classname="tests.test_ayana_api.TestAuth" name="test_login_success" time="0.477" /><testcase classname="tests.test_replies_and_i18n.TestSimulateReplyParsing" name="test_text_3_maps_to_not_well" time="0.498" /><testcase classname="tests.test_ayana_api.TestAuth" name="test_login_wrong_password" time="0.428" /><testcase classname="tests.test_replies_and_i18n.TestSimulateReplyParsing" name="test_telugu_bagunna_maps_to_good" time="0.493" /><testcase classname="tests.test_ayana_api.TestAuth" name="test_admin_login" time="0.480" /><testcase classname="tests.test_replies_and_i18n.TestSimulateReplyParsing" name="test_telugu_baledu_maps_to_not_well" time="0.498" /><testcase classname="tests.test_ayana_api.TestAuth" name="test_me_requires_auth" time="0.001" /><testcase classname="tests.test_ayana_api.TestAuth" name="test_me_with_token" time="0.002" /><testcase classname="tests.test_whatsapp_routing.TestSlotCatalog" name="test_medicine_variable_substitution_en" time="0.000" /><testcase classname="tests.test_whatsapp_routing.TestSlotCatalog" name="test_medicine_variable_substitution_te" time="0.000" /><testcase classname="tests.test_whatsapp_routing.TestSlotCatalog" name="test_preferred_name_substituted" time="0.000" /><testcase classname="tests.test_whatsapp_routing.TestSlotCatalog" name="test_max_3_buttons_enforced" time="0.000" /><testcase classname="tests.test_whatsapp_routing.TestSlotCatalog" name="test_no_variables_in_button_labels" time="0.000" /><testcase classname="tests.test_whatsapp_routing.TestSlotCatalog" name="test_all_slots_have_english_body" time="0.000" /><testcase classname="tests.test_whatsapp_routing.TestSlotCatalog" name="test_payload_format_is_colon_separated" time="0.000" /><testcase classname="tests.test_whatsapp_routing.TestSlotCatalog" name="test_fallback_slot_type" time="0.000" /><testcase classname="tests.test_whatsapp_routing.TestEmergencyDetection" name="test_chest_pain_in_transcription" time="0.000" /><testcase classname="tests.test_whatsapp_routing.TestEmergencyDetection" name="test_help_detected" time="0.000" /><testcase classname="tests.test_whatsapp_routing.TestEmergencyDetection" name="test_telugu_emergency" time="0.000" /><testcase classname="tests.test_whatsapp_routing.TestEmergencyDetection" name="test_hindi_emergency" time="0.000" /><testcase classname="tests.test_whatsapp_routing.TestEmergencyDetection" name="test_no_emergency_in_normal_reply" time="0.000" /><testcase classname="tests.test_whatsapp_routing.TestEmergencyDetection" name="test_empty_string_no_emergency" time="0.000" /><testcase classname="tests.test_whatsapp_routing.TestEmergencyDetection" name="test_extra_keyword_detected" time="0.001" /><testcase classname="tests.test_whatsapp_routing.TestEmergencyDetection" name="test_case_insensitive" time="0.000" /><testcase classname="tests.test_otp_unit" name="test_generate_otp" time="0.000" /><testcase classname="tests.test_otp_unit" name="test_hash_verify_otp" time="1.372" /><testcase classname="tests.test_replies_and_i18n.TestSimulateReplyParsing" name="test_voice_note_flag" time="0.439" /><testcase classname="tests.test_replies_and_i18n.TestSimulateReplyParsing" name="test_help_pain_creates_emergency_event" time="0.502" /><testcase classname="tests.test_otp_unit" name="test_normalize_phone" time="0.000" /><testcase classname="tests.test_otp_unit" name="test_create_and_send_otp_rate_limit" time="0.002" /><testcase classname="tests.test_otp_unit" name="test_verify_otp_max_attempts" time="0.003" /><testcase classname="tests.test_otp_unit" name="test_verify_otp_expiration" time="0.002" /><testcase classname="tests.test_otp_unit" name="test_send_otp_sms_error_handling" time="0.001"><failure message="AttributeError: module 'otp' has no attribute 'httpx'">self = &lt;Coroutine test_send_otp_sms_error_handling&gt;
+
+    def runtest(self) -&gt; None:
+        runner_fixture_id = f"_{self._loop_scope}_scoped_runner"
+        runner = self._request.getfixturevalue(runner_fixture_id)
+        context = contextvars.copy_context()
+        synchronized_obj = _synchronize_coroutine(
+            getattr(*self._synchronization_target_attr), runner, context
+        )
+        with MonkeyPatch.context() as c:
+            c.setattr(*self._synchronization_target_attr, synchronized_obj)
+&gt;           super().runtest()
+
+/root/.venv/lib/python3.11/site-packages/pytest_asyncio/plugin.py:569: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/root/.venv/lib/python3.11/site-packages/pytest_asyncio/plugin.py:905: in inner
+    runner.run(coro, context=context)
+/usr/local/lib/python3.11/asyncio/runners.py:118: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/asyncio/base_events.py:654: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/unittest/mock.py:1392: in patched
+    with self.decoration_helper(patched,
+/usr/local/lib/python3.11/contextlib.py:137: in __enter__
+    return next(self.gen)
+           ^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/unittest/mock.py:1357: in decoration_helper
+    arg = exit_stack.enter_context(patching)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/contextlib.py:517: in enter_context
+    result = _enter(cm)
+             ^^^^^^^^^^
+/usr/local/lib/python3.11/unittest/mock.py:1430: in __enter__
+    self.target = self.getter()
+                  ^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+name = 'otp.httpx'
+
+    def resolve_name(name):
+        """
+        Resolve a name to an object.
+    
+        It is expected that `name` will be a string in one of the following
+        formats, where W is shorthand for a valid Python identifier and dot stands
+        for a literal period in these pseudo-regexes:
+    
+        W(.W)*
+        W(.W)*:(W(.W)*)?
+    
+        The first form is intended for backward compatibility only. It assumes that
+        some part of the dotted name is a package, and the rest is an object
+        somewhere within that package, possibly nested inside other objects.
+        Because the place where the package stops and the object hierarchy starts
+        can't be inferred by inspection, repeated attempts to import must be done
+        with this form.
+    
+        In the second form, the caller makes the division point clear through the
+        provision of a single colon: the dotted name to the left of the colon is a
+        package to be imported, and the dotted name to the right is the object
+        hierarchy within that package. Only one import is needed in this form. If
+        it ends with the colon, then a module object is returned.
+    
+        The function will return an object (which might be a module), or raise one
+        of the following exceptions:
+    
+        ValueError - if `name` isn't in a recognised format
+        ImportError - if an import failed when it shouldn't have
+        AttributeError - if a failure occurred when traversing the object hierarchy
+                         within the imported package to get to the desired object.
+        """
+        global _NAME_PATTERN
+        if _NAME_PATTERN is None:
+            # Lazy import to speedup Python startup time
+            import re
+            dotted_words = r'(?!\d)(\w+)(\.(?!\d)(\w+))*'
+            _NAME_PATTERN = re.compile(f'^(?P&lt;pkg&gt;{dotted_words})'
+                                       f'(?P&lt;cln&gt;:(?P&lt;obj&gt;{dotted_words})?)?$',
+                                       re.UNICODE)
+    
+        m = _NAME_PATTERN.match(name)
+        if not m:
+            raise ValueError(f'invalid format: {name!r}')
+        gd = m.groupdict()
+        if gd.get('cln'):
+            # there is a colon - a one-step import is all that's needed
+            mod = importlib.import_module(gd['pkg'])
+            parts = gd.get('obj')
+            parts = parts.split('.') if parts else []
+        else:
+            # no colon - have to iterate to find the package boundary
+            parts = name.split('.')
+            modname = parts.pop(0)
+            # first part *must* be a module/package.
+            mod = importlib.import_module(modname)
+            while parts:
+                p = parts[0]
+                s = f'{modname}.{p}'
+                try:
+                    mod = importlib.import_module(s)
+                    parts.pop(0)
+                    modname = s
+                except ImportError:
+                    break
+        # if we reach this point, mod is the module, already imported, and
+        # parts is the list of parts in the object hierarchy to be traversed, or
+        # an empty list if just the module is wanted.
+        result = mod
+        for p in parts:
+&gt;           result = getattr(result, p)
+                     ^^^^^^^^^^^^^^^^^^
+E           AttributeError: module 'otp' has no attribute 'httpx'
+
+/usr/local/lib/python3.11/pkgutil.py:715: AttributeError</failure></testcase><testcase classname="tests.test_auth_unit" name="test_hash_verify_password" time="1.380" /><testcase classname="tests.test_replies_and_i18n.TestSimulateReplyParsing" name="test_simulate_parent_not_found" time="0.481" /><testcase classname="tests.test_whatsapp_unit" name="test_verify_meta_signature" time="0.001" /><testcase classname="tests.test_whatsapp_unit" name="test_is_session_open" time="0.002" /><testcase classname="tests.test_whatsapp_unit" name="test_parse_intent" time="0.000" /><testcase classname="tests.test_whatsapp_unit" name="test_detect_emergency" time="0.000" /><testcase classname="tests.test_whatsapp_unit" name="test_match_feeling" time="0.000" /><testcase classname="tests.test_whatsapp_unit" name="test_send_reengagement" time="0.003" /><testcase classname="tests.test_whatsapp_unit" name="test_send_moment" time="0.003" /><testcase classname="tests.test_circle_and_send.TestRakshaCircle" name="test_raksha_get_circle" time="0.495" /><testcase classname="tests.test_circle_and_send.TestRakshaCircle" name="test_raksha_invite_and_list" time="0.495" /><testcase classname="tests.test_circle_and_send.TestRakshaCircle" name="test_invite_duplicate_rejected" time="0.506" /><testcase classname="tests.test_auth_unit" name="test_create_tokens" time="0.001" /><testcase classname="tests.test_auth_unit" name="test_serialize" time="0.000" /><testcase classname="tests.test_auth_unit" name="test_validate_csrf_token" time="0.002" /><testcase classname="tests.test_auth_unit" name="test_extract_token" time="0.001" /><testcase classname="tests.test_auth_unit" name="test_revoke_token_is_blacklisted" time="0.001"><failure message="TypeError: object dict can't be used in 'await' expression">mock_db = &lt;MagicMock name='db' id='274467231120336'&gt;
+
+    @pytest.mark.asyncio
+    @patch("auth.db")
+    async def test_revoke_token_is_blacklisted(mock_db):
+        mock_db.jwt_blacklist.find_one.return_value = {"jti": "some_jti"}
+&gt;       assert await _is_token_blacklisted("some_jti") is True
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_auth_unit.py:111: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+jti = 'some_jti'
+
+    async def _is_token_blacklisted(jti: str) -&gt; bool:
+        if not jti:
+            return False
+&gt;       doc = await db.jwt_blacklist.find_one({"jti": jti})
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: object dict can't be used in 'await' expression
+
+auth.py:85: TypeError</failure></testcase><testcase classname="tests.test_templates_data_unit" name="test_get_nicknames_for_day" time="0.000" /><testcase classname="tests.test_templates_data_unit" name="test_seasonal_greeting" time="0.000" /><testcase classname="tests.test_templates_data_unit" name="test_trim_variants_for_plan" time="0.000" /><testcase classname="tests.test_templates_data_unit" name="test_render_slot_body" time="0.000" /><testcase classname="tests.test_templates_data_unit" name="test_render_slot_buttons" time="0.000" /><testcase classname="tests.test_templates_data_unit" name="test_category_type" time="0.000" /><testcase classname="tests.test_translation_engine_unit" name="test_dynamic_translation_enabled" time="0.001" /><testcase classname="tests.test_translation_engine_unit" name="test_get_variants_launch_languages" time="0.002" /><testcase classname="tests.test_translation_engine_unit" name="test_get_variants_cache_hit" time="0.002" /><testcase classname="tests.test_translation_engine_unit" name="test_get_variants_cache_miss_api_success" time="0.090"><failure message="assert None is not None">enable_translation = None
+
+    @pytest.mark.asyncio
+    async def test_get_variants_cache_miss_api_success(enable_translation):
+        mock_db = AsyncMock()
+        mock_db.template_variants_cache.find_one.return_value = None
+    
+        mock_resp = AsyncMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {"translated_text": "translated {nick1}"}
+    
+        with patch("httpx.AsyncClient.post", return_value=mock_resp):
+            variants = await get_variants(mock_db, "morning_wish", "kn")
+&gt;           assert variants is not None
+E           assert None is not None
+
+tests/test_translation_engine_unit.py:45: AssertionError</failure></testcase><testcase classname="tests.test_translation_engine_unit" name="test_get_variants_api_failure" time="0.077" /><testcase classname="tests.test_translation_engine_unit" name="test_translate_variants_preserves_placeholders" time="0.024"><failure message="AssertionError: assert None == ['Kannada {city}']">enable_translation = None
+
+    @pytest.mark.asyncio
+    async def test_translate_variants_preserves_placeholders(enable_translation):
+        mock_resp = AsyncMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {"translated_text": "Kannada {city}"}
+    
+        with patch("httpx.AsyncClient.post", return_value=mock_resp) as mock_post:
+            res = await _translate_variants(["Hello {city}"], "kn")
+&gt;           assert res == ["Kannada {city}"]
+E           AssertionError: assert None == ['Kannada {city}']
+
+tests/test_translation_engine_unit.py:69: AssertionError</failure></testcase><testcase classname="tests.test_circle_and_send.TestRakshaCircle" name="test_invite_own_email_rejected" time="0.498" /><testcase classname="tests.test_api_moments_signed" name="test_upload_image_success" time="0.483" /><testcase classname="tests.test_circle_and_send.TestRakshaCircle" name="test_invite_bad_email" time="0.492" /><testcase classname="tests.test_api_moments_signed" name="test_upload_image_invalid_type" time="0.489" /><testcase classname="tests.test_circle_and_send.TestRakshaCircle" name="test_cancel_invite" time="0.497" /><testcase classname="tests.test_api_moments_signed" name="test_upload_image_oversized" time="0.511" /><testcase classname="tests.test_api_moments_signed" name="test_signed_url" time="0.496" /><testcase classname="tests.test_ayana_api.TestPlanLimits" name="test_nitya_rejects_3_checkins" time="0.487" /><testcase classname="tests.test_api_moments_signed" name="test_post_moments" time="0.496" /><testcase classname="tests.test_ayana_api.TestPlanLimits" name="test_nitya_rejects_3_reminders" time="0.489" /><testcase classname="tests.test_ayana_api.TestPlanLimits" name="test_nitya_accepts_2_checkins_and_2_reminders" time="0.440" /><testcase classname="tests.test_ayana_api.TestAdmin" name="test_admin_stats" time="0.438" /><testcase classname="tests.test_ayana_api.TestAdmin" name="test_admin_users" time="0.162" /><testcase classname="tests.test_ayana_api.TestAdmin" name="test_admin_messages" time="0.003" /><testcase classname="tests.test_ayana_api.TestAdmin" name="test_admin_emergencies" time="0.003" /><testcase classname="tests.test_ayana_api.TestAdmin" name="test_admin_requires_admin_role" time="0.002" /><testcase classname="tests.test_distress_detection_unit" name="test_pretrained_distress_score_disabled" time="0.001" /><testcase classname="tests.test_distress_detection_unit" name="test_pretrained_distress_score_success" time="0.024"><failure message="assert None == 0.8">enable_ml = None
+
+    @pytest.mark.asyncio
+    async def test_pretrained_distress_score_success(enable_ml):
+        mock_resp = AsyncMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "choices": [{"message": {"content": '{"distress_likelihood": 0.8}'}}]
+        }
+    
+        with patch("httpx.AsyncClient.post", return_value=mock_resp):
+            score = await _pretrained_distress_score("I feel pain", "en")
+&gt;           assert score == 0.8
+E           assert None == 0.8
+
+tests/test_distress_detection_unit.py:28: AssertionError</failure></testcase><testcase classname="tests.test_distress_detection_unit" name="test_pretrained_distress_score_timeout" time="0.076" /><testcase classname="tests.test_distress_detection_unit" name="test_pretrained_distress_score_json_error" time="0.078" /><testcase classname="tests.test_distress_detection_unit" name="test_assess_transcript" time="0.004" /><testcase classname="tests.test_pricing_unit" name="test_resolve_plan_id" time="0.000" /><testcase classname="tests.test_pricing_unit" name="test_plan_limits" time="0.000" /><testcase classname="tests.test_pricing_unit" name="test_get_template_cost_estimate" time="0.000" /><testcase classname="tests.test_pricing_unit" name="test_invalid_plan_id_keyerror" time="0.000" /><testcase classname="tests.test_pricing_unit" name="test_currency_matrix" time="0.000" /><testcase classname="tests.test_sarvam_stt_unit" name="test_ext_from_content_type" time="0.000" /><testcase classname="tests.test_sarvam_stt_unit" name="test_stt_enabled" time="0.001" /><testcase classname="tests.test_sarvam_stt_unit" name="test_transcribe_voice_note_success" time="0.100"><failure message="AssertionError: assert None == 'hello world'">@pytest.mark.asyncio
+    async def test_transcribe_voice_note_success():
+        with patch.dict(os.environ, {"SARVAM_API_KEY": "key"}):
+            mock_get_resp = AsyncMock()
+            mock_get_resp.status_code = 200
+            mock_get_resp.content = b"a" * 1500 # &gt; 1000 bytes
+            mock_get_resp.headers = {"content-type": "audio/ogg"}
+    
+            mock_post_resp = AsyncMock()
+            mock_post_resp.status_code = 200
+            mock_post_resp.json.return_value = {"transcript": "hello world"}
+    
+            async def mock_request(method, *args, **kwargs):
+                if method == "GET":
+                    return mock_get_resp
+                return mock_post_resp
+    
+            with patch("httpx.AsyncClient.request", side_effect=mock_request), \
+                 patch("httpx.AsyncClient.get", return_value=mock_get_resp), \
+                 patch("httpx.AsyncClient.post", return_value=mock_post_resp):
+    
+                transcript = await transcribe_voice_note("http://example.com/audio")
+&gt;               assert transcript == "hello world"
+E               AssertionError: assert None == 'hello world'
+
+tests/test_sarvam_stt_unit.py:46: AssertionError</failure></testcase><testcase classname="tests.test_sarvam_stt_unit" name="test_transcribe_voice_note_download_fails" time="0.119" /><testcase classname="tests.test_ayana_api.TestPlanLimits" name="test_bandham_allows_3_checkins" time="0.496" /><testcase classname="tests.test_sarvam_stt_unit" name="test_transcribe_voice_note_api_error" time="0.097" /><testcase classname="tests.test_ayana_api.TestPlanLimits" name="test_empty_messages_rejected" time="0.490" /><testcase classname="tests.test_child_otp_moments_activation.TestChildOtpGate" name="test_otp_send_returns_dev_code" time="1.335" /><testcase classname="tests.test_ayana_api.TestMessagesPreview" name="test_preview_telugu_checkin_renders" time="0.436" /><testcase classname="tests.test_ayana_api.TestMessagesPreview" name="test_preview_english_reminder_renders" time="0.348" /><testcase classname="tests.test_ayana_api.TestMessagesPreview" name="test_preview_hindi_checkin_renders" time="0.416" /><testcase classname="tests.test_ayana_api.TestMessagesPreview" name="test_message_logs_returns_paginated" time="0.003" /><testcase classname="tests.test_ayana_api.TestPayment" name="test_checkout_bandham_stored" time="0.473" /><testcase classname="tests.test_child_otp_moments_activation.TestChildOtpGate" name="test_wrong_code_rejected_then_correct_code_accepted" time="2.219" /><testcase classname="tests.test_ayana_api.TestPayment" name="test_checkout_raksha_stored" time="0.420" /><testcase classname="tests.test_ayana_api.TestPayment" name="test_checkout_invalid_plan_rejected" time="0.375" /><testcase classname="tests.test_ayana_api.TestPayment" name="test_checkout_legacy_alias_resolves" time="0.415" /><testcase classname="tests.test_escalation_unit" name="test_has_reply_since" time="0.002" /><testcase classname="tests.test_escalation_unit" name="test_notify_child_deduplicates" time="0.002" /><testcase classname="tests.test_escalation_unit" name="test_birthday_and_afternoon_logic" time="0.005"><failure message="TypeError: object MagicMock can't be used in 'await' expression">mock_send = &lt;MagicMock name='send_whatsapp' id='274467232428240'&gt;
+mock_datetime = &lt;MagicMock name='datetime' id='274467232503696'&gt;
+
+    @pytest.mark.asyncio
+    @patch("escalation.datetime")
+    @patch("escalation.send_whatsapp")
+    async def test_birthday_and_afternoon_logic(mock_send, mock_datetime):
+        # Mock current time to trigger afternoon warning and a birthday
+        now = datetime(2025, 5, 5, 15, 0, tzinfo=timezone.utc)
+        mock_datetime.now.return_value = now
+    
+        with patch("escalation.db") as mock_db:
+            mock_db.schedules.find = MagicMock()
+            mock_db.schedules.find.return_value.__aiter__.return_value = [{"parent_id": "p1", "user_id": "u1", "_id": "s1"}]
+            mock_db.parents.find_one = AsyncMock(return_value={
+                "_id": "p1",
+                "name": "Mom",
+                "birthday": "05-05", # Birthday matches
+                "phone": "999"
+            })
+            mock_db.activation_state.find_one = AsyncMock(return_value={"whatsapp_activated": True})
+    
+            mock_db.message_logs.find = MagicMock()
+            mock_db.message_logs.find.return_value.to_list = AsyncMock(return_value=[]) # No retries
+            mock_db.message_logs.count_documents = AsyncMock(return_value=1) # Sent today
+    
+            with patch("escalation._has_reply_since", return_value=False):
+                # No reply since start of day
+&gt;               await run_care_watch_impl()
+
+tests/test_escalation_unit.py:61: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    async def run_care_watch_impl():
+        now = datetime.now(timezone.utc)
+        async for sched in db.schedules.find({"active": True, "deleted_at": None}):
+            parent = await db.parents.find_one({"_id": sched["parent_id"]})
+            if not parent or parent.get("deleted_at"):
+                continue
+            activation = await db.activation_state.find_one({"user_id": sched["user_id"]})
+            if not activation or not activation.get("whatsapp_activated"):
+                continue
+    
+            try:
+                tz = ZoneInfo(parent.get("timezone", "Asia/Kolkata"))
+            except Exception:
+                tz = ZoneInfo("Asia/Kolkata")
+            local = now.astimezone(tz)
+            day_key = local.strftime("%Y-%m-%d")
+            day_index = local.timetuple().tm_yday
+            user_id = sched["user_id"]
+            parent_id = parent["_id"]
+            lang = parent.get("language", "en")
+            preferred = parent.get("preferred_name") or parent.get("name") or "Amma"
+    
+            # ---- 1) Retry unanswered check-ins / medicine reminders ----
+            logs = await db.message_logs.find({
+                "parent_id": parent_id, "day_key": day_key,
+                "msg_type": {"$in": ["checkin", "reminder"]},
+                "status": {"$in": ["sent", "simulated"]},
+            }).to_list(200)
+            for log in logs:
+                base = _aware(log.get("created_at"))
+                if not base:
+                    continue
+                # kind no longer affects interval/window — both use the same
+                # REMINDER_INTERVAL / REMINDER_WINDOW constants now.
+                interval = RETRY_INTERVAL_MIN
+                window = RETRY_WINDOW_MIN
+                max_attempts = MAX_RESEND_ATTEMPTS
+                elapsed_min = (now - base).total_seconds() / 60
+                if elapsed_min &gt; window:
+                    continue  # 2-hour window closed — give up
+                if await _has_reply_since(parent_id, base):
+                    continue  # answered — stop nagging
+                state = await db.escalation_state.find_one({"_id": str(log["_id"])}) or {}
+                attempts = state.get("attempts", 0)
+                if attempts &gt;= max_attempts:
+                    continue
+                due_at = base + timedelta(minutes=interval * (attempts + 1))
+                if now &lt; due_at:
+                    continue
+    
+                category = log.get("category", "how_feeling")
+                msg_type = log.get("msg_type", "checkin")
+                kind = "medicine" if msg_type == "reminder" else "checkin"
+    
+                if kind == "medicine":
+                    result = await send_medicine_template(db, parent, day_index, 7, "")
+                else:
+                    result = await send_dynamic_checkin(db, parent, category, day_index, 7, "")
+    
+                await db.escalation_state.update_one(
+                    {"_id": str(log["_id"])},
+                    {"$set": {"parent_id": parent_id, "user_id": user_id, "attempts": attempts + 1,
+                              "last_attempt_at": now, "kind": kind, "day_key": day_key},
+                     "$setOnInsert": {"first_at": now}},
+                    upsert=True,
+                )
+                await db.message_logs.insert_one({
+                    "user_id": user_id, "parent_id": parent_id, "schedule_id": sched["_id"],
+                    "day_key": day_key, "category": category, "msg_type": "escalation",
+                    "status": (result or {}).get("status"), "escalation_of": str(log["_id"]),
+                    "attempt": attempts + 1, "kind": kind, "created_at": now,
+                })
+                logger.info("[escalation] %s retry #%d -&gt; %s (%s)", kind, attempts + 1, parent.get("name"), category)
+    
+            # ---- 2) Afternoon no-response warning ----
+            if local.hour &gt;= AFTERNOON_HOUR:
+                day_start_local = local.replace(hour=0, minute=0, second=0, microsecond=0)
+                day_start_utc = day_start_local.astimezone(timezone.utc)
+                sent_today = await db.message_logs.count_documents({
+                    "parent_id": parent_id, "day_key": day_key,
+                    "status": {"$in": ["sent", "simulated"]},
+                })
+                if sent_today &gt; 0 and not await _has_reply_since(parent_id, day_start_utc):
+                    marker = f"{parent_id}:{day_key}:noreply"
+                    try:
+&gt;                       await db.escalation_daily.insert_one({"_id": marker, "at": now})
+E                       TypeError: object MagicMock can't be used in 'await' expression
+
+escalation.py:193: TypeError</failure></testcase><testcase classname="tests.test_escalation_unit" name="test_retry_logic_stops" time="0.001" /><testcase classname="tests.test_medicine_sync_unit" name="test_sync_medicine_reminders_duplicate_times" time="0.000" /><testcase classname="tests.test_medicine_sync_unit" name="test_sync_medicine_reminders_over_limit" time="0.001" /><testcase classname="tests.test_medicine_sync_unit" name="test_sync_medicine_reminders_manual_reminders_reduce_slots" time="0.000" /><testcase classname="tests.test_medicine_sync_unit" name="test_sync_medicine_reminders_zero_medicines" time="0.000" /><testcase classname="tests.test_whatsapp_routing.TestSessionState" name="test_no_session_returns_false" time="0.002" /><testcase classname="tests.test_whatsapp_routing.TestSessionState" name="test_recent_inbound_returns_true" time="0.001" /><testcase classname="tests.test_whatsapp_routing.TestSessionState" name="test_old_inbound_returns_false" time="0.001" /><testcase classname="tests.test_whatsapp_routing.TestSessionState" name="test_exactly_24h_is_closed" time="0.001" /><testcase classname="tests.test_whatsapp_routing.TestVoiceNoteDetection" name="test_audio_ogg_is_voice" time="0.000" /><testcase classname="tests.test_whatsapp_routing.TestVoiceNoteDetection" name="test_audio_mpeg_is_voice" time="0.000" /><testcase classname="tests.test_whatsapp_routing.TestVoiceNoteDetection" name="test_image_jpeg_is_not_voice" time="0.000" /><testcase classname="tests.test_whatsapp_routing.TestVoiceNoteDetection" name="test_empty_content_type_is_not_voice" time="0.000" /><testcase classname="tests.test_api_checkins_reports" name="test_checkins_summary" time="0.415" /><testcase classname="tests.test_api_checkins_reports" name="test_monthly_report_generate" time="0.482" /><testcase classname="tests.test_api_checkins_reports" name="test_whatsapp_webhook" time="0.002" /><testcase classname="tests.test_child_otp_moments_activation.TestChildOtpGate" name="test_profile_child_blocked_before_verification_then_allowed" time="2.023" /><testcase classname="tests.test_api_payments_webhook" name="test_stripe_webhook_valid" time="0.417"><failure message="assert 500 == 200&#10; +  where 500 = &lt;Response [500 Internal Server Error]&gt;.status_code">api_client = &lt;starlette.testclient.TestClient object at 0xf9a061e81050&gt;
+api_url = '/api'
+fresh_user = {'payload': {'name': 'TEST_Fresh_f74de227', 'email': 'test_f74de227@example.com', 'phone': '+91987be765ca', 'password'...kzNDI3OSwidHlwZSI6ImFjY2VzcyIsImp0aSI6ImViYXZMSTdKSDRNSmNGWUVnNThTR2cifQ.85YuFyXQ7uxovEyUReMdHCrtlXNdZGeg_iisMxaO45g'}}
+mock_stripe = (&lt;AsyncMock name='create_async' id='274467234487504'&gt;, &lt;AsyncMock name='retrieve_async' id='274467234813264'&gt;, &lt;MagicMock name='construct_event' id='274467234818320'&gt;)
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0xf9a06207da10&gt;
+
+    def test_stripe_webhook_valid(api_client, api_url, fresh_user, mock_stripe, monkeypatch):
+        m_create, m_retrieve, m_construct = mock_stripe
+    
+        # Create checkout first
+        h = fresh_user["headers"]
+        monkeypatch.setenv("PAYMENTS_ENABLED", "true")
+        monkeypatch.setenv("STRIPE_WEBHOOK_SECRET", "whsec_test")
+    
+        m_create.return_value = MagicMock(id="cs_test_123", url="http://checkout")
+        r = api_client.post(f"{api_url}/payment/checkout", json={"plan": "bandham", "billing": "month", "origin_url": "http://test"}, headers=h)
+        assert r.status_code == 200
+        session_id = r.json().get("session_id") or "cs_test_123"
+    
+        # Webhook
+        m_construct.return_value = {
+            "type": "checkout.session.completed",
+            "data": {
+                "object": {
+                    "id": session_id,
+                    "payment_status": "paid"
+                }
+            }
+        }
+    
+        r = api_client.post(f"{api_url}/webhook/stripe", json={}, headers={"Stripe-Signature": "sig_test"})
+&gt;       assert r.status_code == 200
+E       assert 500 == 200
+E        +  where 500 = &lt;Response [500 Internal Server Error]&gt;.status_code
+
+tests/test_api_payments_webhook.py:36: AssertionError</failure></testcase><testcase classname="tests.test_api_payments_webhook" name="test_stripe_webhook_invalid_signature" time="0.003"><failure message="assert 500 == 400&#10; +  where 500 = &lt;Response [500 Internal Server Error]&gt;.status_code">api_client = &lt;starlette.testclient.TestClient object at 0xf9a061e81050&gt;
+api_url = '/api'
+mock_stripe = (&lt;AsyncMock name='create_async' id='274467232695952'&gt;, &lt;AsyncMock name='retrieve_async' id='274467234771664'&gt;, &lt;MagicMock name='construct_event' id='274467231717200'&gt;)
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0xf9a062059b90&gt;
+
+    def test_stripe_webhook_invalid_signature(api_client, api_url, mock_stripe, monkeypatch):
+        m_create, m_retrieve, m_construct = mock_stripe
+        import stripe
+        m_construct.side_effect = stripe.error.SignatureVerificationError("invalid sig", "sig")
+    
+        monkeypatch.setenv("STRIPE_WEBHOOK_SECRET", "whsec_test")
+    
+        r = api_client.post(f"{api_url}/webhook/stripe", json={}, headers={"Stripe-Signature": "bad_sig"})
+&gt;       assert r.status_code == 400
+E       assert 500 == 400
+E        +  where 500 = &lt;Response [500 Internal Server Error]&gt;.status_code
+
+tests/test_api_payments_webhook.py:51: AssertionError</failure></testcase><testcase classname="tests.test_api_payments_webhook" name="test_payment_status" time="0.330"><failure message="AssertionError: assert 'paid' == 'pending'&#10;  &#10;  - pending&#10;  + paid">api_client = &lt;starlette.testclient.TestClient object at 0xf9a061e81050&gt;
+api_url = '/api'
+fresh_user = {'payload': {'name': 'TEST_Fresh_72d71d7c', 'email': 'test_72d71d7c@example.com', 'phone': '+919873b7bd79', 'password'...kzNDI3OSwidHlwZSI6ImFjY2VzcyIsImp0aSI6IlA1MXBDWlVKaUpiV2lCSXYySXJXN2cifQ.xB_YBONxOCvlf2lJnPr0rWOyjpKnexdfUTZbm-aNGBw'}}
+mock_stripe = (&lt;AsyncMock name='create_async' id='274467232180496'&gt;, &lt;AsyncMock name='retrieve_async' id='274467232176016'&gt;, &lt;MagicMock name='construct_event' id='274467231715664'&gt;)
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0xf9a062020410&gt;
+
+    def test_payment_status(api_client, api_url, fresh_user, mock_stripe, monkeypatch):
+        m_create, m_retrieve, m_construct = mock_stripe
+    
+        monkeypatch.setenv("PAYMENTS_ENABLED", "true")
+    
+        h = fresh_user["headers"]
+        m_create.return_value = MagicMock(id="cs_test_999", url="http://checkout")
+        r = api_client.post(f"{api_url}/payment/checkout", json={"plan": "bandham", "billing": "month", "origin_url": "http://test"}, headers=h)
+        assert r.status_code == 200
+        session_id = r.json().get("session_id") or "cs_test_999"
+    
+        m_retrieve.return_value = MagicMock(payment_status="unpaid", status="open")
+        r = api_client.get(f"{api_url}/payments/status/{session_id}")
+        assert r.status_code == 200
+&gt;       assert r.json()["payment_status"] == "pending"
+E       AssertionError: assert 'paid' == 'pending'
+E         
+E         - pending
+E         + paid
+
+tests/test_api_payments_webhook.py:67: AssertionError</failure></testcase><testcase classname="tests.test_circle_and_send.TestSendTest" name="test_send_test_returns_status_and_logs" time="0.444" /><testcase classname="tests.test_circle_and_send.TestSendTest" name="test_send_test_medicine_reminder" time="0.407" /><testcase classname="tests.test_circle_and_send.TestSendTest" name="test_send_test_parent_not_found" time="0.338" /><testcase classname="tests.test_child_otp_moments_activation.TestChildOtpGate" name="test_profile_child_blocked_for_different_phone" time="1.724" /><testcase classname="tests.test_e2e_full_flow.TestSendAndReply" name="test_send_test_then_simulate_reply" time="0.361" /><testcase classname="tests.test_e2e_full_flow.TestSendAndReply" name="test_simulate_english_reply_triggers_suggestion" time="0.399" /><testcase classname="tests.test_e2e_full_flow.TestSendAndReply" name="test_voice_note_flag" time="0.430" /><testcase classname="tests.test_sarvam_distress.TestDistressPipeline" name="test_keyword_only_no_ml" time="0.068" /><testcase classname="tests.test_sarvam_distress.TestDistressPipeline" name="test_voice_note_triggers_ml_layer" time="0.093" /><testcase classname="tests.test_sarvam_distress.TestDistressPipeline" name="test_ml_returns_none_on_failure" time="0.101" /><testcase classname="tests.test_child_otp_moments_activation.TestChildOtpGate" name="test_otp_requires_auth" time="0.070" /><testcase classname="tests.test_api_emergency_events" name="test_emergency_contacts_crud" time="0.403" /><testcase classname="tests.test_interactive_buttons" name="test_is_interactive_button_reply" time="0.000" /><testcase classname="tests.test_interactive_buttons" name="test_extract_button_payload" time="0.000" /><testcase classname="tests.test_interactive_buttons" name="test_handle_interactive_reply" time="0.003" /><testcase classname="tests.test_api_emergency_events" name="test_emergency_events" time="0.982" /><testcase classname="tests.test_ayana_api.TestParentsCRUD" name="test_parent_update_delete" time="0.474" /><testcase classname="tests.test_ayana_api.TestParentsCRUD" name="test_parent_create_with_blank_birthday_does_not_422" time="0.493" /><testcase classname="tests.test_ayana_api.TestHealth" name="test_root" time="0.001" /><testcase classname="tests.test_ayana_api.TestHealth" name="test_config_returns_plans_currencies_categories" time="0.002" /><testcase classname="tests.test_child_otp_moments_activation.TestSignupPassword" name="test_short_password_rejected" time="0.151" /><testcase classname="tests.test_child_otp_moments_activation.TestActivation" name="test_activate_requires_parent_and_schedule" time="1.940" /><testcase classname="tests.test_child_otp_moments_activation.TestSignupPassword" name="test_eight_char_password_accepted" time="0.589" /><testcase classname="tests.test_circle_and_send.TestAutoLinkOnRegister" name="test_invited_email_becomes_member_on_register" time="0.885" /><testcase classname="tests.test_circle_and_send.TestAutoLinkOnRegister" name="test_owner_can_remove_member" time="1.024" /><testcase classname="tests.test_child_otp_moments_activation.TestActivation" name="test_activate_success_and_state_synced" time="2.364" /><testcase classname="tests.test_e2e_full_flow.TestPlanSwitching" name="test_bandham_to_nitya_blocks_when_2_parents" time="0.476" /><testcase classname="tests.test_e2e_full_flow.TestPlanSwitching" name="test_nitya_to_bandham_allows_adding_parents" time="0.409" /><testcase classname="tests.test_gaps_9_10_11.TestGap9InteractiveButtonStatus" name="test_reply_status_in_message_logs_after_medicine_done" time="0.084" /><testcase classname="tests.test_gaps_9_10_11.TestGap9InteractiveButtonStatus" name="test_reply_status_skipped_after_medicine_skip" time="0.028" /><testcase classname="tests.test_gaps_9_10_11.TestGap10MLDistressAssessmentDetails" name="test_assess_transcript_returns_ml_score" time="0.002" /><testcase classname="tests.test_gaps_9_10_11.TestGap10MLDistressAssessmentDetails" name="test_keyword_emergency_flagged" time="0.001" /><testcase classname="tests.test_gaps_9_10_11.TestGap11OTPPhoneVerification" name="test_otp_send_verify_resend_user" time="1.273" /><testcase classname="tests.test_e2e_full_flow.TestSignupFlow" name="test_three_unique_signups" time="1.390" /><testcase classname="tests.test_gaps_9_10_11.TestGap11OTPPhoneVerification" name="test_otp_verify_missing_phone" time="0.002" /><testcase classname="tests.test_missing_coverage.TestCareWatch" name="test_retry_unanswered_checkin" time="0.072" /><testcase classname="tests.test_missing_coverage.TestCareWatch" name="test_no_reply_warning" time="0.002" /><testcase classname="tests.test_missing_coverage.TestDistressDetection" name="test_ml_flagged_voice_note" time="0.005" /><testcase classname="tests.test_missing_coverage.TestDistressDetection" name="test_keyword_emergency" time="0.000" /><testcase classname="tests.test_replies_and_i18n.TestRepliesList" name="test_list_returns_scoped_replies_with_parent_name" time="0.499" /><testcase classname="tests.test_replies_and_i18n.TestRepliesList" name="test_list_is_scoped_per_owner" time="0.989" /><testcase classname="tests.test_e2e_full_flow.TestSignupFlow" name="test_duplicate_email_rejected" time="0.426" /><testcase classname="tests.test_missing_coverage.TestMonthlyReports" name="test_nitya_report_no_mood_graph" time="0.076" /><testcase classname="tests.test_missing_coverage.TestMonthlyReports" name="test_bandham_report_includes_mood_graph" time="0.003" /><testcase classname="tests.test_sarvam_distress.TestSarvamSTT" name="test_stt_returns_transcript" time="0.124" /><testcase classname="tests.test_sarvam_distress.TestSarvamSTT" name="test_stt_returns_none_when_api_key_missing" time="0.001" /><testcase classname="tests.test_child_otp_moments_activation.TestMomentsMonthlyLimit" name="test_quota_then_two_sends_then_429" time="2.704" /><testcase classname="tests.test_ayana_api.TestOnboardingChain" name="test_full_flow_nitya_plan" time="1.103" /><testcase classname="tests.test_ayana_api.TestSchedulesCRUD" name="test_toggle_and_delete" time="0.393" /><testcase classname="tests.test_ayana_api.TestAccountDelete" name="test_delete_account" time="0.433" /><testcase classname="tests.test_e2e_full_flow.TestLoginAndOnboarding" name="test_login_then_onboard_nitya" time="0.997" /><testcase classname="tests.test_e2e_full_flow.TestActivation" name="test_activate_flips_state" time="0.302" /><testcase classname="tests.test_circle_and_send.TestNonRakshaPlanBlocked" name="test_bandham_owner_cannot_invite" time="0.471" /><testcase classname="tests.test_e2e_care_circle_flow" name="test_care_circle_flow" time="0.931" /><testcase classname="tests.test_e2e_full_flow.TestEmergencyDetection" name="test_emergency_keyword_triggers_event" time="0.978" /><testcase classname="tests.test_sarvam_distress.TestEndToEndDistress" name="test_low_distress_does_not_trigger_emergency" time="0.081" /><testcase classname="tests.test_e2e_onboarding_flow" name="test_full_onboarding_flow" time="1.144" /></testsuite></testsuites>

@@ -23,6 +23,7 @@ from rate_limit import (
     clear_login_attempts,
     close_redis,
     check_api_rate_limit,
+    get_client_ip,
 )
 from starlette.middleware.cors import CORSMiddleware
 import base64
@@ -107,13 +108,14 @@ logger = logging.getLogger("ayana")
 # Rate limiter - Redis backed
 # ---------------------------------------------------------------------------
 # (Handled via api_rate_limit_dependency in individual routes or as global dependency)
-
-def _get_client_ip(request: Request) -> str:
-    """Extract client IP, considering proxies."""
-    forwarded = request.headers.get("X-Forwarded-For")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    return request.client.host if request.client else "unknown"
+#
+# Client IP extraction lives in rate_limit.py's get_client_ip() — a single
+# shared implementation used here and by every rate-limit check, instead of
+# three separate copies that could drift out of sync. It trusts the LAST
+# entry in X-Forwarded-For (the one appended by the immediate reverse proxy
+# in front of this app), not the first (which is client-supplied and
+# trivially spoofable). See get_client_ip()'s docstring in rate_limit.py for
+# the single-trusted-hop assumption this relies on.
 
 
 # ---------------------------------------------------------------------------
@@ -366,7 +368,7 @@ async def register(request: Request, response: Response, payload: RegisterInput)
 @api.post("/auth/login")
 async def login(request: Request, response: Response, payload: LoginInput):
     email = payload.email.lower()
-    ip = _get_client_ip(request)
+    ip = get_client_ip(request)
 
     # Check brute-force protection (Redis-backed)
     allowed, retry_after = await login_rate_check(email, ip)

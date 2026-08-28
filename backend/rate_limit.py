@@ -9,16 +9,18 @@ Limits (configurable via env):
 - Login: 10 attempts / 15 min (per email + IP)
 - API general: 100 requests / minute (per IP)
 
-Gracefully degrades to allow-all if Redis is unavailable (logs warning).
+Gracefully degrades to allow-all if Redis is unavailable (logs warning),
+and periodically retries the connection rather than staying down forever.
 """
 
 import os
+import uuid
 import logging
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from typing import Optional, Tuple
 
 import redis.asyncio as redis
-from fastapi import Request, HTTPException, Depends
+from fastapi import Request, HTTPException
 
 logger = logging.getLogger("ayana.rate_limit")
 
@@ -26,13 +28,30 @@ logger = logging.getLogger("ayana.rate_limit")
 
 _redis_client: Optional[redis.Redis] = None
 _redis_available = True  # Track if Redis is reachable
+_last_failure_ts: Optional[float] = None  # When we last failed to connect
+
+# How long to wait before retrying a connection after a failure
+REDIS_RETRY_INTERVAL_SEC = int(os.environ.get("REDIS_RETRY_INTERVAL_SEC", "30"))
 
 
 async def get_redis() -> Optional[redis.Redis]:
-    """Get or create Redis connection. Returns None if Redis unavailable."""
-    global _redis_client, _redis_available
+    """Get or create Redis connection. Returns None if Redis unavailable.
+
+    If a previous connection attempt failed, this will retry after
+    REDIS_RETRY_INTERVAL_SEC has elapsed instead of staying down forever.
+    """
+    global _redis_client, _redis_available, _last_failure_ts
+
+    now = datetime.now(timezone.utc).timestamp()
+
     if not _redis_available:
-        return None
+        # Only retry if enough time has passed since the last failure
+        if _last_failure_ts is not None and (now - _last_failure_ts) < REDIS_RETRY_INTERVAL_SEC:
+            return None
+        # Time to retry - reset state and fall through to reconnect attempt
+        _redis_client = None
+        _redis_available = True
+
     if _redis_client is None:
         redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
         try:
@@ -46,17 +65,19 @@ async def get_redis() -> Optional[redis.Redis]:
             )
             # Test connection
             await _redis_client.ping()
+            _last_failure_ts = None
         except Exception as e:
             logger.warning("Redis unavailable, rate limiting disabled: %s", e)
             _redis_client = None
             _redis_available = False
+            _last_failure_ts = now
             return None
     return _redis_client
 
 
 async def close_redis():
     """Close Redis connection (for shutdown)."""
-    global _redis_client, _redis_available
+    global _redis_client, _redis_available, _last_failure_ts
     if _redis_client:
         try:
             await _redis_client.close()
@@ -64,6 +85,7 @@ async def close_redis():
             pass
         _redis_client = None
         _redis_available = True  # Reset for potential reconnect
+        _last_failure_ts = None
 
 
 # ── Rate limit configuration ────────────────────────────────────────────────────
@@ -96,6 +118,14 @@ def _api_key(ip: str) -> str:
     return f"rl:api:{ip}"
 
 
+def _unique_member(now: float) -> str:
+    """Build a sorted-set member that's unique even when multiple requests
+    land at the same timestamp, so they don't overwrite each other.
+    The score (passed separately at the call site) stays the plain timestamp
+    so window trimming by score still works correctly."""
+    return f"{now}:{uuid.uuid4().hex[:8]}"
+
+
 # ── OTP Send Rate Limit (replaces in-window check in otp.py) ───────────────────
 
 async def check_otp_send_rate_limit(phone: str) -> Tuple[bool, Optional[int]]:
@@ -109,7 +139,7 @@ async def check_otp_send_rate_limit(phone: str) -> Tuple[bool, Optional[int]]:
     key = _otp_send_key(phone)
     now = datetime.now(timezone.utc).timestamp()
 
-    # Use a sliding window with sorted set (member=timestamp, score=timestamp)
+    # Use a sliding window with sorted set (member=unique id, score=timestamp)
     # Remove expired entries
     cutoff = now - OTP_SEND_WINDOW_SEC
     await r.zremrangebyscore(key, 0, cutoff)
@@ -137,8 +167,9 @@ async def record_otp_send(phone: str):
     key = _otp_send_key(phone)
     now = datetime.now(timezone.utc).timestamp()
 
-    # Add current timestamp to sorted set
-    await r.zadd(key, {str(now): now})
+    # Add current attempt to sorted set - member is unique per-call so
+    # concurrent requests in the same instant don't collide and undercount
+    await r.zadd(key, {_unique_member(now): now})
     # Set TTL on the key to auto-expire after window + buffer
     await r.expire(key, OTP_SEND_WINDOW_SEC + 60)
 
@@ -285,7 +316,9 @@ async def record_api_request(request: Request):
     key = _api_key(ip)
     now_ts = datetime.now(timezone.utc).timestamp()
 
-    await r.zadd(key, {str(now_ts): now_ts})
+    # Member is unique per-call so concurrent requests in the same instant
+    # don't overwrite each other and undercount
+    await r.zadd(key, {_unique_member(now_ts): now_ts})
     await r.expire(key, API_WINDOW_SEC + 60)
 
 

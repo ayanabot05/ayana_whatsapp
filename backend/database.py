@@ -9,13 +9,19 @@ load_dotenv(ROOT_DIR / ".env")
 
 mongo_url = os.environ["MONGO_URL"]
 
-# Pass certifi's CA bundle directly to handle TLS handshakes on Windows/Python 3.13
-client = AsyncIOMotorClient(
-    mongo_url,
+# Pass certifi's CA bundle directly to handle TLS handshakes on Windows/Python 3.13.
+# Only attach it when the URI actually uses TLS (Atlas mongodb+srv or explicit
+# tls/ssl=true) — otherwise pymongo 4.x treats a bare tlsCAFile as tls=True and
+# breaks against a plain (non-TLS) local MongoDB.
+_uses_tls = mongo_url.startswith("mongodb+srv://") or "tls=true" in mongo_url.lower() or "ssl=true" in mongo_url.lower()
+_client_kwargs = dict(
     maxPoolSize=int(os.environ.get("MONGO_MAX_POOL_SIZE", "50")),
     minPoolSize=int(os.environ.get("MONGO_MIN_POOL_SIZE", "5")),
-    tlsCAFile=certifi.where(),
 )
+if _uses_tls:
+    _client_kwargs["tlsCAFile"] = certifi.where()
+
+client = AsyncIOMotorClient(mongo_url, **_client_kwargs)
 db = client[os.environ["DB_NAME"]]
 
 

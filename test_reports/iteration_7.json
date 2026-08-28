@@ -1,0 +1,52 @@
+{
+  "summary": "Tested all 6 requested items end-to-end. Backend: new pytest suite (12 tests) covering child OTP send/verify + PUT /api/profile/child gating, moments 2/month quota + 429, activation sync, signup password rule, and OTP rate limits — 12/12 pass. Full backend suite: 207 passed / 12 failed (all pre-existing AsyncMock/Stripe/redis-mock test-infra failures; the previously flaky OTP-collision e2e failure was fixed). Frontend (Playwright, preview URL): signup <8 char inline error, OTP gate on /onboarding step 0 (Continue disabled until verified, dev_code toast, wrong code rejected, verified badge, Continue advances to plan step), phone-edit-after-verify correctly drops the badge and re-disables Continue, moment quota badge 2→1→0 with 'Limit reached' disabled send after 2 moments, and onboarding Activate Care Circle → dashboard shows 'Active'.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "pytest suite (12 pre-existing failures)", "issue": "test_rate_limit_unit (2), test_otp_unit::test_send_otp_sms_error_handling, test_auth_unit::test_revoke_token_is_blacklisted, test_translation_engine_unit (2), test_distress_detection_unit, test_sarvam_stt_unit, test_escalation_unit::test_birthday_and_afternoon_logic, test_api_payments_webhook (3) fail due to AsyncMock/Stripe/redis mock wiring, not product code"}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Onboarding.activate()", "issue": "After successful activation the app navigates to /activation but is immediately bounced to /dashboard by the `if (user?.onboarding_complete) navigate('/dashboard')` effect that fires after refreshUser(). Frame navigation trace: /onboarding -> /activation -> /dashboard. Users never see the 'Your care circle is active 🎉' + how-to-reply training page.", "selector": "[data-testid=\"activate-care-circle\"]", "priority": "MEDIUM"},
+      {"component": "PhoneInput", "issue": "Internal dial/num state is initialised from the `value` prop only on mount (useEffect with [] deps). If child.phone arrives/changes asynchronously after mount (e.g. /auth/me prefill landing while the user is typing), the visible digits and the value actually used for OTP diverge — reproduced once: input showed the edited number while the verification card sent the OTP to the old prefilled number.", "selector": "[data-testid=\"child-phone\"]", "priority": "LOW"},
+      {"component": "Onboarding step 0", "issue": "Continue (step0-next) becomes enabled while the consent checkbox is unchecked; consent is only enforced by a toast after clicking. Consider including childConsent in the disabled condition for consistency with the OTP gate.", "selector": "[data-testid=\"step0-next\"]", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Onboarding / Dashboard Moment tab", "issues": ["No visual defects found: quota badge, disabled 'Limit reached' state, OTP card states and contrast all render correctly at 1920x1080"]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_child_otp_moments_activation.py",
+    "/app/backend/tests/seed_ui_user.py",
+    "/app/test_reports/pytest/otp_moments_activation.xml",
+    "/app/test_reports/pytest/full_suite.xml"
+  ],
+  "action_items": [
+    "Fix the /activation redirect race so the activation success/how-to-reply page is actually shown (e.g. skip the onboarding_complete->/dashboard redirect when activate() has already navigated, or navigate after unmount/replace).",
+    "Sync PhoneInput internal state with the `value` prop (add value to the useEffect deps or derive dial/num from props) to avoid displayed-vs-actual phone divergence.",
+    "Optional: include childConsent in the step0-next disabled condition.",
+    "Optional: repair the 12 pre-existing AsyncMock/Stripe/redis mock unit tests so the suite is green."
+  ],
+  "critical_code_review_comments": [
+    "Moment cap is enforced by counting documents before insert without a transaction/unique guard — two concurrent POST /api/moments can both pass the `used >= MOMENTS_PER_MONTH` check (race allows a 3rd moment). Consider an atomic counter or conditional update.",
+    "PUT /api/profile/child gates on _normalize_phone(phone_verified_number) == _normalize_phone(payload.phone) — correct; verified that changing the phone after verification re-blocks (400).",
+    "OTP send rate limit is 3 per 10 min per phone; tests that hardcode phone numbers collide. Added a `unique_phone` conftest fixture and used it in the 3 e2e onboarding tests (was causing a flaky 429 failure under xdist)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_child_otp_moments_activation.py",
+    "/app/backend/tests/seed_ui_user.py",
+    "/app/backend/tests/conftest.py",
+    "/app/backend/tests/test_e2e_full_flow.py",
+    "/app/backend/tests/test_ayana_api.py",
+    "/app/backend/tests/test_e2e_onboarding_flow.py"
+  ],
+  "success_rate": {"backend": "100% (12/12 new tests; 207/219 full suite, 12 pre-existing infra failures)", "frontend": "100% of requested flows verified (3 minor issues found)"},
+  "seed_data_creation": "Fresh TEST_* users created via /signup and /app/backend/tests/seed_ui_user.py (prints email + TestPass12345). Fully onboarded UI user: TEST_ui_seed_1787932513@example.com / TestPass12345 (moments quota now exhausted for this month).",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "admin@ayanabott.com / AdminTest12345 (unused); fresh signups with password TestPass12345; OTP dev_code from POST /api/auth/otp/send",
+  "context_for_next_testing_agent": "Use Bearer tokens for backend tests — CSRF validation is bypassed for Authorization: Bearer. OTP sends are limited to 3/10min per phone, so always use a unique phone (conftest `unique_phone` fixture). Schedule categories must come from the whitelist (e.g. morning_wish, not morning_greeting). In the onboarding UI, sonner stacks toasts so multiple 'Test mode code: XXXXXX' matches can appear — try each code or read dev_code from the API. Run tests/seed_ui_user.py [--no-activate] to seed a fully onboarded user for UI runs.",
+  "rca_of_the_issue": "Activation page skip: Onboarding.activate() calls await refreshUser() before navigate('/activation'); the refreshed user has onboarding_complete=true, so Onboarding's mounted effect `if (user?.onboarding_complete) navigate('/dashboard')` runs on the next render and overrides the /activation navigation. PhoneInput desync: useEffect([]) initialises local dial/num once, so later prop changes (async prefill) are not reflected in the input."
+}
