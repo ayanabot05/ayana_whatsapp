@@ -97,10 +97,10 @@ export default function Dashboard() {
   const auditLogs = useMemo(() => auditQuery.data?? [], [auditQuery.data]);
 
   const loading = [parentsQuery, schedulesQuery, checkinsQuery, activationQuery, paymentQuery, circleQuery, auditQuery]
-  .some((q) => q.isLoading);
+ .some((q) => q.isLoading);
 
   const anyError = [parentsQuery, schedulesQuery, checkinsQuery, activationQuery, paymentQuery, circleQuery, auditQuery]
-  .some((q) => q.isError);
+ .some((q) => q.isError);
 
   useEffect(() => {
     if (anyError) toast.error("Could not load your data.");
@@ -435,7 +435,7 @@ function CheckinsTab({ parents, data, catByKey, revealedReplies, setRevealedRepl
               <AlertTriangle className="w-4 h-4 shrink-0" />
               <span className="flex-1">
                 {a.kind === "emergency"
-                ? `${a.parent_name} may need attention — sent "${a.body}"`
+               ? `${a.parent_name} may need attention — sent "${a.body}"`
                   : `${a.parent_name} replied "need help" and hasn't been acknowledged`}
               </span>
               {a.kind === "emergency" && (
@@ -592,7 +592,7 @@ function ParentDialog({ parent, config, limits, plan, schedules = [], onSaved, t
     if (!parent) return {...blankParentForm(), messages: getDefaultMessages() };
     const sched = schedules.find((s) => s.parent_id === parent.id);
     const schedMessages = sched?.messages
-    ? sched.messages.filter((m) => m.type!== "reminder" && m.source!== "medicine_sync")
+   ? sched.messages.filter((m) => m.type!== "reminder" && m.source!== "medicine_sync")
       : getDefaultMessages();
     return {
       name: parent.name || "",
@@ -655,25 +655,36 @@ function ParentDialog({ parent, config, limits, plan, schedules = [], onSaved, t
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) setNewMed(blankMedicine()); setOpen(o); }}>
       <DialogTrigger asChild>{trigger}</DialogTrigger>
-      <DialogContent className="bg-ayana-bg max-h- overflow-y-auto sm:max-w-2xl">
-        <DialogHeader><DialogTitle className="font-display">{parent? "Edit parent" : "Add parent"}</DialogTitle><DialogDescription className="sr-only">Enter your parent's details, medicines, and routine.</DialogDescription></DialogHeader>
-        <ParentCareForm
-          form={form}
-          setForm={setForm}
-          newMed={newMed}
-          setNewMed={setNewMed}
-          config={config}
-          limits={limits}
-          plan={plan}
-          idPrefix="pd"
-        />
-        {existingSchedule && (
-          <div className="flex items-center gap-2 text-xs -mt-4">
-            <Power className="w-4 h-4 text-ayana-muted" />
-            <span className="text-ayana-secondary">Currently <span className={existingSchedule.active? "text-green-600 font-medium" : "text-red-600 font-medium"}>{existingSchedule.active? "active" : "paused"}</span></span>
+      {/* FIXED: valid max-h and scroll */}
+      <DialogContent className="bg-ayana-bg sm:max-w-2xl max-h- overflow-y-auto overscroll-contain p-0">
+        <div className="p-6">
+          <DialogHeader>
+            <DialogTitle className="font-display">{parent? "Edit parent" : "Add parent"}</DialogTitle>
+            <DialogDescription className="sr-only">Enter your parent's details, medicines, and routine.</DialogDescription>
+          </DialogHeader>
+
+          <div className="mt-6">
+            <ParentCareForm
+              form={form}
+              setForm={setForm}
+              newMed={newMed}
+              setNewMed={setNewMed}
+              config={config}
+              limits={limits}
+              plan={plan}
+              idPrefix="pd"
+            />
           </div>
-        )}
-        <DialogFooter>
+
+          {existingSchedule && (
+            <div className="flex items-center gap-2 text-xs mt-4">
+              <Power className="w-4 h-4 text-ayana-muted" />
+              <span className="text-ayana-secondary">Currently <span className={existingSchedule.active? "text-green-600 font-medium" : "text-red-600 font-medium"}>{existingSchedule.active? "active" : "paused"}</span></span>
+            </div>
+          )}
+        </div>
+
+        <DialogFooter className="p-6 pt-4 sticky bottom-0 bg-ayana-bg border-t border-ayana-line mt-2">
           <button onClick={save} disabled={busy ||!form.name || form.phone.length < 8} data-testid="pd-save" className="inline-flex items-center gap-2 px-6 py-2.5 rounded-full bg-ayana-primary text-white text-sm font-medium hover:bg-ayana-primary-hover disabled:opacity-50">{busy && <Loader2 className="w-4 h-4 animate-spin" />} Save</button>
         </DialogFooter>
       </DialogContent>
@@ -698,7 +709,7 @@ function SendTestDialog({ parent, categories, trigger }) {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>{trigger}</DialogTrigger>
-      <DialogContent className="bg-ayana-bg">
+      <DialogContent className="bg-ayana-bg max-h- overflow-y-auto">
         <DialogHeader><DialogTitle className="font-display">Send a check-in to {parent.name} now</DialogTitle><DialogDescription className="sr-only">Pick a message and send it immediately on WhatsApp.</DialogDescription></DialogHeader>
         <div className="space-y-3">
           <p className="text-sm text-ayana-secondary">Pick a message — it'll be sent live in {parent.name}'s language.</p>
