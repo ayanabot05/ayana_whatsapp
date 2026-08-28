@@ -154,6 +154,58 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="AYANA-BOT API", lifespan=lifespan)
 
+# ---------------------------------------------------------------------------
+# CORS — MUST be added immediately after app creation, before any routers
+# are included. Without this, every cross-origin call from the frontend
+# (a different domain than the API) fails in the browser with a CORS error,
+# and preflight OPTIONS requests fall through to the router and 404/405
+# instead of being answered by the middleware.
+#
+# allow_credentials=True is required because auth uses httpOnly cookies
+# (access_token / refresh_token / csrf_token) — and per the CORS spec,
+# allow_origins can NOT be "*" when allow_credentials is True, so we build
+# an explicit allowlist instead.
+# ---------------------------------------------------------------------------
+def _cors_allowed_origins() -> list[str]:
+    origins = set()
+
+    frontend_url = os.environ.get("FRONTEND_URL", "").strip().rstrip("/")
+    if frontend_url:
+        origins.add(frontend_url)
+
+    # Comma-separated extra origins, e.g. previews/staging domains:
+    # CORS_EXTRA_ORIGINS=https://staging.ayanabott.com,https://preview123.emergent.app
+    extra = os.environ.get("CORS_EXTRA_ORIGINS", "")
+    for o in extra.split(","):
+        o = o.strip().rstrip("/")
+        if o:
+            origins.add(o)
+
+    # Local dev convenience — harmless in production since ENV won't be dev there.
+    if os.environ.get("ENV", "production").lower() in ("dev", "development", "local"):
+        origins.update({"http://localhost:3000", "http://127.0.0.1:3000"})
+
+    return sorted(origins)
+
+
+CORS_ALLOWED_ORIGINS = _cors_allowed_origins()
+if not CORS_ALLOWED_ORIGINS:
+    logger.warning(
+        "[cors] No allowed origins configured (FRONTEND_URL / CORS_EXTRA_ORIGINS are empty) — "
+        "all cross-origin frontend requests will be rejected by the browser."
+    )
+else:
+    logger.info("[cors] Allowed origins: %s", CORS_ALLOWED_ORIGINS)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=CORS_ALLOWED_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=["Content-Disposition"],
+)
+
 # Moment images are stored in Emergent object storage (see storage.py) and
 # served back through the signed-URL endpoint below — no pod-local disk.
 
