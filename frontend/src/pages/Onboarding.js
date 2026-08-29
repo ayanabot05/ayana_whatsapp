@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -8,6 +8,7 @@ import { api, formatApiError } from "../lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { TIMEZONES } from "@/lib/constants";
 import { PhoneInput } from "@/components/PhoneInput";
+import { PhoneVerificationCard } from "@/components/PhoneVerificationCard";
 import { PricingCards } from "@/components/PricingCards";
 import { ParentCareForm, blankParentForm, blankMedicine } from "@/components/ParentCareForm";
 import { toast } from "sonner";
@@ -25,6 +26,9 @@ export default function Onboarding() {
     return Math.min(Math.max(s, 0), 3);
   });
   const [loading, setLoading] = useState(false);
+  // Set true right before we intentionally route to /activation so the
+  // onboarding_complete->/dashboard redirect effect doesn't hijack it.
+  const skipRedirect = useRef(false);
 
   const [child, setChild] = useState({
     name: user?.name || "",
@@ -33,7 +37,13 @@ export default function Onboarding() {
     timezone: user?.timezone || "Asia/Kolkata",
   });
   const [childConsent, setChildConsent] = useState(false);
+  const [verifiedPhone, setVerifiedPhone] = useState(
+    user?.phone_verified && user?.phone_verified_number ? user.phone_verified_number : ""
+  );
   const [planId, setPlanId] = useState("nitya");
+
+  const normPhone = (p) => (p || "").replace(/\s/g, "");
+  const childPhoneVerified = !!verifiedPhone && normPhone(child.phone) === normPhone(verifiedPhone);
 
   const plans = useMemo(() => config?.plans?.length? config.plans : FALLBACK_PLANS, [config]);
   const currencies = config?.currencies?.length? config.currencies : FALLBACK_CURRENCIES;
@@ -62,7 +72,7 @@ export default function Onboarding() {
   const [scheduleIds, setScheduleIds] = useState({});
   const [newMed, setNewMed] = useState(blankMedicine());
 
-  useEffect(() => { if (user?.onboarding_complete || user?.household_owner_id) navigate("/dashboard"); }, [user?.onboarding_complete, user?.household_owner_id, navigate]);
+  useEffect(() => { if (!skipRedirect.current && (user?.onboarding_complete || user?.household_owner_id)) navigate("/dashboard"); }, [user?.onboarding_complete, user?.household_owner_id, navigate]);
 
   useEffect(() => {
     if (user &&!user.onboarding_complete) {
@@ -75,6 +85,7 @@ export default function Onboarding() {
         city: user.city || prev.city,
         timezone: user.timezone || prev.timezone,
       }));
+      if (user.phone_verified && user.phone_verified_number) setVerifiedPhone(user.phone_verified_number);
     }
   }, [user, user?.onboarding_complete, user?.onboarding_step, user?.name, user?.phone, user?.city, user?.timezone]);
 
@@ -109,12 +120,27 @@ export default function Onboarding() {
     if (!childConsent) { toast.error("Please confirm consent to continue."); return; }
     if (!child.name.trim()) { toast.error("Please enter your name."); return; }
     if (child.phone.length < 8) { toast.error("Please enter a valid phone number."); return; }
+    if (!childPhoneVerified) { toast.error("Please verify your phone number with the SMS code first."); return; }
     setLoading(true);
     try {
       await api.put("/profile/child", { name: child.name, phone: child.phone, city: child.city, timezone: child.timezone });
       await api.post("/consent", { consent_type: "child", agreed: true, text: "I consent to AYANA managing my care setup." });
       setStep(1);
     } catch (e) { toast.error(formatApiError(e.response?.data?.detail)); } finally { setLoading(false); }
+  };
+
+  const sendChildOtp = async (phone) => {
+    const { data } = await api.post("/auth/otp/send", { phone });
+    if (data?.dev_code) toast.message(`Test mode code: ${data.dev_code}`, { duration: 8000 });
+  };
+  const verifyChildOtp = async (phone, code) => {
+    await api.post("/auth/otp/verify", { phone, code });
+    setVerifiedPhone(phone);
+    refreshUser?.();
+  };
+  const resendChildOtp = async (phone) => {
+    const { data } = await api.post("/auth/otp/resend", { phone });
+    if (data?.dev_code) toast.message(`Test mode code: ${data.dev_code}`, { duration: 8000 });
   };
 
   const choosePlan = async (id, billing) => {
@@ -237,10 +263,16 @@ export default function Onboarding() {
   const activate = async () => {
     setLoading(true);
     try {
-      await api.post("/activation/activate");
-      toast.success("🎉 Care Circle activated! Your parent will start receiving daily check-ins.");
-      await refreshUser();
-      navigate("/activation");
+      const { data } = await api.post("/activation/activate");
+      if (data?.activated) {
+        toast.success("🎉 Care Circle activated! Your parent will start receiving daily check-ins.");
+        skipRedirect.current = true;
+        navigate("/activation");
+      } else {
+        toast.warning("We couldn't reach WhatsApp just now — nothing was sent. You can retry activation from your dashboard.");
+        navigate("/dashboard");
+      }
+      refreshUser();
     } catch (e) { toast.error(formatApiError(e.response?.data?.detail)); } finally { setLoading(false); }
   };
 
@@ -302,10 +334,25 @@ export default function Onboarding() {
                     <input type="checkbox" checked={childConsent} onChange={(e) => setChildConsent(e.target.checked)} data-testid="child-consent" className="mt-1 w-4 h-4 accent-ayana-primary" />
                     <span className="text-sm text-ayana-secondary">I consent to AYANA storing my details to manage care check-ins. I can delete my data anytime.</span>
                   </label>
+                  <div className="pt-2">
+                    <p className="text-sm font-medium text-ayana-text mb-2">Verify your phone number</p>
+                    <PhoneVerificationCard
+                      label="Your number"
+                      phone={child.phone}
+                      verified={childPhoneVerified}
+                      onSend={sendChildOtp}
+                      onVerify={verifyChildOtp}
+                      onResend={resendChildOtp}
+                      testid="child-otp"
+                    />
+                    {!childPhoneVerified && (
+                      <p className="mt-2 text-xs text-ayana-muted">We'll text a 6-digit code to confirm this is your number. Verification is required to continue.</p>
+                    )}
+                  </div>
                 </div>
                 <div className="mt-6 flex justify-between">
                   <button onClick={() => navigate("/dashboard")} className="inline-flex items-center gap-2 px-6 py-3.5 rounded-full border border-ayana-line text-ayana-text hover:bg-ayana-alt transition-colors"><ArrowLeft className="w-4 h-4" /> Back</button>
-                  <button onClick={saveChild} disabled={loading ||!child.name || child.phone.length < 8} data-testid="step0-next"
+                  <button onClick={saveChild} disabled={loading ||!child.name || child.phone.length < 8 ||!childPhoneVerified ||!childConsent} data-testid="step0-next"
                     className="inline-flex items-center gap-2 px-7 py-3.5 rounded-full bg-ayana-primary text-white font-medium hover:bg-ayana-primary-hover transition-colors disabled:opacity-50">
                     {loading? <Loader2 className="w-4 h-4 animate-spin" /> : <>Continue <ArrowRight className="w-4 h-4" /></>}
                   </button>

@@ -23,7 +23,6 @@ from rate_limit import (
     clear_login_attempts,
     close_redis,
     check_api_rate_limit,
-    get_client_ip,
 )
 from starlette.middleware.cors import CORSMiddleware
 import base64
@@ -41,6 +40,7 @@ from models import (
 )
 from medicine_sync import sync_medicine_reminders
 from storage import init_storage, put_object, get_object, APP_NAME as STORAGE_APP_NAME
+from otp import create_and_send_otp, verify_otp_code, _normalize_phone
 
 class CheckoutInput(BaseModel):
     plan: str = Field("nitya", pattern="^(nitya|bandham|raksha|basic|care_plus)$")
@@ -108,14 +108,13 @@ logger = logging.getLogger("ayana")
 # Rate limiter - Redis backed
 # ---------------------------------------------------------------------------
 # (Handled via api_rate_limit_dependency in individual routes or as global dependency)
-#
-# Client IP extraction lives in rate_limit.py's get_client_ip() — a single
-# shared implementation used here and by every rate-limit check, instead of
-# three separate copies that could drift out of sync. It trusts the LAST
-# entry in X-Forwarded-For (the one appended by the immediate reverse proxy
-# in front of this app), not the first (which is client-supplied and
-# trivially spoofable). See get_client_ip()'s docstring in rate_limit.py for
-# the single-trusted-hop assumption this relies on.
+
+def _get_client_ip(request: Request) -> str:
+    """Extract client IP, considering proxies."""
+    forwarded = request.headers.get("X-Forwarded-For")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
 
 
 # ---------------------------------------------------------------------------
@@ -153,58 +152,6 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="AYANA-BOT API", lifespan=lifespan)
-
-# ---------------------------------------------------------------------------
-# CORS — MUST be added immediately after app creation, before any routers
-# are included. Without this, every cross-origin call from the frontend
-# (a different domain than the API) fails in the browser with a CORS error,
-# and preflight OPTIONS requests fall through to the router and 404/405
-# instead of being answered by the middleware.
-#
-# allow_credentials=True is required because auth uses httpOnly cookies
-# (access_token / refresh_token / csrf_token) — and per the CORS spec,
-# allow_origins can NOT be "*" when allow_credentials is True, so we build
-# an explicit allowlist instead.
-# ---------------------------------------------------------------------------
-def _cors_allowed_origins() -> list[str]:
-    origins = set()
-
-    frontend_url = os.environ.get("FRONTEND_URL", "").strip().rstrip("/")
-    if frontend_url:
-        origins.add(frontend_url)
-
-    # Comma-separated extra origins, e.g. previews/staging domains:
-    # CORS_EXTRA_ORIGINS=https://staging.ayanabott.com,https://preview123.emergent.app
-    extra = os.environ.get("CORS_EXTRA_ORIGINS", "")
-    for o in extra.split(","):
-        o = o.strip().rstrip("/")
-        if o:
-            origins.add(o)
-
-    # Local dev convenience — harmless in production since ENV won't be dev there.
-    if os.environ.get("ENV", "production").lower() in ("dev", "development", "local"):
-        origins.update({"http://localhost:3000", "http://127.0.0.1:3000"})
-
-    return sorted(origins)
-
-
-CORS_ALLOWED_ORIGINS = _cors_allowed_origins()
-if not CORS_ALLOWED_ORIGINS:
-    logger.warning(
-        "[cors] No allowed origins configured (FRONTEND_URL / CORS_EXTRA_ORIGINS are empty) — "
-        "all cross-origin frontend requests will be rejected by the browser."
-    )
-else:
-    logger.info("[cors] Allowed origins: %s", CORS_ALLOWED_ORIGINS)
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=CORS_ALLOWED_ORIGINS,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-    expose_headers=["Content-Disposition"],
-)
 
 # Moment images are stored in Emergent object storage (see storage.py) and
 # served back through the signed-URL endpoint below — no pod-local disk.
@@ -420,7 +367,7 @@ async def register(request: Request, response: Response, payload: RegisterInput)
 @api.post("/auth/login")
 async def login(request: Request, response: Response, payload: LoginInput):
     email = payload.email.lower()
-    ip = get_client_ip(request)
+    ip = _get_client_ip(request)
 
     # Check brute-force protection (Redis-backed)
     allowed, retry_after = await login_rate_check(email, ip)
@@ -522,6 +469,43 @@ async def refresh_token(request: Request, response: Response):
     set_csrf_cookie(response, generate_csrf_token())
     return {"access_token": new_access, "refresh_token": new_refresh, "user": serialize(user)}
 
+# ---------------- Phone OTP verification (account owner's own number) ----------------
+class OtpSendInput(BaseModel):
+    phone: str = Field(..., min_length=6, max_length=20)
+
+class OtpVerifyInput(BaseModel):
+    phone: str = Field(..., min_length=6, max_length=20)
+    code: str = Field(..., min_length=4, max_length=8)
+
+@api.post("/auth/otp/send")
+@api.post("/auth/otp/resend")
+async def auth_otp_send(payload: OtpSendInput, user: dict = Depends(get_current_user), _csrf: None = Depends(validate_csrf_token)):
+    result = await create_and_send_otp(payload.phone)
+    status = result.get("status")
+    if status == "rate_limited":
+        raise HTTPException(status_code=429, detail=result.get("detail", "Too many requests. Try again shortly."),
+                            headers={"Retry-After": str(result.get("retry_after_seconds", 60))})
+    if status == "failed":
+        raise HTTPException(status_code=502, detail=result.get("detail", "Could not send the code. Please try again."))
+    out = {"sent": True, "expires_at": result.get("expires_at")}
+    # dev_code is only present in simulated mode (SMS delivery disabled) for local/preview testing.
+    if "dev_code" in result:
+        out["dev_code"] = result["dev_code"]
+    return out
+
+@api.post("/auth/otp/verify")
+async def auth_otp_verify(payload: OtpVerifyInput, user: dict = Depends(get_current_user), _csrf: None = Depends(validate_csrf_token)):
+    result = await verify_otp_code(payload.phone, payload.code)
+    if not result.get("ok"):
+        code = result.get("code")
+        http_status = 429 if code == "rate_limited" else 400
+        headers = {"Retry-After": str(result["retry_after_seconds"])} if result.get("retry_after_seconds") else None
+        raise HTTPException(status_code=http_status, detail=result.get("detail", "Invalid or expired code."), headers=headers)
+    phone = _normalize_phone(payload.phone)
+    await db.users.update_one({"_id": user["_id"]}, {"$set": {"phone_verified": True, "phone_verified_number": phone}})
+    await audit(user["_id"], "phone_verified", {"phone": phone})
+    return {"verified": True, "phone": phone}
+
 # ---------------- Child profile ----------------
 @api.put("/profile/child") 
 async def update_child( 
@@ -531,8 +515,15 @@ async def update_child(
 ): 
     phone = payload.phone.strip() 
  
-    # OTP verification removed for now — phone is saved as submitted,
-    # no longer gated on a prior /auth/otp/verify call.
+    # OTP gate: the account owner must verify their own mobile number via the
+    # SMS code before the onboarding profile step can complete.
+    normalized = _normalize_phone(phone)
+    verified_number = user.get("phone_verified_number")
+    if not (user.get("phone_verified") and verified_number and _normalize_phone(verified_number) == normalized):
+        raise HTTPException(
+            status_code=400,
+            detail="Please verify your phone number with the SMS code before continuing.",
+        )
     await db.users.update_one( 
         {"_id": user["_id"]}, 
         {"$set": { 
@@ -807,6 +798,20 @@ async def serve_uploaded_image(filename: str, sig: str = Query(...), exp: int = 
 
     return Response(content=data, media_type=record.get("content_type") or content_type)
 
+MOMENTS_PER_MONTH = int(os.environ.get("MOMENTS_PER_MONTH", "2"))
+
+def _month_start_utc() -> datetime:
+    now = datetime.now(timezone.utc)
+    return now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+async def _moments_used_this_month(uid: str) -> int:
+    return await db.moments.count_documents({"user_id": uid, "created_at": {"$gte": _month_start_utc()}})
+
+@api.get("/moments/quota")
+async def moments_quota(user: dict = Depends(get_current_user)):
+    used = await _moments_used_this_month(scope(user))
+    return {"used": used, "limit": MOMENTS_PER_MONTH, "remaining": max(MOMENTS_PER_MONTH - used, 0)}
+
 @api.post("/moments")
 async def send_moment_api(payload: MomentInput, user: dict = Depends(get_current_user), _csrf: None = Depends(validate_csrf_token)):
     parent = await db.parents.find_one({"_id": ObjectId(payload.parent_id), "user_id": scope(user), "deleted_at": None})
@@ -814,6 +819,13 @@ async def send_moment_api(payload: MomentInput, user: dict = Depends(get_current
         raise HTTPException(status_code=404, detail="Parent not found")
     if len(payload.image_urls) > 2:
         raise HTTPException(status_code=400, detail="Maximum 2 images allowed per moment.")
+    # ── Monthly special-moment cap (resets on the 1st) ──
+    used = await _moments_used_this_month(scope(user))
+    if used >= MOMENTS_PER_MONTH:
+        raise HTTPException(
+            status_code=429,
+            detail=f"You've used your {MOMENTS_PER_MONTH} special moments this month. Your allowance resets on the 1st.",
+        )
     sender_name = user.get("name") or "Your family"
     result = await send_moment(db, parent, payload.text, sender_name, payload.image_url or "", payload.image_urls)
     doc = {
@@ -822,7 +834,8 @@ async def send_moment_api(payload: MomentInput, user: dict = Depends(get_current
         "status": (result or {}).get("status"), "created_at": datetime.now(timezone.utc),
     }
     await db.moments.insert_one(doc)
-    return {"ok": True, "status": (result or {}).get("status"), "moment": serialize(doc)}
+    remaining = max(MOMENTS_PER_MONTH - (used + 1), 0)
+    return {"ok": True, "status": (result or {}).get("status"), "moment": serialize(doc), "remaining": remaining, "limit": MOMENTS_PER_MONTH}
 
 @api.get("/moments")
 async def list_moments(user: dict = Depends(get_current_user)):
@@ -1059,14 +1072,22 @@ async def activate(user: dict = Depends(get_current_user), _csrf: None = Depends
         r = await send_whatsapp_opener(db, p, day_index, variants_per_slot)
         results.append({"parent": p.get("name"), "status": r.get("status"), "skipped": r.get("skipped", False)})
 
+    # Activation is only "real" if at least one parent's opener actually went out
+    # (or was simulated in test mode). If every send failed, we DON'T flip
+    # whatsapp_activated — the dashboard keeps showing the Activate button so the
+    # user can retry, matching "button stays available until WhatsApp truly activates".
+    activated = any((not r["skipped"]) and r["status"] not in ("failed", None) for r in results)
+
     await db.activation_state.update_one(
         {"user_id": scope(user)},
-        {"$set": {"whatsapp_activated": True, "activated_at": datetime.now(timezone.utc)}},
+        {"$set": {"whatsapp_activated": activated, "activated_at": datetime.now(timezone.utc) if activated else None}},
         upsert=True,
     )
+    # Onboarding is considered complete either way so the user reaches the
+    # dashboard; if activation failed they'll see the Activate button to retry.
     await db.users.update_one({"_id": user["_id"]}, {"$set": {"onboarding_complete": True, "onboarding_step": 5}})
-    await audit(user["_id"], "activate_whatsapp", {"results": results})
-    return {"activated": True, "whatsapp_enabled": whatsapp_enabled(), "results": results}
+    await audit(user["_id"], "activate_whatsapp", {"results": results, "activated": activated})
+    return {"activated": activated, "whatsapp_enabled": whatsapp_enabled(), "results": results}
 
 # ---------------- Message logs / dashboard ----------------
 @api.get("/messages/logs")
@@ -2098,6 +2119,7 @@ async def admin_schedules(
         .limit(limit)
         .to_list(limit)
     )
+    # Enrich with parent and user names
     parent_ids = {str(d["parent_id"]) for d in docs}
     user_ids = {str(d["user_id"]) for d in docs}
     parents_map = {str(p["_id"]): p.get("name", "Unknown") for p in await db.parents.find({"_id": {"$in": [ObjectId(pid) for pid in parent_ids]}}).to_list(100)}
@@ -2111,11 +2133,28 @@ async def admin_schedules(
         out.append(s)
     return {"total": total, "skip": skip, "limit": limit, "items": out}
 
-# ---- END OF API ROUTES ----
-# Routers must be included AFTER all @api routes are defined, and at the very end
-from payments import payments_router
+
 app.include_router(api)
+
+# Stripe payments router (endpoints are self-prefixed with /api). Kept in a
+# separate module; only actually reachable when PAYMENTS_ENABLED=true.
+from payments import payments_router
 app.include_router(payments_router)
 
+# Build a strict allowed-origins list.
+# Default to localhost for dev; set CORS_ORIGINS=https://yourdomain.com in production.
+_cors_origins = [
+    o.strip()
+    for o in os.environ.get("CORS_ORIGINS", "http://localhost:3000").split(",")
+    if o.strip()
+]
+app.add_middleware(
+    CORSMiddleware,
+    allow_credentials=True,
+    allow_origins=_cors_origins,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-Hub-Signature-256", "X-Dev-Token", "Stripe-Signature", "X-CSRF-Token"],
+)
 
-# Startup and shutdown are handled by the lifespan context manager above
+
+# Startup and shutdown are handled by the lifespan context manager above.

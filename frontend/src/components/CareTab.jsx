@@ -191,6 +191,14 @@ function MomentComposer({ parents }) {
     queryFn: () => api.get("/moments").then((r) => r.data),
   });
 
+  const { data: quota } = useQuery({
+    queryKey: ["moments-quota"],
+    queryFn: () => api.get("/moments/quota").then((r) => r.data),
+  });
+  const remaining = quota?.remaining;
+  const limit = quota?.limit ?? 2;
+  const outOfMoments = remaining === 0;
+
   const handleImageSelect = async (e) => {
     const files = Array.from(e.target.files || []);
     if (files.length === 0) return;
@@ -244,6 +252,7 @@ function MomentComposer({ parents }) {
       setText("");
       setImageUrls([]);
       qc.invalidateQueries({ queryKey: ["moments"] });
+      qc.invalidateQueries({ queryKey: ["moments-quota"] });
     } catch (e) {
       toast.error(formatApiError(e.response?.data?.detail));
     } finally {
@@ -262,6 +271,15 @@ function MomentComposer({ parents }) {
         <h3 className="font-display text-lg font-semibold text-ayana-text">Send a moment</h3>
       </div>
       <p className="text-sm text-ayana-muted mb-4">A warm note + photos (up to 2). Ayana delivers it to their WhatsApp with love.</p>
+
+      {typeof remaining === "number" && (
+        <div className="mb-4 flex items-center gap-2 text-xs" data-testid="moment-quota">
+          <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full font-medium ${outOfMoments ? "bg-red-50 text-red-600" : "bg-ayana-gold/15 text-ayana-gold"}`}>
+            <Heart className="w-3 h-3" /> {remaining} of {limit} special moments left this month
+          </span>
+          {outOfMoments && <span className="text-ayana-muted">Resets on the 1st.</span>}
+        </div>
+      )}
 
       <div className="space-y-3">
         <select value={parentId} onChange={(e) => setParentId(e.target.value)} className={inputCls} data-testid="moment-parent">
@@ -305,8 +323,8 @@ function MomentComposer({ parents }) {
           </div>
         )}
         <div className="flex justify-end">
-          <button onClick={send} disabled={sending || !text.trim()} className="btn-saffron inline-flex items-center gap-2 px-6 py-2.5 rounded-full text-sm font-semibold disabled:opacity-50" data-testid="moment-send">
-            {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />} Send
+          <button onClick={send} disabled={sending || !text.trim() || outOfMoments} className="btn-saffron inline-flex items-center gap-2 px-6 py-2.5 rounded-full text-sm font-semibold disabled:opacity-50" data-testid="moment-send">
+            {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />} {outOfMoments ? "Limit reached" : "Send"}
           </button>
         </div>
       </div>

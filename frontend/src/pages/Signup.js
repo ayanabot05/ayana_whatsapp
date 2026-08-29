@@ -27,6 +27,10 @@ export default function Signup() {
   const submit = async (e) => {
     e.preventDefault();
     setError("");
+    if (form.password.length < 8) {
+      setError("Password must be at least 8 characters.");
+      return;
+    }
     setLoading(true);
     try {
       const { data } = await api.post("/auth/register", form);
@@ -87,7 +91,7 @@ export default function Signup() {
             </div>
             <div>
               <label className="text-sm font-medium text-ayana-text">Password</label>
-              <input type="password" required value={form.password} onChange={upd("password")} data-testid="signup-password" placeholder="At least 6 characters"
+              <input type="password" required minLength={8} value={form.password} onChange={upd("password")} data-testid="signup-password" placeholder="At least 8 characters"
                 className="mt-1.5 w-full px-4 py-3 rounded-xl border border-ayana-line bg-white focus:outline-none focus:ring-2 focus:ring-ayana-bright/50 focus:border-ayana-bright transition" />
             </div>
             {error && <p className="text-sm text-red-600" data-testid="signup-error">{error}</p>}

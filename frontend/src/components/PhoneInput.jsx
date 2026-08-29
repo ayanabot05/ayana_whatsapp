@@ -7,15 +7,19 @@ export function PhoneInput({ value, onChange, testid, placeholder = "98765 43210
   const [num, setNum] = useState("");
 
   useEffect(() => {
+    const current = `${dial}${num}`;
+    if (value === current) return; // already in sync with our own emit — avoid loops
     if (value) {
       const match = [...COUNTRY_CODES]
         .sort((a, b) => b.code.length - a.code.length)
         .find((c) => value.startsWith(c.code));
-      if (match) { setDial(match.code); setNum(value.slice(match.code.length)); }
+      if (match) { setDial(match.code); setNum(value.slice(match.code.length).replace(/[^0-9]/g, "")); }
       else setNum(value.replace(/[^0-9]/g, ""));
+    } else {
+      setNum("");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [value]);
 
   const emit = (d, n) => onChange(`${d}${n.replace(/[^0-9]/g, "")}`);
 
