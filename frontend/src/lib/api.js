@@ -24,6 +24,13 @@ api.interceptors.request.use((config) => {
     const csrf = readCookie("csrf_token");
     if (csrf) config.headers["X-CSRF-Token"] = csrf;
   }
+  // axios's fetch adapter incorrectly attaches a real "User-Agent" header,
+  // which the XHR adapter never did (browsers block JS from setting it).
+  // That turns every request into a CORS preflight your backend doesn't
+  // allow (400 Bad Request), which is what breaks mobile Safari logins.
+  // Strip it so preflights only ever ask for headers allow_headers permits.
+  delete config.headers["User-Agent"];
+  delete config.headers["user-agent"];
   return config;
 });
 
