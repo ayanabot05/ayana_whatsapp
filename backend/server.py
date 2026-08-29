@@ -153,6 +153,20 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="AYANA-BOT API", lifespan=lifespan)
 
+@app.middleware("http")
+async def log_origin_header(request: Request, call_next):
+    if request.method == "OPTIONS":
+        logger.info(
+            "[CORS DEBUG] Origin=%r | Method=%s | Path=%s | ACR-Method=%r | ACR-Headers=%r",
+            request.headers.get("origin"),
+            request.method,
+            request.url.path,
+            request.headers.get("access-control-request-method"),
+            request.headers.get("access-control-request-headers"),
+        )
+    response = await call_next(request)
+    return response
+
 # Moment images are stored in Emergent object storage (see storage.py) and
 # served back through the signed-URL endpoint below — no pod-local disk.
 
