@@ -153,20 +153,6 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="AYANA-BOT API", lifespan=lifespan)
 
-@app.middleware("http")
-async def log_origin_header(request: Request, call_next):
-    if request.method == "OPTIONS":
-        logger.info(
-            "[CORS DEBUG] Origin=%r | Method=%s | Path=%s | ACR-Method=%r | ACR-Headers=%r",
-            request.headers.get("origin"),
-            request.method,
-            request.url.path,
-            request.headers.get("access-control-request-method"),
-            request.headers.get("access-control-request-headers"),
-        )
-    response = await call_next(request)
-    return response
-
 # Moment images are stored in Emergent object storage (see storage.py) and
 # served back through the signed-URL endpoint below — no pod-local disk.
 
@@ -2162,6 +2148,7 @@ _cors_origins = [
     for o in os.environ.get("CORS_ORIGINS", "http://localhost:3000").split(",")
     if o.strip()
 ]
+
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
@@ -2169,6 +2156,20 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "X-Hub-Signature-256", "X-Dev-Token", "Stripe-Signature", "X-CSRF-Token"],
 )
+
+@app.middleware("http")
+async def log_origin_header(request: Request, call_next):
+    if request.method == "OPTIONS":
+        logger.info(
+            "[CORS DEBUG] Origin=%r | Method=%s | Path=%s | ACR-Method=%r | ACR-Headers=%r",
+            request.headers.get("origin"),
+            request.method,
+            request.url.path,
+            request.headers.get("access-control-request-method"),
+            request.headers.get("access-control-request-headers"),
+        )
+    response = await call_next(request)
+    return response
 
 
 # Startup and shutdown are handled by the lifespan context manager above.
