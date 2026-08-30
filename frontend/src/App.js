@@ -35,10 +35,11 @@ const PaymentSuccess = lazy(() => import("@/pages/PaymentReturn").then((m) => ({
 const PaymentCancel = lazy(() => import("@/pages/PaymentReturn").then((m) => ({ default: m.PaymentCancel })));
 
 // Legal.js has named exports, not a default — React.lazy needs a default,
-// so map each one. All three still share a single "Legal" chunk.
+// so map each one. All four still share a single "Legal" chunk.
 const Privacy = lazy(() => import("@/pages/Legal").then((m) => ({ default: m.Privacy })));
 const Terms = lazy(() => import("@/pages/Legal").then((m) => ({ default: m.Terms })));
 const Disclaimer = lazy(() => import("@/pages/Legal").then((m) => ({ default: m.Disclaimer })));
+const DataDeletion = lazy(() => import("@/pages/Legal").then((m) => ({ default: m.DataDeletion })));
 
 function PageFallback() {
   return (
@@ -63,6 +64,7 @@ function App() {
               <Route path="/privacy" element={<Privacy />} />
               <Route path="/terms" element={<Terms />} />
               <Route path="/disclaimer" element={<Disclaimer />} />
+              <Route path="/data-deletion" element={<DataDeletion />} />
               <Route path="/onboarding" element={<ProtectedRoute><Onboarding /></ProtectedRoute>} />
               <Route path="/activation" element={<ProtectedRoute><Activation /></ProtectedRoute>} />
               <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
