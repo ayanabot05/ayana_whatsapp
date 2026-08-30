@@ -28,12 +28,13 @@ export function Footer() {
             <li><Link to="/privacy" className="hover:text-white transition-colors">Privacy Policy</Link></li>
             <li><Link to="/terms" className="hover:text-white transition-colors">Terms of Use</Link></li>
             <li><Link to="/disclaimer" className="hover:text-white transition-colors">Care Disclaimer</Link></li>
+            <li><Link to="/data-deletion" className="hover:text-white transition-colors">Data Deletion</Link></li>
           </ul>
         </div>
       </div>
       <div className="border-t border-white/10">
         <div className="max-w-7xl mx-auto px-5 sm:px-8 py-6 flex flex-col sm:flex-row justify-between gap-3 text-xs text-white/50">
-          <p>© {new Date().getFullYear()} AYANA. Made with care.</p>
+          <p>© {new Date().getFullYear()} AYANA. Made with care </p>
           <p>AYANA is not an emergency or medical service. In a crisis, contact local emergency services.</p>
         </div>
       </div>
