@@ -1591,7 +1591,12 @@ async def _record_reply(from_number: str, body_text: str, num_media: int = 0, pa
     if button_payload:
         resolved = await _resolve_generic_button_intent(parent["_id"], button_payload) if parent else None
         intent = resolved if resolved is not None else button_payload
-    elif media_url and (media_content_type or "").startswith("audio/") or (num_media > 0):
+    elif media_url and (media_content_type or "").startswith("audio/"):
+        # Voice notes only — this used to also fire for images (which set
+        # num_media=1 but never set media_url), which meant an incoming photo
+        # would fall into this branch with media_url=None and get handed to
+        # transcribe_voice_note(None, ...). Restricting this branch to a real
+        # audio media_url fixes that; images now correctly skip transcription.
         is_voice = True
         transcription = await transcribe_voice_note(media_url, language=lang, auth_headers=meta_auth_header())
         effective_text = transcription or "[voice note]"

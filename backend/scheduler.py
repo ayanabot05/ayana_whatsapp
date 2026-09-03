@@ -22,7 +22,7 @@ Job 4 — _run_monthly_reports (daily, only fires on the 1st) — OPTIONAL,
     report delivery channel decision (README "Open items") should be
     made deliberately, not defaulted on.
 
-DISTRIBUTED LOCK (new in this pass)
+DISTRIBUTED LOCK
     APScheduler runs in-process. The moment you run more than one API
     replica, every replica's scheduler fires independently — parents
     get duplicate WhatsApp messages (and you get double-billed by
@@ -45,6 +45,7 @@ import logging
 import os
 import socket
 import uuid
+from collections import defaultdict
 from datetime import datetime, timezone, date, timedelta
 from zoneinfo import ZoneInfo
 
@@ -63,7 +64,6 @@ _scheduler: AsyncIOScheduler | None = None
 
 # Unique per-process identity so lock ownership is unambiguous in logs.
 _WORKER_ID = f"{socket.gethostname()}:{uuid.uuid4().hex[:8]}"
-
 
 async def _with_lock(job_name: str, ttl_seconds: int, coro_fn) -> None:
     """
@@ -103,10 +103,8 @@ async def _with_lock(job_name: str, ttl_seconds: int, coro_fn) -> None:
             {"$set": {"expires_at": now}},
         )
 
-
 async def _count_sent_today(schedule_id, day_key: str, msg_type: str) -> int:
     return await db.message_logs.count_documents({"schedule_id": schedule_id, "day_key": day_key, "msg_type": msg_type})
-
 
 async def _deliver_due_messages_impl():
     now_utc = datetime.now(timezone.utc)
@@ -139,34 +137,63 @@ async def _deliver_due_messages_impl():
             day_key = local.strftime("%Y-%m-%d")
 
             # Send-time activity window check — defer messages sent outside
-            # the parent's active hours. Window is either manually set
-            # (activity_window_start/end as "HH:MM") or auto-learned from
-            # historical reply patterns (auto_activity_detection=true).
+            # the parent's active hours. Window is child-set (activity_window_start/end
+            # as "HH:MM") or auto-learned if child enables auto_activity_detection.
+            # Default is 00:00-23:59 (no DND) so testing and new parents work 24/7.
+            # Child can set DND from UI (e.g., 22:00-07:00 for overnight).
             # If the current local time falls outside the window, skip all
-            # scheduled sends for today — avoids waking / nagging parents
+            # scheduled sends for this tick — avoids waking / nagging parents
             # during temple visits, market trips, sleep hours, etc.
-            if parent.get("auto_activity_detection", True):
+            DEFAULT_START = "00:00"
+            DEFAULT_END = "23:59"
+
+            manual_start = parent.get("activity_window_start")
+            manual_end = parent.get("activity_window_end")
+
+            if manual_start and manual_end:
+                # Child explicitly set DND window — respect it (takes priority)
+                win_start = manual_start
+                win_end = manual_end
+            elif manual_start or manual_end:
+                # Only one side of the manual window is set — likely a
+                # partial save from the UI. Fall back to the default window
+                # (rather than silently ignoring it) and surface it in logs
+                # so it doesn't go unnoticed.
+                logger.warning(
+                    "Scheduler: parent %s has a partial activity window (start=%r, end=%r) — "
+                    "ignoring and using default %s-%s until both fields are set",
+                    parent.get("name"), manual_start, manual_end, DEFAULT_START, DEFAULT_END,
+                )
+                win_start, win_end = DEFAULT_START, DEFAULT_END
+            elif parent.get("auto_activity_detection", False):
                 # Auto-learned window: check last-N parent replies. Reply
                 # docs (see server.py::_record_reply) have no "direction"
                 # field — every doc in parent_replies is inherently
                 # inbound (from the parent), so no filter is needed there.
+                # Only runs if auto_activity_detection=True AND no manual window set.
                 recent_replies = await db.parent_replies \
-                    .find({"parent_id": parent["_id"]}) \
-                    .sort("created_at", -1).to_list(20)
+                   .find({"parent_id": parent["_id"]}) \
+                   .sort("created_at", -1).to_list(20)
                 if recent_replies:
                     reply_hours = [r["created_at"].astimezone(tz).hour for r in recent_replies]
-                    win_start = min(reply_hours)
-                    win_end = max(reply_hours)
+                    win_start = f"{min(reply_hours):02d}:00"
+                    win_end = f"{max(reply_hours):02d}:00"
                 else:
-                    win_start, win_end = 8, 20  # sensible default
-                win_start = parent.get("activity_window_start") or f"{win_start:02d}:00"
-                win_end = parent.get("activity_window_end") or f"{win_end:02d}:00"
+                    win_start, win_end = DEFAULT_START, DEFAULT_END  # default 0-23 if no replies
             else:
-                win_start = parent.get("activity_window_start")
-                win_end = parent.get("activity_window_end")
+                # No manual window, auto-learn off — allow all day (child-controlled DND)
+                win_start, win_end = DEFAULT_START, DEFAULT_END
+
             if win_start and win_end:
                 cur = local.strftime("%H:%M")
-                if not (win_start <= cur <= win_end):
+                # Support overnight windows like 22:00-07:00
+                if win_start <= win_end:
+                    is_outside = not (win_start <= cur <= win_end)
+                else:
+                    # Overnight window wraps midnight
+                    is_outside = win_end < cur < win_start
+
+                if is_outside:
                     logger.info(
                         "Scheduler: skipped sends for parent %s — outside activity window %s-%s (now %s)",
                         parent.get("name"), win_start, win_end, cur,
@@ -177,7 +204,10 @@ async def _deliver_due_messages_impl():
             plan_id = resolve_plan_id((ps or {}).get("plan", sched.get("mode", "nitya")))
             limits = plan_limits(plan_id)
             variants_per_slot = limits.get("variants_per_slot", 3)
-            sent_counts = {"checkin": 0, "reminder": 0}
+            # defaultdict so any msg_type returned by category_type() is safe —
+            # a KeyError here used to silently kill delivery for this whole
+            # schedule (swallowed by the outer except Exception below).
+            sent_counts = defaultdict(int)
 
             for idx, msg in enumerate(sched.get("messages", [])):
                 if msg.get("time") != hhmm:
@@ -254,10 +284,8 @@ async def _deliver_due_messages_impl():
                 sched.get("_id"), exc,
             )
 
-
 async def _deliver_due_messages():
     await _with_lock("delivery", 55, _deliver_due_messages_impl)
-
 
 async def _check_reengagement_impl():
     schedules = await db.schedules.find({"active": True, "deleted_at": None}).to_list(None)
@@ -297,10 +325,8 @@ async def _check_reengagement_impl():
         except Exception as exc:
             logger.error("Scheduler: reengagement failed for schedule %s - %s", sched.get("_id"), exc)
 
-
 async def _check_reengagement():
     await _with_lock("reengagement", 14 * 60, _check_reengagement_impl)
-
 
 async def _check_recovery_expiry_impl():
     today = date.today().isoformat()
@@ -324,10 +350,8 @@ async def _check_recovery_expiry_impl():
             "created_at": datetime.now(timezone.utc),
         })
 
-
 async def _check_recovery_expiry():
     await _with_lock("recovery_expiry", 60 * 60, _check_recovery_expiry_impl)
-
 
 async def _run_monthly_reports_impl():
     today = date.today()
@@ -337,14 +361,11 @@ async def _run_monthly_reports_impl():
     previous_month = first_this_month - timedelta(days=1)
     await generate_reports_for_month(previous_month.year, previous_month.month)
 
-
 async def _run_monthly_reports():
     await _with_lock("monthly_reports", 60 * 60, _run_monthly_reports_impl)
 
-
 async def _run_care_watch():
     await _with_lock("care_watch", 4 * 60, run_care_watch_impl)
-
 
 def start_scheduler():
     global _scheduler
@@ -363,7 +384,6 @@ def start_scheduler():
         "AYANA v2 scheduler started on worker=%s (delivery:1min, reengagement:15min, recovery-expiry:24h, monthly-reports:%s)",
         _WORKER_ID, "on" if _auto_monthly else "off",
     )
-
 
 def shutdown_scheduler():
     global _scheduler
