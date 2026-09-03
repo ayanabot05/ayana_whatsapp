@@ -42,10 +42,11 @@ const buildMessages = (lang = "en") => {
     te: "శుభోదయం అమ్మా! 🌞 ఈరోజు ఎలా ఉన్నారు?",
     hi: "सुप्रभात अम्मा! 🌞 आज कैसा महसूस कर रही हैं?",
   };
+  // Parent tapped "Good 😊" — reply is exactly the button label
   const replies = {
-    en: "Feeling good today 😊",
-    te: "ఈరోజు బాగున్నాను 😊",
-    hi: "आज अच्छा महसूस हो रहा है 😊",
+    en: labels.mood[0],   // "Good 😊"
+    te: labels.mood[0],   // "బాగున్నా 😊"
+    hi: labels.mood[0],   // "अच्छा 😊"
   };
   const medChecks = {
     en: "Time for your morning tablet 💊 Crocin — small white one!",

@@ -102,13 +102,8 @@ function MiniChatPanel({ langCode, isActive }) {
   );
 }
 
-// ── Cost transparency icon grid ───────────────────────────────────────────────
-const COST_ITEMS = [
-  { icon: "📱", label: "WhatsApp messaging fees" },
-  { icon: "🤖", label: "AI voice & language processing" },
-  { icon: "🔒", label: "Secure hosting & database" },
-  { icon: "💛", label: "Keeping AYANA running & improving" },
-];
+
+
 
 export default function Landing() {
   const { config } = useAuth();
@@ -446,7 +441,7 @@ export default function Landing() {
               </h2>
               <p className="font-serif text-xl sm:text-2xl text-ayana-secondary mt-4 leading-snug">{t("trust.sub")}</p>
               <div className="mt-8 space-y-4">
-                {["note1", "note2", "note3"].map((key) => (
+                {["note2", "note3"].map((key) => (
                   <div key={key} className="flex items-start gap-4 rounded-2xl border border-ayana-line bg-white p-5 shadow-sm">
                     <span className="icon-well-gold w-9 h-9 rounded-lg flex items-center justify-center shrink-0 mt-0.5">
                       <Heart className="w-4 h-4" strokeWidth={2} />
@@ -494,26 +489,7 @@ export default function Landing() {
             </div>
             <PricingCards plans={config?.plans?.length ? config.plans : FALLBACK_PLANS} currencies={config?.currencies?.length ? config.currencies : FALLBACK_CURRENCIES} />
 
-            {/* Cost transparency — icon grid */}
-            <div className="mt-8 max-w-2xl mx-auto rounded-2xl border border-ayana-line bg-white p-6 shadow-sm">
-              <div className="flex items-center gap-2 mb-4">
-                <span className="icon-well-gold w-7 h-7 rounded-md flex items-center justify-center shrink-0">
-                  <ShieldCheck className="w-3.5 h-3.5" />
-                </span>
-                <p className="text-sm font-semibold text-ayana-text">Where your subscription goes</p>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                {COST_ITEMS.map(({ icon, label }) => (
-                  <div key={label} className="flex items-center gap-3 rounded-xl bg-warm-cream/60 border border-ayana-line/50 px-3 py-2.5">
-                    <span className="text-xl leading-none shrink-0">{icon}</span>
-                    <span className="text-xs text-ayana-secondary leading-snug">{label}</span>
-                  </div>
-                ))}
-              </div>
-              <p className="mt-4 text-xs text-ayana-muted leading-relaxed">
-                We built AYANA to be affordable first — what's left after operating costs keeps it running and improving.
-              </p>
-            </div>
+
 
             <div className="mt-8 text-center">
               <Link to="/signup" data-testid="pricing-cta" onClick={() => trackEvent("cta_click", { id: "pricing" })}
