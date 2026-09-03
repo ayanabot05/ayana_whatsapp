@@ -4,15 +4,15 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Users, CalendarHeart, MessageCircle, CheckCircle2, Plus, Pencil, Trash2,
   Loader2, ShieldCheck, Clock, Power, AlertTriangle, Crown, Send, UserPlus, Mail, Activity,
-  BarChart3, RefreshCw, TrendingUp
+  BarChart3, RefreshCw, TrendingUp, Check, X,
 } from "lucide-react";
 import { Navbar } from "@/components/Navbar";
 import { api, formatApiError } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
-import { LANG_LABELS } from "@/lib/constants";
+import { LANG_LABELS, TIMEZONES } from "@/lib/constants";
 import { CATEGORY_ICONS, normalizeCategory } from "@/components/ScheduleEditor";
 import { ParentCareForm, blankParentForm, blankMedicine } from "@/components/ParentCareForm";
-import { cleanHabits } from "@/lib/formHelpers";
+import { cleanHabits, cleanOptionalString } from "@/lib/formHelpers";
 import { toast } from "sonner";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogTrigger } from "@/components/ui/dialog";
@@ -24,6 +24,7 @@ import { PricingCards } from "@/components/PricingCards";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 
 const smInputCls = "w-full px-3 py-2 rounded-lg border border-ayana-line bg-white text-sm focus:outline-none focus:ring-2 focus:ring-ayana-bright/40 focus:border-ayana-bright transition";
+const inputCls = "w-full px-4 py-3 rounded-xl border border-ayana-line bg-white focus:outline-none focus:ring-2 focus:ring-ayana-bright/50 focus:border-ayana-bright transition";
 
 const buildFeelingMap = (feelingMap) => ({
   emoji: Object.fromEntries(Object.entries(feelingMap || {}).map(([k, v]) => [k, v.emoji])),
@@ -31,7 +32,11 @@ const buildFeelingMap = (feelingMap) => ({
 });
 
 export default function Dashboard() {
-  const { user, config, logout } = useAuth();
+  // NOTE: refreshUser is expected to re-fetch /auth/me and update the user
+  // object in context. If AuthContext doesn't expose this yet, add a small
+  // method there — the profile editor below needs it to reflect saved
+  // changes without a full page reload.
+  const { user, config, logout, refreshUser } = useAuth();
   const { emoji: FEELING_EMOJI, label: FEELING_LABEL } = buildFeelingMap(config?.feeling_map);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -268,7 +273,7 @@ export default function Dashboard() {
                                 checked={activeSchedule}
                                 data-testid={`toggle-schedule-${parentSchedule.id}`}
                                 onCheckedChange={async (v) => {
-                                  await api.put(`/schedules/${parentSchedule.id}`, { parent_id: p.id, mode: parentSchedule.mode, messages: parentSchedule.messages, active: v });
+                                  await api.put(`/schedules/${parentSchedule.id}`, { parent_id: p.id, mode: parentSchedule.mode, messages: parentSchedule.messages, active: v, reengagement_hours: parentSchedule.reengagement_hours ?? 4 });
                                   load();
                                 }}
                               />
@@ -330,21 +335,7 @@ export default function Dashboard() {
           </TabsContent>
 
           <TabsContent value="account" className="mt-6 max-w-xl">
-            <div className="bg-white rounded-xl border border-ayana-line p-6">
-              <h2 className="font-display text-lg font-medium text-ayana-text mb-4">Account</h2>
-              <div className="space-y-2 text-sm text-ayana-secondary">
-                <p><span className="text-ayana-muted">Name:</span> {user?.name}</p>
-                <p><span className="text-ayana-muted">Email:</span> {user?.email}</p>
-                <p><span className="text-ayana-muted">Phone:</span> {user?.phone}</p>
-                <p className="flex items-center gap-2">
-                  <span className="text-ayana-muted">Plan:</span> {plan?.name} · <span className="capitalize">{payment?.state?.status || "trial"}</span>
-                  {circle?.role !== "member" && (
-                    <button onClick={() => setActiveTab("plan")} data-testid="manage-plan" className="text-xs font-medium text-ayana-accent underline underline-offset-2 hover:text-ayana-accent-hover">Manage plan</button>
-                  )}
-                </p>
-                <p className="flex items-center gap-2"><ShieldCheck className="w-4 h-4 text-ayana-primary" /> Consent on file · Privacy-first</p>
-              </div>
-            </div>
+            <AccountPanel user={user} plan={plan} payment={payment} circle={circle} setActiveTab={setActiveTab} refreshUser={refreshUser} />
 
             <div className="mt-6 bg-white rounded-xl border border-ayana-line p-6">
               <h3 className="font-display text-lg font-medium text-ayana-text mb-4 flex items-center gap-2">Activity History</h3>
@@ -387,6 +378,108 @@ export default function Dashboard() {
           </TabsContent>
         </Tabs>
       </main>
+    </div>
+  );
+}
+
+// ── Fix #6: Account profile editing ─────────────────────────────────
+// Was: Dashboard.js Tab 7 showed name/email/phone read-only, no edit form.
+// Phone is intentionally read-only here — PUT /profile/child requires the
+// submitted phone to match an OTP-verified number (see server.py
+// update_child), and this editor always resends the existing, already-
+// verified phone unchanged. Wiring a phone-change flow means adding the
+// OTP send/verify step to this form too — out of scope for this fix, but
+// straightforward to add later using the same /auth/otp/send +
+// /auth/otp/verify endpoints the onboarding flow already uses.
+function AccountPanel({ user, plan, payment, circle, setActiveTab, refreshUser }) {
+  const [editing, setEditing] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [form, setForm] = useState({ name: user?.name || "", city: user?.city || "", timezone: user?.timezone || "Asia/Kolkata" });
+
+  const startEdit = () => {
+    setForm({ name: user?.name || "", city: user?.city || "", timezone: user?.timezone || "Asia/Kolkata" });
+    setEditing(true);
+  };
+
+  const save = async () => {
+    if (!form.name.trim()) { toast.error("Name can't be empty."); return; }
+    setBusy(true);
+    try {
+      await api.put("/profile/child", {
+        name: form.name.trim(),
+        phone: user.phone, // unchanged — see note above
+        city: cleanOptionalString(form.city) ?? "",
+        timezone: form.timezone,
+      });
+      toast.success("Profile updated.");
+      setEditing(false);
+      if (refreshUser) {
+        await refreshUser();
+      }
+    } catch (e) {
+      toast.error(formatApiError(e.response?.data?.detail));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="bg-white rounded-xl border border-ayana-line p-6">
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="font-display text-lg font-medium text-ayana-text">Account</h2>
+        {!editing && (
+          <button onClick={startEdit} data-testid="account-edit" className="inline-flex items-center gap-1.5 text-sm text-ayana-primary font-medium hover:text-ayana-primary-hover transition-colors">
+            <Pencil className="w-3.5 h-3.5" /> Edit
+          </button>
+        )}
+      </div>
+
+      {!editing ? (
+        <div className="space-y-2 text-sm text-ayana-secondary">
+          <p><span className="text-ayana-muted">Name:</span> {user?.name}</p>
+          <p><span className="text-ayana-muted">Email:</span> {user?.email}</p>
+          <p><span className="text-ayana-muted">Phone:</span> {user?.phone}</p>
+          <p><span className="text-ayana-muted">City:</span> {user?.city || "—"}</p>
+          <p><span className="text-ayana-muted">Timezone:</span> {user?.timezone || "—"}</p>
+          <p className="flex items-center gap-2">
+            <span className="text-ayana-muted">Plan:</span> {plan?.name} · <span className="capitalize">{payment?.state?.status || "trial"}</span>
+            {circle?.role !== "member" && (
+              <button onClick={() => setActiveTab("plan")} data-testid="manage-plan" className="text-xs font-medium text-ayana-accent underline underline-offset-2 hover:text-ayana-accent-hover">Manage plan</button>
+            )}
+          </p>
+          <p className="flex items-center gap-2"><ShieldCheck className="w-4 h-4 text-ayana-primary" /> Consent on file · Privacy-first</p>
+        </div>
+      ) : (
+        <div className="space-y-4" data-testid="account-edit-form">
+          <div>
+            <label className="text-sm font-medium text-ayana-text">Name</label>
+            <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} data-testid="account-edit-name" className={`mt-1.5 ${inputCls}`} />
+          </div>
+          <div>
+            <label className="text-sm font-medium text-ayana-text">Phone</label>
+            <input value={user?.phone || ""} disabled data-testid="account-edit-phone" className={`mt-1.5 ${inputCls} bg-ayana-alt/50 text-ayana-muted cursor-not-allowed`} />
+            <p className="text-xs text-ayana-muted mt-1">Phone number changes aren't supported here yet — contact support if you need to update it.</p>
+          </div>
+          <div>
+            <label className="text-sm font-medium text-ayana-text">City</label>
+            <input value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} data-testid="account-edit-city" className={`mt-1.5 ${inputCls}`} />
+          </div>
+          <div>
+            <label className="text-sm font-medium text-ayana-text">Timezone</label>
+            <select value={form.timezone} onChange={(e) => setForm({ ...form, timezone: e.target.value })} data-testid="account-edit-timezone" className={`mt-1.5 ${inputCls}`}>
+              {TIMEZONES.map((tz) => <option key={tz.value} value={tz.value}>{tz.label}</option>)}
+            </select>
+          </div>
+          <div className="flex items-center gap-2 pt-2">
+            <button onClick={save} disabled={busy} data-testid="account-edit-save" className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-ayana-primary text-white text-sm font-medium hover:bg-ayana-primary-hover disabled:opacity-50">
+              {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />} Save
+            </button>
+            <button onClick={() => setEditing(false)} disabled={busy} data-testid="account-edit-cancel" className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full border border-ayana-line text-ayana-secondary text-sm font-medium hover:bg-ayana-alt transition-colors">
+              <X className="w-4 h-4" /> Cancel
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -605,9 +698,15 @@ function ParentDialog({ parent, config, limits, plan, schedules = [], onSaved, t
       nicknames: parent.nicknames || [],
       city: parent.city || "",
       other_parent_name: parent.other_parent_name || "",
+      birthday: parent.birthday || "",
+      stories: parent.stories || [],
+      activity_window_start: parent.activity_window_start || "",
+      activity_window_end: parent.activity_window_end || "",
+      auto_activity_detection: parent.auto_activity_detection ?? true,
       medicine_list: parent.medicine_list || [],
       habits: parent.habits || blankParentForm().habits,
       messages: schedMessages.length ? schedMessages : getDefaultMessages(),
+      reengagement_hours: sched?.reengagement_hours ?? 4,
     };
   };
 
@@ -628,8 +727,16 @@ function ParentDialog({ parent, config, limits, plan, schedules = [], onSaved, t
     }
     setBusy(true);
     try {
-      const { messages, ...parentData } = form;
-      const payload = { ...parentData, habits: cleanHabits(form.habits) };
+      // messages and reengagement_hours are schedule-level, not part of
+      // ParentInput — pull both out before sending the parent payload.
+      const { messages, reengagement_hours, ...parentData } = form;
+      const payload = {
+        ...parentData,
+        habits: cleanHabits(form.habits),
+        birthday: cleanOptionalString(form.birthday),
+        activity_window_start: cleanOptionalString(form.activity_window_start),
+        activity_window_end: cleanOptionalString(form.activity_window_end),
+      };
       const { data } = parent ? await api.put(`/parents/${parent.id}`, payload) : await api.post("/parents", payload);
 
       const schedPayload = {
@@ -637,6 +744,7 @@ function ParentDialog({ parent, config, limits, plan, schedules = [], onSaved, t
         mode: plan?.id || "nitya",
         messages: messages,
         active: existingSchedule?.active ?? true,
+        reengagement_hours: reengagement_hours ?? 4,
       };
       if (existingSchedule) {
         await api.put(`/schedules/${existingSchedule.id}`, schedPayload);

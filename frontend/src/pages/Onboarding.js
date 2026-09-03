@@ -215,7 +215,7 @@ export default function Onboarding() {
     if (parentForm.messages.length > maxCheckins) { toast.error(`Your plan allows up to ${maxCheckins} check-ins. Remove some or upgrade.`); return; }
     setLoading(true);
     try {
-      const { messages,...parentData } = parentForm;
+      const { messages, reengagement_hours, ...parentData } = parentForm;
       parentData.habits = cleanHabits(parentData.habits);
       let savedParent;
       if (editingParentId) {
@@ -229,7 +229,7 @@ export default function Onboarding() {
         await api.post("/consent", { consent_type: "parent", agreed: true, text: `Consent confirmed for parent ${parentForm.name}.` });
       }
       const existingSchedId = scheduleIds[savedParent.id];
-      const schedPayload = { parent_id: savedParent.id, mode: planId, messages, active: true };
+      const schedPayload = { parent_id: savedParent.id, mode: planId, messages, active: true, reengagement_hours: reengagement_hours ?? 4 };
       let dropped = savedParent.medicine_reminders_dropped;
       if (existingSchedId) {
         const { data: schedData } = await api.put(`/schedules/${existingSchedId}`, schedPayload);

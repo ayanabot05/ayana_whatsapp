@@ -11,32 +11,86 @@ import { Signal, Wifi, BatteryFull, Check, CheckCheck, Mic } from "lucide-react"
  * Props:
  *  - avatarSrc: image used as the parent's WhatsApp avatar
  *  - parentName: display name shown in the chat header
- *  - messages: [{ from: "ayana" | "parent", text, time }]
+ *  - lang: "en" | "te" | "hi" (controls button labels)
+ *  - messages: [{ from: "ayana" | "parent", text, time, voice?, buttons? }]
+ *    When `buttons` is provided, renders WhatsApp-style quick-reply pills
+ *    below the chat bubble.
  */
-const defaultMessages = [
-  { from: "ayana", text: "Good morning Amma! 🌞 How are you feeling today?", time: "8:02 AM" },
-  { from: "parent", text: "Feeling good today 😊", time: "8:14 AM" },
-  { from: "ayana", text: "So glad to hear that! Did you take your morning medicine?", time: "8:15 AM" },
-  { from: "parent", text: "Yes, just now", time: "8:20 AM", voice: true },
-];
+
+const BUTTON_LABELS = {
+  en: {
+    mood: ["Good 😊", "Okay 🙂", "Not well 😟"],
+    medicine: ["Taken ✅", "Not yet", "Skipped"],
+    reengagement: ["I'm fine", "Need help", "Call me"],
+  },
+  te: {
+    mood: ["బాగున్నా 😊", "పరవాలేదు 🙂", "బాలేదు 😟"],
+    medicine: ["వేసుకున్నా ✅", "ఇంకా లేదు", "వేసుకోలేదు"],
+    reengagement: ["నేను బాగున్నాను", "సహాయం కావాలి", "కాల్ చేయండి"],
+  },
+  hi: {
+    mood: ["अच्छा 😊", "ठीक है 🙂", "ठीक नहीं 😟"],
+    medicine: ["ले लिया ✅", "अभी नहीं", "छोड़ दिया"],
+    reengagement: ["मैं ठीक हूँ", "मदद चाहिए", "कॉल कीजिए"],
+  },
+};
+
+const buildMessages = (lang = "en") => {
+  const labels = BUTTON_LABELS[lang] || BUTTON_LABELS.en;
+  const greetings = {
+    en: "Good morning Amma! 🌞 How are you feeling today?",
+    te: "శుభోదయం అమ్మా! 🌞 ఈరోజు ఎలా ఉన్నారు?",
+    hi: "सुप्रभात अम्मा! 🌞 आज कैसा महसूस कर रही हैं?",
+  };
+  const replies = {
+    en: "Feeling good today 😊",
+    te: "ఈరోజు బాగున్నాను 😊",
+    hi: "आज अच्छा महसूस हो रहा है 😊",
+  };
+  const medChecks = {
+    en: "Time for your morning tablet 💊 Crocin — small white one!",
+    te: "అమ్మా, మందుల టైం 💊 Crocin మాత్ర వేసుకోండి!",
+    hi: "अम्मा, दवाई का समय 💊 Crocin गोली लेना है!",
+  };
+
+  return [
+    {
+      from: "ayana",
+      text: greetings[lang] || greetings.en,
+      time: "8:02 AM",
+      buttons: labels.mood,
+    },
+    { from: "parent", text: replies[lang] || replies.en, time: "8:14 AM" },
+    {
+      from: "ayana",
+      text: medChecks[lang] || medChecks.en,
+      time: "8:15 AM",
+      buttons: labels.medicine,
+    },
+    { from: "parent", text: "", time: "8:20 AM", voice: true },
+  ];
+};
 
 const bubbleVariants = {
   hidden: { opacity: 0, y: 16, scale: 0.96 },
   show: (i) => ({
     opacity: 1, y: 0, scale: 1,
-    transition: { delay: 1.1 + i * 0.55, duration: 0.45, ease: [0.22, 1, 0.36, 1] },
+    transition: { delay: 0.8 + i * 0.5, duration: 0.45, ease: [0.22, 1, 0.36, 1] },
   }),
 };
 
 export function PhoneMockup({
   avatarSrc = "/img_parents.jpg",
   parentName = "Amma",
-  messages = defaultMessages,
+  lang = "en",
+  messages,
   className = "",
 }) {
+  const msgs = messages || buildMessages(lang);
+
   return (
     <div className={`relative mx-auto w-[300px] sm:w-[320px] ${className}`}>
-      {/* Glow behind the phone — bright, not the old dark-emerald glow */}
+      {/* Glow behind the phone */}
       <div
         className="absolute -inset-6 rounded-[3rem] blur-2xl opacity-70"
         style={{ background: "linear-gradient(135deg, rgba(255,107,53,0.35), rgba(255,201,60,0.25))" }}
@@ -74,13 +128,13 @@ export function PhoneMockup({
 
         {/* Chat body */}
         <div
-          className="relative px-3 py-4 space-y-2.5 min-h-[420px]"
+          className="relative px-3 py-4 space-y-2.5 min-h-[460px]"
           style={{
             background:
               "repeating-linear-gradient(135deg, #0B141A, #0B141A 40px, #0E191F 40px, #0E191F 80px)",
           }}
         >
-          {messages.map((m, i) => {
+          {msgs.map((m, i) => {
             const isAyana = m.from === "ayana";
             return (
               <motion.div
@@ -89,10 +143,11 @@ export function PhoneMockup({
                 initial="hidden"
                 animate="show"
                 variants={bubbleVariants}
-                className={`flex ${isAyana ? "justify-start" : "justify-end"}`}
+                className={`flex flex-col ${isAyana ? "items-start" : "items-end"}`}
               >
+                {/* Message bubble */}
                 <div
-                  className={`max-w-[78%] rounded-2xl px-3.5 py-2 text-[13px] leading-snug shadow ${
+                  className={`max-w-[82%] rounded-2xl px-3.5 py-2 text-[13px] leading-snug shadow ${
                     isAyana
                       ? "bg-[#1F2C34] text-white rounded-tl-sm"
                       : "bg-[#DCF8C6] text-[#111B21] rounded-tr-sm"
@@ -125,6 +180,26 @@ export function PhoneMockup({
                     {isAyana && <Check className="w-3 h-3" />}
                   </span>
                 </div>
+
+                {/* Quick-reply button pills — only on AYANA messages */}
+                {isAyana && m.buttons && (
+                  <motion.div
+                    custom={i + 0.5}
+                    initial="hidden"
+                    animate="show"
+                    variants={bubbleVariants}
+                    className="mt-1.5 flex flex-wrap gap-1.5 max-w-[90%]"
+                  >
+                    {m.buttons.map((btn, bi) => (
+                      <span
+                        key={bi}
+                        className="inline-block rounded-full border border-[#00A884]/70 bg-[#0B141A] text-[#00A884] text-[11px] font-medium px-2.5 py-1 leading-none"
+                      >
+                        {btn}
+                      </span>
+                    ))}
+                  </motion.div>
+                )}
               </motion.div>
             );
           })}

@@ -52,7 +52,7 @@ export function Logo({ size = 40, showWord = true, className = "" }) {
         <circle cx="35.5" cy="13.5" r="3.6" fill="#25D366" stroke="#FBF3E2" strokeWidth="1.6" />
       </svg>
       {showWord && (
-        <span className="font-display text-xl font-extrabold tracking-tight text-gradient-gold">AYANA_BOT</span>
+        <span className="font-display text-xl font-extrabold tracking-tight text-gradient-gold">AYANA</span>
       )}
     </span>
   );

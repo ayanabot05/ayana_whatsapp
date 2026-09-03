@@ -16,3 +16,11 @@ export function cleanHabits(habits) {
   const hasAny = Object.values(cleaned).some((v) => v !== null);
   return hasAny ? cleaned : undefined;
 }
+
+// Same idea as cleanHabits but for a single top-level optional HH:MM (or
+// MM-DD) field that isn't nested — activity_window_start/end and birthday
+// all use "" to mean "not set" in the UI, but the backend pattern
+// validators only accept a matching string or null.
+export function cleanOptionalString(value) {
+  return (typeof value === "string" && value.trim() === "") ? null : value;
+}

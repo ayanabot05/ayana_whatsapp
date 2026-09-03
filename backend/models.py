@@ -53,12 +53,9 @@ class MedicineItem(BaseModel):
     shape: Optional[str] = Field(None, max_length=20)
     color: Optional[str] = Field(None, max_length=20)
     timing: Optional[str] = Field(None, max_length=20)
-    # Clock time the reminder should actually send at — distinct from `timing`
-    # (before_food/after_food/etc, descriptive) which has no schedulable time
-    # of its own. Same HH:MM pattern as ScheduleMessage.time.
     reminder_time: Optional[str] = Field(None, pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
     notes: Optional[str] = Field(None, max_length=200)
-    is_recovery: bool = False  # True = extra slot added during Raksha recovery mode
+    is_recovery: bool = False
 
     @field_validator("shape")
     @classmethod
@@ -104,22 +101,17 @@ VALID_CATEGORIES = {
 
 class ParentInput(BaseModel):
     name: str = Field(..., min_length=1, max_length=80)
-    preferred_name: Optional[str] = Field(None, max_length=40)  # default display: Amma/Nanna
-    relationship: str = Field(..., pattern="^(mother|father)$")  # locked — no spouse concept
+    preferred_name: Optional[str] = Field(None, max_length=40)
+    relationship: str = Field(..., pattern="^(mother|father)$")
     phone: str = Field(..., min_length=6, max_length=20)
-    # Was hardcoded ^(en|te|hi)$ — that meant adding a 4th language required
-    # a code change here even after wiring up AI translation in
-    # templates_data.py/translation_engine.py. Now validated dynamically
-    # against templates_data.LANGUAGES, so adding a language is just
-    # appending one entry to that list.
     language: str = Field(..., min_length=2, max_length=8)
     timezone: str = Field(..., min_length=2, max_length=64)
-    city: Optional[str] = Field(None, max_length=80)  # drives seasonal_greeting()
-    other_parent_name: Optional[str] = Field(None, max_length=40)  # "Amma/Nanna had lunch?" — never "spouse"
+    city: Optional[str] = Field(None, max_length=80)
+    other_parent_name: Optional[str] = Field(None, max_length=40)
     notes: Optional[str] = Field(None, max_length=300)
-    birthday: Optional[str] = Field(None, pattern=r"^(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$")  # MM-DD — drives birthday auto-wish
+    birthday: Optional[str] = Field(None, pattern=r"^(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$")
 
-    nicknames: List[str] = Field(default_factory=list)  # max enforced per-plan in the API layer
+    nicknames: List[str] = Field(default_factory=list)
     habits: Optional[HabitsInput] = None
     medicine_list: Optional[List[MedicineItem]] = Field(default_factory=list)
     stories: Optional[List[str]] = Field(default_factory=list, max_length=5)
@@ -127,7 +119,7 @@ class ParentInput(BaseModel):
     # When set, outbound messages are deferred if sent outside this window.
     activity_window_start: Optional[str] = Field(None, pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
     activity_window_end: Optional[str] = Field(None, pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
-    auto_activity_detection: bool = True  # when True, system learns window from replies
+    auto_activity_detection: bool = True
 
     @field_validator("phone")
     @classmethod
@@ -167,17 +159,24 @@ class ParentInput(BaseModel):
             return None
         return v
 
+    @field_validator("activity_window_start", "activity_window_end", mode="before")
+    @classmethod
+    def blank_activity_window_to_none(cls, v):
+        # Same fix as birthday above — the DND start/end time pickers send
+        # "" when left blank, which fails the HH:MM pattern check with a
+        # 422 and breaks saving for any parent who doesn't set a quiet
+        # window. Both fields are optional, so "" should just mean unset.
+        if v is None or (isinstance(v, str) and not v.strip()):
+            return None
+        return v
+
 
 # ---------- Schedule ----------
 class ScheduleMessage(BaseModel):
     time: str = Field(..., pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
     category: str = Field(..., min_length=1, max_length=40)
-    type: Optional[str] = Field(None, max_length=20)  # checkin/reminder — display only
+    type: Optional[str] = Field(None, max_length=20)
     custom_text: Optional[str] = Field(None, max_length=500)
-    # None = added directly by the user in Daily check-ins.
-    # "medicine_sync" = auto-generated from a MedicineItem.reminder_time —
-    # see medicine_sync.py. Lets the sync logic tell its own entries apart
-    # from manual ones so it never overwrites something the user added by hand.
     source: Optional[str] = Field(None, max_length=20)
 
     @field_validator("category")
@@ -193,9 +192,9 @@ class ScheduleInput(BaseModel):
     mode: str = Field("nitya", pattern="^(nitya|bandham|raksha)$")
     messages: List[ScheduleMessage]
     active: bool = True
-    recovery_mode: bool = False           # Raksha-only: extra reminder slots
-    recovery_until: Optional[str] = None  # ISO date — when recovery auto-reverts
-    reengagement_hours: int = Field(4, ge=1, le=24)  # user-configurable, applies to all plans equally
+    recovery_mode: bool = False
+    recovery_until: Optional[str] = None
+    reengagement_hours: int = Field(4, ge=1, le=24)
 
     @field_validator("messages")
     @classmethod
@@ -221,7 +220,7 @@ class RecoveryStartInput(BaseModel):
 # ---------- Preferences ----------
 class PreferencesInput(BaseModel):
     emergency_keywords: Optional[List[str]] = None
-    daily_summary: Optional[bool] = None  # kept for compat; superseded by monthly report
+    daily_summary: Optional[bool] = None
     email_notifications: Optional[bool] = None
     whatsapp_reports: Optional[bool] = None
 

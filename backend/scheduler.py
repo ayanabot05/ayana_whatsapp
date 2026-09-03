@@ -198,17 +198,28 @@ async def _deliver_due_messages_impl():
                 if sent_counts[msg_type] >= limits.get(f"{msg_type}s", 0):
                     continue
 
+                # Only look up a medicine name for actual medicine reminders.
+                # water/bp_check/sugar_check/health_check are NOT tied to any
+                # specific medicine_list entry — they're generic reminders to
+                # perform an action (drink water, measure BP), not to take a
+                # pill. Without this gate, a same-clock-time coincidence (or,
+                # with no match, an unconditional fallback to medicines[0])
+                # could hand an unrelated medicine's name to a non-medicine
+                # reminder once those categories become schedulable from the
+                # UI. See whatsapp.py's _build_approved_template_vars for the
+                # matching fix on the send side.
                 medicine_name = ""
-                medicines = parent.get("medicine_list") or []
-                if medicines:
-                    # Find the medicine whose reminder_time matches this slot
-                    for med in medicines:
-                        if isinstance(med, dict) and med.get("reminder_time") == hhmm:
-                            medicine_name = med.get("name", "")
-                            break
-                    # Fallback to first medicine if no time match found
-                    if not medicine_name and isinstance(medicines[0], dict):
-                        medicine_name = medicines[0].get("name", "")
+                if msg.get("category") == "medicine":
+                    medicines = parent.get("medicine_list") or []
+                    if medicines:
+                        # Find the medicine whose reminder_time matches this slot
+                        for med in medicines:
+                            if isinstance(med, dict) and med.get("reminder_time") == hhmm:
+                                medicine_name = med.get("name", "")
+                                break
+                        # Fallback to first medicine if no time match found
+                        if not medicine_name and isinstance(medicines[0], dict):
+                            medicine_name = medicines[0].get("name", "")
 
                 result = await send_dynamic_checkin(
                     db,

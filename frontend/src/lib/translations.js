@@ -18,6 +18,7 @@ export const translations = {
         { title: "Choose the messages", desc: "Morning hellos, meal and medicine reminders, goodnights." },
         { title: "They reply in one tap", desc: "Good, Okay, or Not well, or a quick voice note." },
         { title: "You get told right away", desc: "A ping reaches you the moment they reply." },
+        { title: "AYANA remembers birthdays & festivals", desc: "Sankranti, Diwali, Holi, their birthday — warm wishes in their language, automatically." },
       ],
     },
     global: {
@@ -54,7 +55,7 @@ export const translations = {
         { title: "Tap a reply, or hold the mic", desc: "Choose Good, Okay or Not well with one tap, or press and hold the 🎤 button to speak instead." },
         { title: "Release to send", desc: "Let go of the mic and it sends, just like any normal WhatsApp voice message." },
       ],
-      fallbackNote: "A sample walkthrough is ready in English below. Telugu and Hindi videos are being recorded as we onboard our first families, every user will get one in their own language.",
+      fallbackNote: "A sample walkthrough is ready in English below. Telugu and Hindi videos are being recorded as we onboard our first families; every user will get one in their own language.",
       watchCta: "Watch the walkthrough",
     },
     faq: {
@@ -71,6 +72,39 @@ export const translations = {
     },
     finalCta: { title: "Give them a hello tonight.", sub: "In a few minutes, your parents can start their mornings knowing you're right there.", cta: "Start connecting" },
     footer: { tagline: "A warm companion that helps you stay close to your parents from afar. AYANA supports your care; it never replaces it.", disclaimer: "AYANA is not an emergency or medical service. In a crisis, contact local emergency services." },
+
+    whatsappDemo: {
+      label: "What Amma actually sees",
+      title: "One tap. That's all it takes.",
+      sub: "Parents don't type a word. AYANA sends a warm message with buttons — they tap one, and you know. That's the whole experience.",
+      langLabels: { en: "English", te: "తెలుగు", hi: "हिंदी" },
+      badge: "Exactly as it appears on WhatsApp",
+    },
+
+    safety: {
+      label: "Your safety net, always on",
+      title: "Even when Amma says \"I'm fine\", AYANA listens.",
+      sub: "Most care apps stop at delivery. AYANA has a two-layer safety net that keeps watching — even when words say one thing and voice says another.",
+      card1Title: "Keyword watch",
+      card1Desc: "Multilingual distress words — help, fell, hospital, chest pain, dizzy — in Telugu, Hindi and English, always active.",
+      card2Title: "AI voice analysis",
+      card2Desc: "Voice notes are transcribed and run through an AI model. If hidden distress is detected even when words seem fine, your family is alerted.",
+      card3Title: "One tap to you",
+      card3Desc: "If they go quiet all day, AYANA gently checks in. \"I'm fine\", \"Need help\", or \"Call me\" — one tap, and you know instantly.",
+      note: "Emergency alerts go to you, your Care Circle, and emergency contacts — all at once.",
+    },
+
+    extras: {
+      label: "A little more love",
+      title: "The details that make it feel like family.",
+      sub: "These aren't gimmicks — they're the things that make Amma feel truly cared for, not just checked on.",
+      items: [
+        { icon: "🎂", title: "Remembers birthdays & festivals", desc: "Auto-sends warm wishes for birthdays, Sankranti, Diwali, Holi and more — in their language." },
+        { icon: "🎤", title: "Their voice, straight to you", desc: "When Amma sends a voice note, it comes to you untouched. Hear her laugh, her tone — not just her words." },
+        { icon: "💊", title: "Medicine down to shape & colour", desc: "\"Your small white Crocin tablet\" — not just a generic reminder. Parents know exactly which pill." },
+        { icon: "👨‍👩‍👧", title: "Siblings can share the watch", desc: "Add up to 2 family members on the Raksha plan. Everyone sees the same updates. Billing stays with you." },
+      ],
+    },
   },
 
   te: {
@@ -92,6 +126,7 @@ export const translations = {
         { title: "సందేశాలను ఎంచుకోండి", desc: "గుడ్ మార్నింగ్, భోజన & మందుల రిమైండర్లు, గుడ్ నైట్." },
         { title: "ఒక్క టాప్‌తో రిప్లై", desc: "బాగున్నా, ఫర్వాలేదు, లేదా ఒంట్లో బాలేదు, లేదా వాయిస్ నోట్." },
         { title: "మీకు వెంటనే తెలుస్తుంది", desc: "వారు రిప్లై ఇచ్చిన క్షణంలోనే మీకు నోటిఫికేషన్." },
+        { title: "AYANA జన్మదినాలు, పండుగలు గుర్తుపెట్టుకుంటుంది", desc: "సంక్రాంతి, దీపావళి, జన్మదినం — వారి భాషలో హృదయపూర్వక శుభాకాంక్షలు పంపుతుంది." },
       ],
     },
     global: {
@@ -128,7 +163,7 @@ export const translations = {
         { title: "రిప్లై నొక్కండి, లేదా మైక్ పట్టుకోండి", desc: "బాగుంది, ఫర్వాలేదు, లేదా బాలేదు అని ఒక్క నొక్కుతో ఎంచుకోండి, లేదా 🎤 బటన్‌ని నొక్కిపట్టి మాట్లాడండి." },
         { title: "వదిలేస్తే పంపుతుంది", desc: "మైక్ వదిలేయండి, అది ఒక సాధారణ వాట్సాప్ వాయిస్ మెసేజ్‌లాగే పంపబడుతుంది." },
       ],
-      fallbackNote: "ఇంగ్లీష్‌లో ఒక నమూనా వీడియో దిగువన సిద్ధంగా ఉంది. మొదటి కుటుంబాలు చేరుతుండగా తెలుగు, హిందీ వీడియోలు రికార్డ్ చేస్తున్నాం, ప్రతి యూజర్‌కి వారి సొంత భాషలో ఒకటి వస్తుంది.",
+      fallbackNote: "ఇంగ్లీష్‌లో ఒక నమూనా వీడియో దిగువన సిద్ధంగా ఉంది. మొదటి కుటుంబాలు చేరుతుండగా తెలుగు, హిందీ వీడియోలు రికార్డ్ చేస్తున్నాం; ప్రతి యూజర్‌కి వారి సొంత భాషలో ఒకటి వస్తుంది.",
       watchCta: "వాక్‌త్రూ చూడండి",
     },
     faq: {
@@ -145,6 +180,39 @@ export const translations = {
     },
     finalCta: { title: "ఈ రాత్రే వారికి ఒక హలో పంపండి.", sub: "కొన్ని నిమిషాల్లో, మీరు వారి పక్కనే ఉన్నారన్న భావనతో వారి ఉదయాలు మొదలవుతాయి.", cta: "కనెక్ట్ అవ్వండి" },
     footer: { tagline: "దూరం నుండి మీ అమ్మానాన్నలకు దగ్గరగా ఉండటానికి సహాయపడే ప్రేమ కంపానియన్. AYANA మీ శ్రద్ధకు మద్దతు; దాన్ని భర్తీ చేయదు.", disclaimer: "AYANA ఎమర్జెన్సీ లేదా మెడికల్ సర్వీస్ కాదు. అత్యవసరంలో స్థానిక ఎమర్జెన్సీ సర్వీసులను సంప్రదించండి." },
+
+    whatsappDemo: {
+      label: "అమ్మ నిజంగా ఏమి చూస్తారు",
+      title: "ఒక్క నొక్కు. అంతే.",
+      sub: "అమ్మ ఒక్క అక్షరం టైప్ చేయరు. AYANA ఒక వేడి సందేశం బటన్లతో పంపుతుంది — వారు నొక్కితే మీకు తెలుసు.",
+      langLabels: { en: "English", te: "తెలుగు", hi: "हिंदी" },
+      badge: "వాట్సాప్‌లో అచ్చంగా ఇలానే కనిపిస్తుంది",
+    },
+
+    safety: {
+      label: "మీ రక్షణ వలయం, ఎప్పుడూ",
+      title: "అమ్మ \"బాగున్నా\" అన్నా, AYANA వింటుంది.",
+      sub: "చాలా కేర్ యాప్లు డెలివరీతో ఆగిపోతాయి. AYANA రెండు పొరల రక్షణ వ్యవస్థతో నిరంతరం గమనిస్తుంది.",
+      card1Title: "పదాల పర్యవేక్షణ",
+      card1Desc: "సహాయం, పడిపోయా, హాస్పిటల్, నొప్పి — తెలుగు, హిందీ, ఇంగ్లీష్‌లో అత్యవసర పదాలు ఎప్పుడూ చెక్ అవుతాయి.",
+      card2Title: "AI వాయిస్ విశ్లేషణ",
+      card2Desc: "వాయిస్ నోట్లు ట్రాన్స్‌క్రిప్ట్ చేయబడి AI మోడల్ ద్వారా విశ్లేషించబడతాయి. పదాలు 'బాగున్నా' అన్నా స్వరం కష్టాన్ని చెప్పినా, కుటుంబం అప్రమత్తం అవుతుంది.",
+      card3Title: "ఒక నొక్కు మీకు",
+      card3Desc: "రోజంతా సైలెంట్‌గా ఉంటే, AYANA మెల్లగా చెక్ చేస్తుంది. 'బాగున్నా', 'సహాయం కావాలి', లేదా 'కాల్ చేయండి' — ఒక నొక్కు, మీకు వెంటనే తెలుసు.",
+      note: "ఎమర్జెన్సీ అలర్ట్లు మీకు, మీ కేర్ సర్కిల్‌కి, అత్యవసర సంప్రదింపులకు — అందరికీ ఒకేసారి వెళ్తాయి.",
+    },
+
+    extras: {
+      label: "కొంచెం ఎక్కువ ప్రేమ",
+      title: "కుటుంబంలా అనిపించే వివరాలు.",
+      sub: "ఇవి గిమ్మిక్కులు కాదు — అమ్మ నిజంగా ప్రేమించబడిందని అనిపించే విషయాలు.",
+      items: [
+        { icon: "🎂", title: "జన్మదినాలు & పండుగలు గుర్తుపెట్టుకుంటుంది", desc: "సంక్రాంతి, దీపావళి, హోళి, జన్మదినం — వారి భాషలో హృదయపూర్వక శుభాకాంక్షలు." },
+        { icon: "🎤", title: "వారి స్వరం నేరుగా మీకు", desc: "అమ్మ వాయిస్ నోట్ పంపినప్పుడు, అది మీకు అంతటినీ వినిపిస్తుంది — పదాలు మాత్రమే కాదు." },
+        { icon: "💊", title: "మందు ఆకారం & రంగు దాకా", desc: "'మీ చిన్న తెల్లని Crocin మాత్ర' — సాధారణ రిమైండర్ కాదు. అమ్మ సరిగ్గా ఏ మాత్రో తెలుసుకుంటారు." },
+        { icon: "👨‍👩‍👧", title: "అన్నదమ్ముల బాధ్యత పంచుకోవచ్చు", desc: "రక్ష ప్లాన్‌లో 2 మంది కుటుంబ సభ్యులు జోడించవచ్చు. అందరూ ఒకే అప్‌డేట్లు చూస్తారు." },
+      ],
+    },
   },
 
   hi: {
@@ -166,6 +234,7 @@ export const translations = {
         { title: "संदेश चुनें", desc: "सुबह का हेलो, खाना व दवाई रिमाइंडर, शुभ रात्रि।" },
         { title: "एक टैप में जवाब", desc: "ठीक हूँ, ठीक-ठाक, या तबीयत ठीक नहीं, या एक वॉइस नोट।" },
         { title: "आपको तुरंत पता चले", desc: "जैसे ही वे जवाब दें, आपको सूचना मिलती है।" },
+        { title: "AYANA जन्मदिन और त्योहार याद रखता है", desc: "संक्रांति, दिवाली, होली, जन्मदिन — उनकी भाषा में दिल से शुभकामनाएँ।" },
       ],
     },
     global: {
@@ -202,7 +271,7 @@ export const translations = {
         { title: "जवाब टैप करें, या माइक दबाकर रखें", desc: "एक टैप में ठीक हूँ, ठीक-ठाक या तबीयत ठीक नहीं चुनें, या 🎤 बटन दबाकर बोलें।" },
         { title: "छोड़ते ही भेज जाता है", desc: "माइक छोड़ दें, यह एक सामान्य व्हाट्सएप वॉइस मैसेज की तरह भेज दिया जाता है।" },
       ],
-      fallbackNote: "नीचे अंग्रेज़ी में एक सैंपल वीडियो तैयार है। जैसे-जैसे पहले परिवार जुड़ेंगे, तेलुगु और हिंदी वीडियो रिकॉर्ड किए जा रहे हैं, हर उपयोगकर्ता को अपनी भाषा में एक मिलेगा।",
+      fallbackNote: "नीचे अंग्रेज़ी में एक सैंपल वीडियो तैयार है। जैसे-जैसे पहले परिवार जुड़ेंगे, तेलुगु और हिंदी वीडियो रिकॉर्ड किए जा रहे हैं; हर उपयोगकर्ता को अपनी भाषा में एक मिलेगा।",
       watchCta: "वॉकथ्रू देखें",
     },
     faq: {
@@ -219,5 +288,38 @@ export const translations = {
     },
     finalCta: { title: "आज रात उन्हें एक हेलो भेजें।", sub: "कुछ मिनटों में, आपके माता-पिता की सुबह इस एहसास से शुरू होगी कि आप पास हैं।", cta: "जुड़ना शुरू करें" },
     footer: { tagline: "एक गर्मजोशी भरा साथी जो आपको दूर से भी माता-पिता के करीब रखता है। AYANA आपकी देखभाल का साथ देता है; उसकी जगह नहीं लेता।", disclaimer: "AYANA कोई इमरजेंसी या मेडिकल सेवा नहीं है। संकट में स्थानीय इमरजेंसी सेवाओं से संपर्क करें।" },
+
+    whatsappDemo: {
+      label: "अम्मा को क्या दिखता है",
+      title: "एक टैप। बस इतना काफ़ी है।",
+      sub: "माता-पिता एक शब्द भी नहीं टाइप करते। AYANA एक गर्म संदेश बटन के साथ भेजता है — वे टैप करते हैं, और आपको पता चल जाता है।",
+      langLabels: { en: "English", te: "తెలుగు", hi: "हिंदी" },
+      badge: "व्हाट्सएप पर बिल्कुल ऐसा ही दिखता है",
+    },
+
+    safety: {
+      label: "आपका सुरक्षा कवच, हमेशा",
+      title: "जब अम्मा कहें \"ठीक हूँ\", तब भी AYANA सुनता है।",
+      sub: "ज़्यादातर केयर ऐप्स डिलीवरी पर रुक जाते हैं। AYANA एक दो-परत का सुरक्षा जाल रखता है — जब शब्द एक बात कहें और आवाज़ दूसरी।",
+      card1Title: "शब्दों की निगरानी",
+      card1Desc: "मदद, गिर गई, हस्पताल, सीने में दर्द, चक्कर — तेलुगु, हिंदी और अंग्रेज़ी में आपातकालीन शब्द हमेशा जाँचे जाते हैं।",
+      card2Title: "AI आवाज़ विश्लेषण",
+      card2Desc: "वॉइस नोट्स AI मॉडल से गुजरती हैं। शब्द 'ठीक हूँ' कहें पर आवाज़ में तकलीफ़ हो, तो परिवार को तुरंत सूचना मिलती है।",
+      card3Title: "एक टैप आपको",
+      card3Desc: "पूरा दिन चुप रहें तो AYANA धीरे से पूछता है। 'मैं ठीक हूँ', 'मदद चाहिए', या 'कॉल कीजिए' — एक टैप, आपको फ़ौरन पता चलता है।",
+      note: "आपातकालीन अलर्ट आपको, आपके केयर सर्कल और इमरजेंसी संपर्कों को — सबको एक साथ जाते हैं।",
+    },
+
+    extras: {
+      label: "थोड़ा और प्यार",
+      title: "वो बारीकियाँ जो परिवार जैसा एहसास देती हैं।",
+      sub: "ये दिखावा नहीं — ये वो चीज़ें हैं जो अम्मा को महसूस कराती हैं कि उनकी सच में देखभाल हो रही है।",
+      items: [
+        { icon: "🎂", title: "जन्मदिन और त्योहार याद रखता है", desc: "संक्रांति, दिवाली, होली, जन्मदिन — उनकी भाषा में दिल से शुभकामनाएँ।" },
+        { icon: "🎤", title: "उनकी आवाज़, सीधे आपतक", desc: "जब अम्मा वॉइस नोट भेजती हैं, वह आपतक अनछुई पहुँचती है — उनकी हँसी, उनका लहजा।" },
+        { icon: "💊", title: "दवाई का रंग और आकार तक", desc: "'आपकी छोटी सफ़ेद Crocin गोली' — सिर्फ़ रिमाइंडर नहीं। अम्मा जानती हैं ठीक कौन सी गोली।" },
+        { icon: "👨‍👩‍👧", title: "भाई-बहन मिलकर देख सकते हैं", desc: "राक्षा प्लान में 2 परिवार सदस्य जोड़ें। सबको एक जैसे अपडेट मिलते हैं।" },
+      ],
+    },
   },
 };

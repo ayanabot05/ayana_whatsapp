@@ -28,7 +28,7 @@ export function AuthBrandPanel({ headline, subtext, bullets = [], footer, showPh
       {/* Logo */}
       <Link to="/" className="relative flex items-center gap-3">
         <Logo size={38} showWord={false} />
-        <span className="font-display text-xl font-bold text-white">AYANA_BOT</span>
+        <span className="font-display text-xl font-bold text-white">AYANA</span>
       </Link>
 
       {/* Main content */}

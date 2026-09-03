@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import {
   MessageCircle, Globe, ShieldCheck, ArrowRight, Check, Mic, Clock, Languages,
-  PlayCircle, Heart, ArrowUpRight,
+  PlayCircle, Heart, ArrowUpRight, AlertTriangle, Sparkles, Gift, Users,
 } from "lucide-react";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { HighlightText } from "@/components/HighlightText";
@@ -47,15 +47,82 @@ function Eyebrow({ children, center = false }) {
   );
 }
 
+// ── Mini WhatsApp chat panel used in the "What Amma Sees" section ────────────
+const CHAT_DATA = {
+  en: {
+    name: "Amma",
+    time: "8:02 AM",
+    msg: "Good morning Amma! 🌞 How are you feeling today?",
+    buttons: ["Good 😊", "Okay 🙂", "Not well 😟"],
+  },
+  te: {
+    name: "అమ్మ",
+    time: "8:02 AM",
+    msg: "శుభోదయం అమ్మా! 🌞 ఈరోజు ఎలా ఉన్నారు?",
+    buttons: ["బాగున్నా 😊", "పరవాలేదు 🙂", "బాలేదు 😟"],
+  },
+  hi: {
+    name: "अम्मा",
+    time: "8:02 AM",
+    msg: "सुप्रभात अम्मा! 🌞 आज कैसा महसूस कर रही हैं?",
+    buttons: ["अच्छा 😊", "ठीक है 🙂", "ठीक नहीं 😟"],
+  },
+};
+
+function MiniChatPanel({ langCode, isActive }) {
+  const data = CHAT_DATA[langCode];
+  return (
+    <div className={`rounded-2xl overflow-hidden shadow-lg border transition-all duration-300 ${isActive ? "border-[#25D366]/60 shadow-[#25D366]/10 scale-[1.02]" : "border-ayana-line opacity-75"}`}>
+      {/* WA header */}
+      <div className="bg-[#075E54] px-4 py-3 flex items-center gap-3">
+        <div className="w-8 h-8 rounded-full bg-ayana-gold/30 flex items-center justify-center text-base">👵</div>
+        <div>
+          <p className="text-white text-sm font-semibold leading-none">{data.name}</p>
+          <p className="text-white/60 text-[11px] mt-0.5">via AYANA · online</p>
+        </div>
+        <span className="ml-auto w-2 h-2 rounded-full bg-[#25D366] animate-pulse" />
+      </div>
+      {/* Chat area */}
+      <div className="bg-[#0B141A] px-3 py-4 space-y-3 min-h-[160px]">
+        {/* AYANA bubble */}
+        <div className="max-w-[88%] bg-[#1F2C34] rounded-2xl rounded-tl-sm px-3.5 py-2.5">
+          <p className="text-white text-[12px] leading-relaxed">{data.msg}</p>
+          <p className="text-white/40 text-[10px] text-right mt-1">{data.time} ✓</p>
+        </div>
+        {/* Quick-reply buttons */}
+        <div className="flex flex-wrap gap-1.5 pt-0.5">
+          {data.buttons.map((btn, i) => (
+            <span key={i} className="inline-block rounded-full border border-[#00A884]/70 bg-[#0B141A] text-[#00A884] text-[11px] font-medium px-2.5 py-1 leading-none">
+              {btn}
+            </span>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Cost transparency icon grid ───────────────────────────────────────────────
+const COST_ITEMS = [
+  { icon: "📱", label: "WhatsApp messaging fees" },
+  { icon: "🤖", label: "AI voice & language processing" },
+  { icon: "🔒", label: "Secure hosting & database" },
+  { icon: "💛", label: "Keeping AYANA running & improving" },
+];
+
 export default function Landing() {
   const { config } = useAuth();
   const { t, lang, setLang } = useLang();
 
   const [modalOpen, setModalOpen] = useState(false);
+  const [demoLang, setDemoLang] = useState("en");
 
   const steps        = t("how.steps");
   const faqItems     = t("faq.items");
   const globalPoints = t("global.points");
+  const safetyT      = t("safety");
+  const extrasT      = t("extras");
+  const demoT        = t("whatsappDemo");
 
   return (
     <div data-lang={lang} className="relative min-h-screen overflow-x-hidden bg-warm-cream text-ayana-text">
@@ -209,8 +276,55 @@ export default function Landing() {
           </div>
         </section>
 
+        {/* ══ WHAT AMMA SEES — multilingual WhatsApp button demo ══ */}
+        <section id="what-they-see" className="bg-warm-cream">
+          <div className="max-w-7xl mx-auto px-5 sm:px-8 py-20 lg:py-28">
+            <div className="text-center max-w-2xl mx-auto mb-12">
+              <Eyebrow center>{demoT.label}</Eyebrow>
+              <h2 className="font-display font-extrabold text-3xl sm:text-4xl lg:text-5xl leading-[1.05] text-ayana-text">
+                <HighlightText text={demoT.title} ranges={[[0, 0.3]]} colors={["text-gradient-gold"]} />
+              </h2>
+              <p className="font-serif text-xl sm:text-2xl text-ayana-secondary mt-4">{demoT.sub}</p>
+            </div>
+
+            {/* Language selector pills */}
+            <div className="flex justify-center gap-2 mb-8">
+              {Object.entries(demoT.langLabels).map(([code, label]) => (
+                <button
+                  key={code}
+                  onClick={() => setDemoLang(code)}
+                  className={`px-5 py-2 rounded-full text-sm font-semibold border transition-all ${
+                    demoLang === code
+                      ? "bg-ayana-gold text-white border-ayana-gold shadow-sm"
+                      : "bg-white text-ayana-secondary border-ayana-line hover:border-ayana-gold/50"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            {/* Three chat panels — one per language, active one highlighted */}
+            <div className="grid sm:grid-cols-3 gap-4 max-w-4xl mx-auto">
+              {["en", "te", "hi"].map((code) => (
+                <div key={code} onClick={() => setDemoLang(code)} className="cursor-pointer">
+                  <MiniChatPanel langCode={code} isActive={demoLang === code} />
+                </div>
+              ))}
+            </div>
+
+            {/* Badge */}
+            <div className="mt-8 flex justify-center">
+              <span className="inline-flex items-center gap-2 text-xs font-medium text-ayana-secondary bg-white border border-ayana-line px-4 py-2 rounded-full shadow-sm">
+                <MessageCircle className="w-3.5 h-3.5 text-[#25D366]" />
+                {demoT.badge}
+              </span>
+            </div>
+          </div>
+        </section>
+
         {/* ══ GLOBAL — big statement ══ */}
-        <section className="bg-warm-cream relative overflow-hidden">
+        <section className="bg-warm-peach relative overflow-hidden">
           <div className="max-w-7xl mx-auto px-5 sm:px-8 py-20 lg:py-28 grid lg:grid-cols-12 gap-14 items-center">
             <div className="lg:col-span-7">
               <Eyebrow><span className="inline-flex items-center gap-2"><Globe className="w-4 h-4" /> {t("global.label")}</span></Eyebrow>
@@ -245,6 +359,62 @@ export default function Landing() {
                   </div>
                 </div>
               </div>
+            </div>
+          </div>
+        </section>
+
+        {/* ══ AI GUARDIAN — safety / distress detection ══ */}
+        <section id="safety" className="bg-warm-cream">
+          <div className="max-w-7xl mx-auto px-5 sm:px-8 py-20 lg:py-28">
+            <div className="text-center max-w-2xl mx-auto mb-14">
+              <Eyebrow center>
+                <span className="inline-flex items-center gap-2">
+                  <ShieldCheck className="w-4 h-4" /> {safetyT.label}
+                </span>
+              </Eyebrow>
+              <h2 className="font-display font-extrabold text-3xl sm:text-4xl lg:text-5xl leading-[1.05] text-ayana-text">
+                <HighlightText text={safetyT.title} ranges={[[0.55, 1.0]]} colors={["text-gradient-gold"]} />
+              </h2>
+              <p className="font-serif text-xl sm:text-2xl text-ayana-secondary mt-4 leading-snug">{safetyT.sub}</p>
+            </div>
+
+            <div className="grid md:grid-cols-3 gap-6 max-w-5xl mx-auto">
+              {/* Card 1 — Keyword watch */}
+              <div className="rounded-2xl border border-ayana-line bg-white p-6 shadow-sm flex flex-col gap-4">
+                <span className="w-12 h-12 rounded-xl bg-amber-50 border border-amber-200 flex items-center justify-center text-xl shrink-0">🔍</span>
+                <div>
+                  <h3 className="font-display text-lg font-bold text-ayana-text">{safetyT.card1Title}</h3>
+                  <p className="text-[15px] text-ayana-secondary leading-relaxed mt-2">{safetyT.card1Desc}</p>
+                </div>
+              </div>
+
+              {/* Card 2 — AI voice analysis — featured */}
+              <div className="rounded-2xl border-2 border-ayana-gold/40 bg-white p-6 shadow-lg flex flex-col gap-4 relative overflow-hidden">
+                <div className="absolute top-0 right-0 w-24 h-24 rounded-full blur-2xl" style={{ background: "rgba(212,150,10,0.12)" }} />
+                <span className="relative z-10 w-12 h-12 rounded-xl flex items-center justify-center text-xl shrink-0" style={{ background: "rgba(212,150,10,0.10)", border: "1px solid rgba(212,150,10,0.25)" }}>🎤</span>
+                <div className="relative z-10">
+                  <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-ayana-gold bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full mb-2">
+                    <Sparkles className="w-2.5 h-2.5" /> AI-powered
+                  </span>
+                  <h3 className="font-display text-lg font-bold text-ayana-text">{safetyT.card2Title}</h3>
+                  <p className="text-[15px] text-ayana-secondary leading-relaxed mt-2">{safetyT.card2Desc}</p>
+                </div>
+              </div>
+
+              {/* Card 3 — One tap */}
+              <div className="rounded-2xl border border-ayana-line bg-white p-6 shadow-sm flex flex-col gap-4">
+                <span className="w-12 h-12 rounded-xl bg-red-50 border border-red-200 flex items-center justify-center text-xl shrink-0">📞</span>
+                <div>
+                  <h3 className="font-display text-lg font-bold text-ayana-text">{safetyT.card3Title}</h3>
+                  <p className="text-[15px] text-ayana-secondary leading-relaxed mt-2">{safetyT.card3Desc}</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Alert note */}
+            <div className="mt-8 max-w-xl mx-auto flex items-start gap-3 rounded-2xl border border-red-200/60 bg-red-50/50 px-5 py-4">
+              <AlertTriangle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
+              <p className="text-sm text-ayana-secondary leading-relaxed">{safetyT.note}</p>
             </div>
           </div>
         </section>
@@ -289,6 +459,29 @@ export default function Landing() {
           </div>
         </section>
 
+        {/* ══ A LITTLE MORE LOVE — emotional feature highlights ══ */}
+        <section className="bg-warm-gold">
+          <div className="max-w-7xl mx-auto px-5 sm:px-8 py-20 lg:py-24">
+            <div className="text-center max-w-2xl mx-auto mb-12">
+              <Eyebrow center>{extrasT.label}</Eyebrow>
+              <h2 className="font-display font-extrabold text-3xl sm:text-4xl lg:text-5xl leading-[1.05] text-ayana-text">
+                <HighlightText text={extrasT.title} ranges={[[0.55, 1.0]]} colors={["text-gradient-gold"]} />
+              </h2>
+              <p className="font-serif text-xl sm:text-2xl text-ayana-secondary mt-4">{extrasT.sub}</p>
+            </div>
+
+            <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-5">
+              {extrasT.items.map((item, i) => (
+                <div key={i} className="rounded-2xl border border-ayana-line bg-white p-6 shadow-sm flex flex-col gap-3">
+                  <span className="text-3xl">{item.icon}</span>
+                  <h3 className="font-display text-base font-bold text-ayana-text leading-tight">{item.title}</h3>
+                  <p className="text-sm text-ayana-secondary leading-relaxed">{item.desc}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+
         {/* ══ PRICING ══ */}
         <section id="pricing" className="bg-warm-cream">
           <div className="max-w-5xl mx-auto px-5 sm:px-8 py-20 lg:py-28">
@@ -300,12 +493,28 @@ export default function Landing() {
               <p className="font-serif text-xl sm:text-2xl text-ayana-secondary mt-4">{t("pricing.sub")}</p>
             </div>
             <PricingCards plans={config?.plans?.length ? config.plans : FALLBACK_PLANS} currencies={config?.currencies?.length ? config.currencies : FALLBACK_CURRENCIES} />
-            <div className="mt-8 max-w-2xl mx-auto rounded-2xl border border-ayana-line bg-white p-5 flex items-start gap-4 shadow-sm">
-              <span className="icon-well-gold w-9 h-9 rounded-lg flex items-center justify-center shrink-0 mt-0.5">
-                <ShieldCheck className="w-4 h-4" />
-              </span>
-              <p className="text-sm text-ayana-secondary leading-relaxed">{t("pricing.value")}</p>
+
+            {/* Cost transparency — icon grid */}
+            <div className="mt-8 max-w-2xl mx-auto rounded-2xl border border-ayana-line bg-white p-6 shadow-sm">
+              <div className="flex items-center gap-2 mb-4">
+                <span className="icon-well-gold w-7 h-7 rounded-md flex items-center justify-center shrink-0">
+                  <ShieldCheck className="w-3.5 h-3.5" />
+                </span>
+                <p className="text-sm font-semibold text-ayana-text">Where your subscription goes</p>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                {COST_ITEMS.map(({ icon, label }) => (
+                  <div key={label} className="flex items-center gap-3 rounded-xl bg-warm-cream/60 border border-ayana-line/50 px-3 py-2.5">
+                    <span className="text-xl leading-none shrink-0">{icon}</span>
+                    <span className="text-xs text-ayana-secondary leading-snug">{label}</span>
+                  </div>
+                ))}
+              </div>
+              <p className="mt-4 text-xs text-ayana-muted leading-relaxed">
+                We built AYANA to be affordable first — what's left after operating costs keeps it running and improving.
+              </p>
             </div>
+
             <div className="mt-8 text-center">
               <Link to="/signup" data-testid="pricing-cta" onClick={() => trackEvent("cta_click", { id: "pricing" })}
                 className="btn-saffron btn-tactile inline-flex items-center gap-2 px-8 py-4 rounded-full font-semibold">
@@ -381,7 +590,7 @@ export default function Landing() {
                 <Link to="/disclaimer" className="hover:text-ayana-gold transition-colors">Disclaimer</Link>
               </div>
               <p className="text-xs max-w-xs text-ayana-muted">{t("footer.disclaimer")}</p>
-              <p className="text-xs text-ayana-muted">© {new Date().getFullYear()} AYANA_BOT. Made with 💛</p>
+              <p className="text-xs text-ayana-muted">© {new Date().getFullYear()} AYANA. Made with 💛</p>
             </div>
           </div>
         </footer>

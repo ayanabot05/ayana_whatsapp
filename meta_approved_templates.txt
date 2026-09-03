@@ -5,12 +5,12 @@ ayana_opener_te • Telugu - నమస్తే {{1}}! AYANA {{2}} కోసం 
 ayana_opener_hi • Hindi - नमस्ते {{1}}! AYANA {{2}} के लिए चेक-इन कर रही है। आज आप कैसा महसूस कर रहे हैं?
 
 
-ayana_mood_te • Telugu - 💬 ఈరోజు {{1}} ఎలా ఉన్నారు?
+ayana_mood_te • Telugu - 💬 {{1}} ఈరోజు ఎలా ఉన్నారు?
 ayana_mood_en • English - 💬 {{1}} How are you feeling right now? 💛
-ayana_mood_hi • Hindi - 💬 आज {{1}} कैसा महसूस कर रहे हैं?
+ayana_mood_hi • Hindi - 💬 {{1}} आज कैसा महसूस कर रहे हैं?
 
 
-ayana_meal_en • English🍽 Lunchtime! Eat well {{1}} and rest for some time.
+ayana_meal_en • English - 🍽 {{1}}, have you eaten? Eat well and rest for some time.
 ayana_meal_hi · Hindi - 🍽 {{1}}, खाने का समय! 🍽 अच्छे से खाना, फिर थोड़ा आराम करना।
 ayana_meal_te • Telugu - 🍽️ {{1}}, భోజనం చేశారా?
 
@@ -18,16 +18,16 @@ ayana_meal_te • Telugu - 🍽️ {{1}}, భోజనం చేశారా?
 
 ayana_medicine_hi · Hindi - ⏰ {{1}}, दवाई का समय हो गया है। अपनी {{2}} की टैबलेट खा लीजिए, भूलना मत!
 ayana_medicine_te • Telugu - ⏰{{1}}, మందుల టైం మీ {{2}}  టాబ్లెట్ 💊 వేసుకోండి, మర్చిపోకండి!
-ayana_medicine_en · English - 💊 {{1}} Time for medicine.
+ayana_medicine_en · English - 💊 {{1}} Time for a {{2}} tablet.
 
 
 ayana_reengagement_en: Hi {{1}}, I haven't heard from you today. Everything okay? Reply whenever you can. — Sample: {{1}}=Amma
-ayana_reengagement_te: నమస్తే {{1}}, ఈరోజు మీ నుండి రిప్లై రాలేదు. అంతా బాగానే ఉందా? వీలున్నప్పుడు రిప్లై ఇవ్వండి.
+ayana_reengagement_te: హలో {{1}}, ఈరోజు మీ నుండి రిప్లై రాలేదు. అంతా బాగానే ఉందా? వీలున్నప్పుడు రిప్లై ఇవ్వండి.
 ayana_reengagement_hi: नमस्ते {{1}}, आज आपसे जवाब नहीं मिला। सब ठीक तो है? जब समय हो जवाब दें।
 
-ayana_report_ready_en · English - 📋 {{1}}'s monthly wellness report is ready. Open the AYANA dashboard to view check-ins, mood trends, and medicine adherence.
-ayana_report_ready_hi · Hindi - 📋 {{1}} की मासिक वेलनेस रिपोर्ट तैयार है। चेक-इन, मूड ट्रेंड और दवा अनुपालन देखने के लिए AYANA डैशबोर्ड खोलें।
-ayana_report_ready_te · Telugu - 📋 {{1}} యొక్క నెలవారీ వెల్‌నెస్ రిపోర్ట్ సిద్ధంగా ఉంది. చెక్-ఇన్‌లు, మూడ్ ట్రెండ్‌లు, మందుల వినియోగం చూడటానికి AYANA డాష్‌బోర్డ్ తెరవండి.
+ayana_report_ready_en · English - 📋 {{1}}'s monthly wellness report is ready. Open the AYANA BOT dashboard to view check-ins, mood trends, and medicine adherence.
+ayana_report_ready_hi · Hindi - 📋 {{1}} की मासिक वेलनेस रिपोर्ट तैयार है। चेक-इन, मूड ट्रेंड और दवा अनुपालन देखने के लिए AYANA BOT डैशबोर्ड खोलें।
+ayana_report_ready_te · Telugu - 📋 {{1}} యొక్క నెలవారీ వెల్‌నెస్ రిపోర్ట్ సిద్ధంగా ఉంది. చెక్-ఇన్‌లు, మూడ్ ట్రెండ్‌లు, మందుల వినియోగం చూడటానికి AYANA BOT డాష్‌బోర్డ్ తెరవండి.
 
 
 

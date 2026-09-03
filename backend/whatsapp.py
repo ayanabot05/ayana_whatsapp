@@ -307,13 +307,39 @@ async def mark_reengagement_sent(db, parent_id) -> None:
 # is NOT one of those variables — it's only for send_dynamic_checkin
 # (in-session free replies, unrestricted by Meta). Each template_key gets
 # its own short {{2}} value here instead.
+#
+# `medicine`, `water`, `bp_check`, `sugar_check`, and `health_check` all
+# route through the same approved `ayana_medicine` template (see
+# get_template_sid_key in templates_data.py), so template_key alone can't
+# tell them apart by the time we get here — `category` is what actually
+# distinguishes a real medicine reminder ("time for your Metformin tablet")
+# from a generic reminder ("time for your BP check"). Without this, every
+# non-medicine reminder rendered as "time for your your medicine tablet".
+_NON_MEDICINE_REMINDER_LABELS = {
+    "water": "water",
+    "bp_check": "BP check",
+    "sugar_check": "sugar check",
+    "health_check": "health check",
+}
+
+
 def _build_approved_template_vars(
-    template_key: str, preferred: str, parent: Dict[str, Any], language: str, medicine_name: str
+    template_key: str, category: str, preferred: str, parent: Dict[str, Any], language: str, medicine_name: str
 ) -> Dict[str, str]:
     if template_key == "opener":
         return {"1": preferred, "2": parent_relation_label(parent, language)}
     if template_key == "medicine":
-        return {"1": preferred, "2": medicine_name or "your medicine"}
+        if category == "medicine":
+            # Real medicine reminder — say what it is AND that it's a
+            # tablet, since the drug name alone ("Metformin") isn't
+            # self-explanatory on its own.
+            name = medicine_name or "your medicine"
+            label = f"{name} tablet" if not name.lower().endswith("tablet") else name
+        else:
+            # water/bp_check/sugar_check/health_check — not a medicine at
+            # all, so no "tablet" wording.
+            label = _NON_MEDICINE_REMINDER_LABELS.get(category, medicine_name or "your medicine")
+        return {"1": preferred, "2": label}
     return {"1": preferred}  # mood, meal, reengagement
 
 
@@ -340,7 +366,7 @@ async def send_template_for_category(db, parent: Dict[str, Any], category: str, 
     body = await render_slot_body_async(db, category, language, parent, day_index, medicine_name or "your medicine", variants_per_slot)
 
     if template_name and whatsapp_enabled():
-        content_vars = _build_approved_template_vars(template_key, preferred, parent, language, medicine_name)
+        content_vars = _build_approved_template_vars(template_key, category, preferred, parent, language, medicine_name)
         result = await _send_content_template_with_retry(phone, template_name, language, content_vars, template_key)
     else:
         result = send_whatsapp(phone, body)

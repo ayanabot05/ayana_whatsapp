@@ -1,14 +1,34 @@
 import {
   Users, Sunrise, Clock, Pill, Coffee, Heart, Utensils, Moon, Plus, Trash2,
+  CalendarDays, BookOpen, VolumeX, Timer, HeartPulse,
 } from "lucide-react";
 import { toast } from "sonner";
 import { PhoneInput } from "@/components/PhoneInput";
-import { ScheduleEditor } from "@/components/ScheduleEditor";
+import { ScheduleEditor, ReminderEditor } from "@/components/ScheduleEditor";
 import { TIMEZONES } from "@/lib/constants";
 import {
   FALLBACK_LANGUAGES, FALLBACK_RELATIONSHIPS, FALLBACK_CATEGORIES,
   FALLBACK_MEDICINE_SHAPES, FALLBACK_MEDICINE_COLORS, FALLBACK_MEDICINE_TIMINGS,
 } from "@/lib/fallbackConfig";
+
+const MONTHS = [
+  { v: "01", label: "January" }, { v: "02", label: "February" }, { v: "03", label: "March" },
+  { v: "04", label: "April" }, { v: "05", label: "May" }, { v: "06", label: "June" },
+  { v: "07", label: "July" }, { v: "08", label: "August" }, { v: "09", label: "September" },
+  { v: "10", label: "October" }, { v: "11", label: "November" }, { v: "12", label: "December" },
+];
+
+// Backend's birthday regex is (01-12)-(01-31) and doesn't validate actual
+// days-per-month (so it'll technically accept "02-31") — we mirror that
+// same permissiveness here rather than adding extra frontend-only rules
+// that could disagree with the backend.
+function daysInMonth(monthStr) {
+  const days31 = ["01", "03", "05", "07", "08", "10", "12"];
+  if (!monthStr) return 31;
+  if (days31.includes(monthStr)) return 31;
+  if (monthStr === "02") return 29; // allow leap-day entry
+  return 30;
+}
 
 // ── Shared shape for a parent's form state ─────────────────────────
 // Used by both Onboarding.jsx (Add a parent, step 2) and Dashboard.jsx
@@ -26,12 +46,23 @@ export const blankParentForm = () => ({
   nicknames: [],
   city: "",
   other_parent_name: "",
+  birthday: "",
+  stories: [],
+  activity_window_start: "",
+  activity_window_end: "",
+  auto_activity_detection: true,
   medicine_list: [],
   habits: {
     wake_time: "", tea_time: "", tea_type: "tea", walk_time: "",
     lunch_time: "", dinner_time: "", sleep_time: "",
   },
+  // Flat list mixing checkin- and reminder-type entries — this is exactly
+  // what ScheduleInput.messages is on the backend. ScheduleEditor and
+  // ReminderEditor each display and edit their own subset of it.
   messages: [],
+  // Schedule-level, not parent-level — ParentDialog.save() pulls this out
+  // separately before sending the parent payload, same treatment as `messages`.
+  reengagement_hours: 4,
 });
 
 export const blankMedicine = () => ({
@@ -93,6 +124,33 @@ export function ParentCareForm({ form, setForm, newMed, setNewMed, config, limit
     setForm((f) => ({ ...f, medicine_list: (f.medicine_list || []).filter((_, i) => i !== idx) }));
   };
   const updateHabit = (key, val) => setForm({ ...form, habits: { ...form.habits, [key]: val } });
+
+  // ── Birthday (MM-DD, stored as a single string) ──
+  const [bMonth, bDay] = (form.birthday || "").split("-");
+  const setBirthdayPart = (part, val) => {
+    const month = part === "month" ? val : (bMonth || "");
+    const day = part === "day" ? val : (bDay || "");
+    if (!month || !day) {
+      // Incomplete selection — keep as blank rather than sending a partial value.
+      setForm({ ...form, birthday: month && day ? `${month}-${day}` : "" });
+      return;
+    }
+    setForm({ ...form, birthday: `${month}-${day}` });
+  };
+
+  // ── Family stories (up to 5) ──
+  const stories = form.stories || [];
+  const addStory = () => {
+    if (stories.length >= 5) { toast.error("Maximum 5 stories."); return; }
+    setForm({ ...form, stories: [...stories, ""] });
+  };
+  const updateStory = (idx, val) => {
+    const next = [...stories]; next[idx] = val;
+    setForm({ ...form, stories: next });
+  };
+  const removeStory = (idx) => {
+    setForm({ ...form, stories: stories.filter((_, i) => i !== idx) });
+  };
 
   return (
     <div className="space-y-10">
@@ -164,6 +222,56 @@ export function ParentCareForm({ form, setForm, newMed, setNewMed, config, limit
           />
           <p className="text-xs text-ayana-muted mt-1">Max 3 nicknames — AYANA rotates between these day to day so messages don't repeat. Leave blank to just reuse the preferred name above.</p>
         </div>
+
+        {/* Birthday — unlocks the birthday auto-wish in escalation.py */}
+        <div>
+          <label className="text-sm font-medium text-ayana-text flex items-center gap-1.5">
+            <CalendarDays className="w-3.5 h-3.5 text-ayana-primary" /> Birthday (optional)
+          </label>
+          <div className="mt-1.5 grid grid-cols-2 gap-3 max-w-sm">
+            <select value={bMonth || ""} onChange={(e) => setBirthdayPart("month", e.target.value)} data-testid={t("birthday-month")} className={inputCls}>
+              <option value="">Month</option>
+              {MONTHS.map((m) => <option key={m.v} value={m.v}>{m.label}</option>)}
+            </select>
+            <select value={bDay || ""} onChange={(e) => setBirthdayPart("day", e.target.value)} data-testid={t("birthday-day")} className={inputCls}>
+              <option value="">Day</option>
+              {Array.from({ length: daysInMonth(bMonth) }, (_, i) => String(i + 1).padStart(2, "0")).map((d) => (
+                <option key={d} value={d}>{d}</option>
+              ))}
+            </select>
+          </div>
+          <p className="text-xs text-ayana-muted mt-1">AYANA sends a special birthday wish in their language — no year needed, just month and day.</p>
+        </div>
+
+        {/* Family stories — woven into rotating message bodies */}
+        <div>
+          <label className="text-sm font-medium text-ayana-text flex items-center gap-1.5">
+            <BookOpen className="w-3.5 h-3.5 text-ayana-primary" /> Family stories (optional)
+          </label>
+          <p className="text-xs text-ayana-muted mt-1 mb-2">Short memories AYANA can weave into messages — e.g. "Remember when we went to Tirupati?" Up to 5.</p>
+          <div className="space-y-2">
+            {stories.map((s, idx) => (
+              <div key={idx} className="flex items-start gap-2">
+                <textarea
+                  value={s}
+                  onChange={(e) => updateStory(idx, e.target.value.slice(0, 200))}
+                  data-testid={t(`story-${idx}`)}
+                  placeholder="A short family memory…"
+                  rows={2}
+                  className={`${inputCls} resize-none text-sm flex-1`}
+                />
+                <button onClick={() => removeStory(idx)} data-testid={t(`story-remove-${idx}`)} className="mt-2 text-ayana-muted hover:text-red-500 shrink-0">
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+            ))}
+          </div>
+          {stories.length < 5 && (
+            <button onClick={addStory} data-testid={t("story-add")} className="mt-2 inline-flex items-center gap-1.5 text-sm text-ayana-primary font-medium hover:text-ayana-primary-hover transition-colors">
+              <Plus className="w-4 h-4" /> Add a story
+            </button>
+          )}
+        </div>
       </section>
 
       {/* ── Section 2: Daily check-ins ── */}
@@ -173,7 +281,7 @@ export function ParentCareForm({ form, setForm, newMed, setNewMed, config, limit
             <Sunrise className="w-4.5 h-4.5 text-ayana-bright" />
             <h4 className="font-display font-medium text-ayana-text">2. Daily check-ins</h4>
           </div>
-          <span className="text-xs text-ayana-muted">{(form.messages || []).length}/{maxCheckins} used · {plan?.name}</span>
+          <span className="text-xs text-ayana-muted">{(form.messages || []).filter((m) => (m.type || "checkin") === "checkin").length}/{maxCheckins} used · {plan?.name}</span>
         </div>
         <ScheduleEditor
           messages={form.messages || []}
@@ -181,6 +289,41 @@ export function ParentCareForm({ form, setForm, newMed, setNewMed, config, limit
           categories={rawCategories}
           maxCheckins={maxCheckins}
         />
+        <div className="flex items-center gap-3 pt-1">
+          <label className="text-xs font-medium text-ayana-secondary flex items-center gap-1.5">
+            <Timer className="w-3.5 h-3.5" /> If they don't reply, check again after
+          </label>
+          <select
+            value={form.reengagement_hours ?? 4}
+            onChange={(e) => setForm({ ...form, reengagement_hours: Number(e.target.value) })}
+            data-testid={t("reengagement-hours")}
+            className={`${smInputCls} w-auto`}
+          >
+            {[1, 2, 3, 4, 6, 8, 12, 24].map((h) => <option key={h} value={h}>{h} hour{h > 1 ? "s" : ""}</option>)}
+          </select>
+        </div>
+
+        {/* Health reminders — water / BP / sugar / general. Share the plan's
+            reminder quota with the Medicine section below, so the counter
+            here reflects both. */}
+        <div className="pt-4 border-t border-ayana-line/50">
+          <div className="flex items-center justify-between mb-2">
+            <label className="text-sm font-medium text-ayana-text flex items-center gap-1.5">
+              <HeartPulse className="w-3.5 h-3.5 text-ayana-primary" /> Health reminders (optional)
+            </label>
+            <span className="text-xs text-ayana-muted">
+              {(form.messages || []).filter((m) => (m.type || "checkin") === "reminder").length + (form.medicine_list || []).length}/{maxReminders} reminders used
+            </span>
+          </div>
+          <p className="text-xs text-ayana-secondary mb-2">Water, BP check, sugar check, or a general health check — these don't need a medicine name, just a time.</p>
+          <ReminderEditor
+            messages={form.messages || []}
+            setMessages={(msgs) => setForm({ ...form, messages: msgs })}
+            categories={rawCategories}
+            maxReminders={maxReminders}
+            medicineCount={(form.medicine_list || []).length}
+          />
+        </div>
       </section>
 
       {/* ── Section 3: Daily routine & activities ── */}
@@ -233,6 +376,40 @@ export function ParentCareForm({ form, setForm, newMed, setNewMed, config, limit
           />
           <p className="text-xs text-ayana-muted mt-1 text-right">{(form.notes || "").length}/300</p>
         </div>
+
+        {/* Quiet hours / DND guard */}
+        <div className="pt-4 border-t border-ayana-line/50">
+          <label className="text-sm font-medium text-ayana-text flex items-center gap-1.5">
+            <VolumeX className="w-3.5 h-3.5 text-ayana-primary" /> Quiet hours (no messages sent)
+          </label>
+          <p className="text-xs text-ayana-muted mt-1">Prevents check-ins from firing during sleep, prayer, etc. Leave off to let AYANA learn this automatically from reply patterns.</p>
+          <div className="flex items-center gap-2 mt-3">
+            <button
+              type="button"
+              onClick={() => setForm({ ...form, auto_activity_detection: !form.auto_activity_detection })}
+              data-testid={t("auto-activity-toggle")}
+              className={`px-3.5 py-1.5 rounded-full text-xs font-medium border transition-colors ${
+                form.auto_activity_detection
+                  ? "bg-ayana-primary text-white border-ayana-primary"
+                  : "bg-white text-ayana-secondary border-ayana-line hover:bg-ayana-alt"
+              }`}
+            >
+              {form.auto_activity_detection ? "Auto-detect: On" : "Auto-detect: Off"}
+            </button>
+          </div>
+          {!form.auto_activity_detection && (
+            <div className="grid grid-cols-2 gap-3 mt-3 max-w-sm">
+              <div>
+                <label className="text-[10px] uppercase font-bold text-ayana-muted ml-1">Quiet from</label>
+                <input type="time" value={form.activity_window_start || ""} onChange={(e) => setForm({ ...form, activity_window_start: e.target.value })} data-testid={t("dnd-start")} className={smInputCls} />
+              </div>
+              <div>
+                <label className="text-[10px] uppercase font-bold text-ayana-muted ml-1">Quiet until</label>
+                <input type="time" value={form.activity_window_end || ""} onChange={(e) => setForm({ ...form, activity_window_end: e.target.value })} data-testid={t("dnd-end")} className={smInputCls} />
+              </div>
+            </div>
+          )}
+        </div>
       </section>
 
       {/* ── Section 4: Medicines (optional) ── */}
@@ -243,7 +420,7 @@ export function ParentCareForm({ form, setForm, newMed, setNewMed, config, limit
             <h4 className="font-display font-medium text-ayana-text">4. Medicine reminders</h4>
             <span className="text-[10px] uppercase font-bold tracking-wide text-ayana-muted bg-ayana-alt px-2 py-0.5 rounded-full">Optional</span>
           </div>
-          <span className="text-xs text-ayana-muted">{(form.medicine_list || []).length}/{maxReminders} · {plan?.name}</span>
+          <span className="text-xs text-ayana-muted">{(form.medicine_list || []).length + (form.messages || []).filter((m) => (m.type || "checkin") === "reminder").length}/{maxReminders} · {plan?.name}</span>
         </div>
         <p className="text-xs text-ayana-secondary">Add medicines your parent takes daily. AYANA will send a WhatsApp reminder at the time you set for each medicine.</p>
 
@@ -256,6 +433,7 @@ export function ParentCareForm({ form, setForm, newMed, setNewMed, config, limit
                   <div>
                     <p className="text-sm font-medium text-ayana-text">{m.name} {m.dose && `· ${m.dose}`}</p>
                     <p className="text-xs text-ayana-secondary">{m.reminder_time || "—"} · {(m.timing || "").replace("_", " ")}</p>
+                    {m.notes && <p className="text-xs text-ayana-muted italic mt-0.5">{m.notes}</p>}
                   </div>
                 </div>
                 <button onClick={() => removeMedicine(idx)} data-testid={t(`med-remove-${idx}`)} className="text-ayana-muted hover:text-red-500"><Trash2 className="w-4 h-4" /></button>
@@ -264,7 +442,7 @@ export function ParentCareForm({ form, setForm, newMed, setNewMed, config, limit
           </div>
         )}
 
-        {(form.medicine_list || []).length < maxReminders ? (
+        {(form.medicine_list || []).length + (form.messages || []).filter((m) => (m.type || "checkin") === "reminder").length < maxReminders ? (
           <div className="bg-warm-cream/30 rounded-xl p-4 border border-ayana-line/50 space-y-3">
             <div className="grid grid-cols-2 gap-3">
               <input value={newMed.name} onChange={(e) => setNewMed({ ...newMed, name: e.target.value })} placeholder="Medicine name" data-testid={t("med-name")} className={smInputCls} />
@@ -294,13 +472,23 @@ export function ParentCareForm({ form, setForm, newMed, setNewMed, config, limit
                 </select>
               </div>
             </div>
+            <div>
+              <label className="text-[10px] uppercase font-bold text-ayana-muted ml-1">Notes (optional, for your reference — not sent to your parent)</label>
+              <input
+                value={newMed.notes || ""}
+                onChange={(e) => setNewMed({ ...newMed, notes: e.target.value.slice(0, 200) })}
+                placeholder="e.g. Take with warm water"
+                data-testid={t("med-notes")}
+                className={smInputCls}
+              />
+            </div>
             <button onClick={addMedicine} data-testid={t("med-add")} className="inline-flex items-center gap-1.5 text-sm text-ayana-primary font-medium hover:text-ayana-primary-hover transition-colors">
               <Plus className="w-4 h-4" /> Add medicine
             </button>
           </div>
         ) : (
           <p className="text-xs text-ayana-muted text-center py-2">
-            Maximum {maxReminders} medicine reminders for {plan?.name}. Upgrade your plan for more.
+            Maximum {maxReminders} reminders (medicines + health reminders combined) for {plan?.name}. Upgrade your plan for more.
           </p>
         )}
       </section>

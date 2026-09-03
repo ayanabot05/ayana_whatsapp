@@ -25,7 +25,7 @@ export function StartConnectingModal({ open, onClose }) {
           className="relative w-full max-w-md bg-white rounded-3xl shadow-2xl border border-ayana-line overflow-hidden animate-fade-up"
           role="dialog"
           aria-modal="true"
-          aria-label="Start connecting with AYANA_BOT"
+          aria-label="Start connecting with AYANA"
           data-testid="start-connecting-modal"
         >
           {/* Warm gradient header */}
