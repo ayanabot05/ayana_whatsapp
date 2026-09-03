@@ -170,7 +170,7 @@ export default function Landing() {
       {/* HEADER */}
       <header className="sticky top-0 z-50 border-b border-ayana-line/60 backdrop-blur-xl" style={{ background: "rgba(251,246,236,0.8)" }}>
         <div className="max-w-7xl mx-auto px-5 sm:px-8 h-16 flex items-center justify-between">
-          <Link to="/" data-testid="nav-logo"><Logo size={38} /></Link>
+          <Link to="/" data-testid="nav-logo"><Logo size={62} showWord={false} /></Link>
           <nav
             className={`hidden lg:flex items-center gap-9 text-ayana-secondary ${
               lang === "en"
@@ -601,7 +601,7 @@ export default function Landing() {
         <footer className="bg-warm-cream border-t border-ayana-line">
           <div className="max-w-7xl mx-auto px-5 sm:px-8 py-14 grid md:grid-cols-2 gap-10 items-start">
             <div>
-              <Logo size={44} className="mb-5" />
+              <Logo size={64} showWord={true} className="mb-5" />
               <p className="font-serif text-lg leading-snug text-ayana-secondary max-w-md">{t("footer.tagline")}</p>
               <div className="mt-6 flex items-center gap-3 flex-wrap">
                 <span className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full border" style={{ color: "#128C4B", borderColor: "rgba(37,211,102,0.3)", background: "rgba(37,211,102,0.08)" }}>
