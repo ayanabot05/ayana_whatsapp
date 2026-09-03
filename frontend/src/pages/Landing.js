@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import {
   MessageCircle, Globe, ShieldCheck, ArrowRight, Check, Mic, Clock, Languages,
-  PlayCircle, Heart, ArrowUpRight, AlertTriangle, Sparkles, Gift, Users,
+  PlayCircle, Heart, ArrowUpRight, AlertTriangle, Sparkles, Gift, Users, X,
 } from "lucide-react";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { HighlightText } from "@/components/HighlightText";
@@ -21,6 +21,10 @@ const IMG = {
   child: "/ayana_child.png",
 };
 
+// Walkthrough video: place the file at public/videos/ayana_video_walkthrough_engl.mp4
+// (a local Windows path like C:\Users\... cannot be referenced by a deployed web app).
+const WALKTHROUGH_VIDEO_SRC = "/videos/ayana_video_walkthrough_engl.mp4";
+
 const LANGS = [["en", "EN"], ["te", "తె"], ["hi", "हिं"]];
 const trackEvent = (name, props) => { if (window.gtag) window.gtag("event", name, props); };
 
@@ -37,7 +41,7 @@ function LangSwitch({ lang, setLang }) {
   );
 }
 
-// small elegant eyebrow: gold rule + instrument-serif italic label
+// Small elegant eyebrow: gold rule + instrument-serif italic label
 function Eyebrow({ children, center = false }) {
   return (
     <div className={`flex items-center gap-3 mb-5 ${center ? "justify-center" : ""}`}>
@@ -47,7 +51,7 @@ function Eyebrow({ children, center = false }) {
   );
 }
 
-// ── Mini WhatsApp chat panel used in the "What Amma Sees" section ────────────
+// Mini WhatsApp chat panel used in the "What Amma Sees" section
 const CHAT_DATA = {
   en: {
     name: "Amma",
@@ -102,8 +106,48 @@ function MiniChatPanel({ langCode, isActive }) {
   );
 }
 
+// Simple lightbox for the walkthrough video
+function VideoWalkthroughModal({ open, onClose, src }) {
+  const [errored, setErrored] = useState(false);
 
+  if (!open) return null;
+  return (
+    <div
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm px-4"
+      onClick={onClose}
+    >
+      <div
+        className="relative w-full max-w-3xl rounded-2xl overflow-hidden shadow-2xl bg-black"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button
+          onClick={onClose}
+          aria-label="Close video"
+          className="absolute top-3 right-3 z-10 w-9 h-9 rounded-full bg-white/90 flex items-center justify-center hover:bg-white transition-colors"
+        >
+          <X className="w-4 h-4 text-ayana-text" />
+        </button>
 
+        {errored ? (
+          <div className="p-12 text-center text-white/85 text-sm leading-relaxed">
+            Couldn't load the walkthrough video.<br />
+            Make sure the file exists at <code className="text-ayana-gold">public{src}</code> in your project
+            (check the exact filename and extension match).
+          </div>
+        ) : (
+          // No autoPlay: most browsers block autoplay, which made this look
+          // "broken" even when the code was fine. Controls let the user press play.
+          <video
+            src={src}
+            controls
+            className="w-full h-auto max-h-[80vh] bg-black"
+            onError={() => setErrored(true)}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
 
 export default function Landing() {
   const { config } = useAuth();
@@ -111,6 +155,7 @@ export default function Landing() {
 
   const [modalOpen, setModalOpen] = useState(false);
   const [demoLang, setDemoLang] = useState("en");
+  const [videoOpen, setVideoOpen] = useState(false);
 
   const steps        = t("how.steps");
   const faqItems     = t("faq.items");
@@ -122,7 +167,7 @@ export default function Landing() {
   return (
     <div data-lang={lang} className="relative min-h-screen overflow-x-hidden bg-warm-cream text-ayana-text">
 
-      {/* ══ HEADER ══ */}
+      {/* HEADER */}
       <header className="sticky top-0 z-50 border-b border-ayana-line/60 backdrop-blur-xl" style={{ background: "rgba(251,246,236,0.8)" }}>
         <div className="max-w-7xl mx-auto px-5 sm:px-8 h-16 flex items-center justify-between">
           <Link to="/" data-testid="nav-logo"><Logo size={38} /></Link>
@@ -141,7 +186,7 @@ export default function Landing() {
 
       <main className="relative z-10">
 
-        {/* ══ HERO ══ */}
+        {/* HERO */}
         <section className="relative bg-warm-peach overflow-hidden">
           <div className="absolute inset-0 pointer-events-none">
             <div className="absolute -top-32 -right-10 w-[560px] h-[560px] rounded-full blur-3xl" style={{ background: "rgba(212,150,10,0.20)" }} />
@@ -181,7 +226,7 @@ export default function Landing() {
               </div>
             </div>
 
-            {/* editorial image + phone */}
+            {/* Editorial image + phone */}
             <div className="relative mx-auto w-full max-w-md lg:max-w-none">
               <div className="relative">
                 <span className="absolute -top-4 -right-2 sm:-right-4 z-20 rounded-full bg-white shadow-lg border border-ayana-line px-4 py-2 text-xs font-semibold text-ayana-text flex items-center gap-2">
@@ -200,7 +245,7 @@ export default function Landing() {
           </div>
         </section>
 
-        {/* ══ HOW IT WORKS — editorial numbered ══ */}
+        {/* HOW IT WORKS: editorial numbered */}
         <section id="how" className="bg-warm-cream">
           <div className="max-w-7xl mx-auto px-5 sm:px-8 py-20 lg:py-28 grid lg:grid-cols-2 gap-14 lg:gap-20 items-center">
             <div className="relative order-2 lg:order-1">
@@ -232,15 +277,19 @@ export default function Landing() {
           </div>
         </section>
 
-        {/* ══ DEMO / how to reply ══ */}
+        {/* DEMO / how to reply */}
         <section id="training" className="bg-warm-gold">
           <div className="max-w-7xl mx-auto px-5 sm:px-8 py-20 lg:py-28 grid lg:grid-cols-2 gap-14 items-center">
             <div className="flex justify-center order-2 lg:order-1">
               <div className="relative">
                 <PhoneMockup lang={lang} />
-                <span className="absolute -bottom-4 left-1/2 -translate-x-1/2 inline-flex items-center gap-1.5 text-xs font-semibold text-ayana-secondary bg-white px-3 py-1.5 rounded-full border border-ayana-line shadow-sm whitespace-nowrap">
+                <button
+                  type="button"
+                  onClick={() => { trackEvent("video_walkthrough_open", { id: "training" }); setVideoOpen(true); }}
+                  className="absolute -bottom-4 left-1/2 -translate-x-1/2 inline-flex items-center gap-1.5 text-xs font-semibold text-ayana-secondary bg-white px-3 py-1.5 rounded-full border border-ayana-line shadow-sm whitespace-nowrap hover:border-ayana-gold/50 transition-colors"
+                >
                   <PlayCircle className="w-3.5 h-3.5 text-ayana-accent" /> {t("training.watchCta")}
-                </span>
+                </button>
               </div>
             </div>
             <div className="order-1 lg:order-2">
@@ -271,7 +320,7 @@ export default function Landing() {
           </div>
         </section>
 
-        {/* ══ WHAT AMMA SEES — multilingual WhatsApp button demo ══ */}
+        {/* WHAT AMMA SEES: multilingual WhatsApp button demo */}
         <section id="what-they-see" className="bg-warm-cream">
           <div className="max-w-7xl mx-auto px-5 sm:px-8 py-20 lg:py-28">
             <div className="text-center max-w-2xl mx-auto mb-12">
@@ -299,7 +348,7 @@ export default function Landing() {
               ))}
             </div>
 
-            {/* Three chat panels — one per language, active one highlighted */}
+            {/* Three chat panels: one per language, active one highlighted */}
             <div className="grid sm:grid-cols-3 gap-4 max-w-4xl mx-auto">
               {["en", "te", "hi"].map((code) => (
                 <div key={code} onClick={() => setDemoLang(code)} className="cursor-pointer">
@@ -318,7 +367,7 @@ export default function Landing() {
           </div>
         </section>
 
-        {/* ══ GLOBAL — big statement ══ */}
+        {/* GLOBAL: big statement */}
         <section className="bg-warm-peach relative overflow-hidden">
           <div className="max-w-7xl mx-auto px-5 sm:px-8 py-20 lg:py-28 grid lg:grid-cols-12 gap-14 items-center">
             <div className="lg:col-span-7">
@@ -358,7 +407,7 @@ export default function Landing() {
           </div>
         </section>
 
-        {/* ══ AI GUARDIAN — safety / distress detection ══ */}
+        {/* AI GUARDIAN: safety / distress detection */}
         <section id="safety" className="bg-warm-cream">
           <div className="max-w-7xl mx-auto px-5 sm:px-8 py-20 lg:py-28">
             <div className="text-center max-w-2xl mx-auto mb-14">
@@ -374,7 +423,7 @@ export default function Landing() {
             </div>
 
             <div className="grid md:grid-cols-3 gap-6 max-w-5xl mx-auto">
-              {/* Card 1 — Keyword watch */}
+              {/* Card 1: keyword watch */}
               <div className="rounded-2xl border border-ayana-line bg-white p-6 shadow-sm flex flex-col gap-4">
                 <span className="w-12 h-12 rounded-xl bg-amber-50 border border-amber-200 flex items-center justify-center text-xl shrink-0">🔍</span>
                 <div>
@@ -383,7 +432,7 @@ export default function Landing() {
                 </div>
               </div>
 
-              {/* Card 2 — AI voice analysis — featured */}
+              {/* Card 2: AI voice analysis, featured */}
               <div className="rounded-2xl border-2 border-ayana-gold/40 bg-white p-6 shadow-lg flex flex-col gap-4 relative overflow-hidden">
                 <div className="absolute top-0 right-0 w-24 h-24 rounded-full blur-2xl" style={{ background: "rgba(212,150,10,0.12)" }} />
                 <span className="relative z-10 w-12 h-12 rounded-xl flex items-center justify-center text-xl shrink-0" style={{ background: "rgba(212,150,10,0.10)", border: "1px solid rgba(212,150,10,0.25)" }}>🎤</span>
@@ -396,7 +445,7 @@ export default function Landing() {
                 </div>
               </div>
 
-              {/* Card 3 — One tap */}
+              {/* Card 3: one tap */}
               <div className="rounded-2xl border border-ayana-line bg-white p-6 shadow-sm flex flex-col gap-4">
                 <span className="w-12 h-12 rounded-xl bg-red-50 border border-red-200 flex items-center justify-center text-xl shrink-0">📞</span>
                 <div>
@@ -414,7 +463,7 @@ export default function Landing() {
           </div>
         </section>
 
-        {/* ══ TRUST ══ */}
+        {/* TRUST */}
         <section id="trust" className="bg-warm-peach">
           <div className="max-w-7xl mx-auto px-5 sm:px-8 py-20 lg:py-28 grid lg:grid-cols-12 gap-14 items-center">
             <div className="lg:col-span-6">
@@ -454,7 +503,7 @@ export default function Landing() {
           </div>
         </section>
 
-        {/* ══ A LITTLE MORE LOVE — emotional feature highlights ══ */}
+        {/* A LITTLE MORE LOVE: emotional feature highlights */}
         <section className="bg-warm-gold">
           <div className="max-w-7xl mx-auto px-5 sm:px-8 py-20 lg:py-24">
             <div className="text-center max-w-2xl mx-auto mb-12">
@@ -477,7 +526,7 @@ export default function Landing() {
           </div>
         </section>
 
-        {/* ══ PRICING ══ */}
+        {/* PRICING */}
         <section id="pricing" className="bg-warm-cream">
           <div className="max-w-5xl mx-auto px-5 sm:px-8 py-20 lg:py-28">
             <div className="text-center max-w-2xl mx-auto mb-12">
@@ -489,8 +538,6 @@ export default function Landing() {
             </div>
             <PricingCards plans={config?.plans?.length ? config.plans : FALLBACK_PLANS} currencies={config?.currencies?.length ? config.currencies : FALLBACK_CURRENCIES} />
 
-
-
             <div className="mt-8 text-center">
               <Link to="/signup" data-testid="pricing-cta" onClick={() => trackEvent("cta_click", { id: "pricing" })}
                 className="btn-saffron btn-tactile inline-flex items-center gap-2 px-8 py-4 rounded-full font-semibold">
@@ -500,7 +547,7 @@ export default function Landing() {
           </div>
         </section>
 
-        {/* ══ FAQ ══ */}
+        {/* FAQ */}
         <section id="faq" className="bg-warm-gold">
           <div className="max-w-3xl mx-auto px-5 sm:px-8 py-20 lg:py-28">
             <div className="text-center mb-12">
@@ -526,7 +573,7 @@ export default function Landing() {
           </div>
         </section>
 
-        {/* ══ FINAL CTA ══ */}
+        {/* FINAL CTA */}
         <section>
           <div className="relative overflow-hidden" style={{ background: "linear-gradient(135deg, #E8B84B 0%, #D4960A 45%, #E8590C 100%)" }}>
             <div className="absolute top-0 right-0 w-96 h-96 rounded-full blur-3xl -translate-y-1/2 translate-x-1/4" style={{ background: "rgba(255,255,255,0.16)" }} />
@@ -544,7 +591,7 @@ export default function Landing() {
           </div>
         </section>
 
-        {/* ══ FOOTER ══ */}
+        {/* FOOTER */}
         <footer className="bg-warm-cream border-t border-ayana-line">
           <div className="max-w-7xl mx-auto px-5 sm:px-8 py-14 grid md:grid-cols-2 gap-10 items-start">
             <div>
@@ -572,6 +619,7 @@ export default function Landing() {
         </footer>
       </main>
       <StartConnectingModal open={modalOpen} onClose={() => setModalOpen(false)} />
+      <VideoWalkthroughModal open={videoOpen} onClose={() => setVideoOpen(false)} src={WALKTHROUGH_VIDEO_SRC} />
     </div>
   );
 }
