@@ -171,7 +171,13 @@ export default function Landing() {
       <header className="sticky top-0 z-50 border-b border-ayana-line/60 backdrop-blur-xl" style={{ background: "rgba(251,246,236,0.8)" }}>
         <div className="max-w-7xl mx-auto px-5 sm:px-8 h-16 flex items-center justify-between">
           <Link to="/" data-testid="nav-logo"><Logo size={38} /></Link>
-          <nav className="hidden lg:flex items-center gap-9 text-[13px] uppercase tracking-[0.14em] text-ayana-secondary">
+          <nav
+            className={`hidden lg:flex items-center gap-9 text-ayana-secondary ${
+              lang === "en"
+                ? "text-[13px] uppercase tracking-[0.14em]"
+                : "text-[15px] tracking-normal"
+            }`}
+          >
             {[["#how", t("nav.how")], ["#trust", t("nav.trust")], ["#pricing", t("nav.pricing")], ["#faq", t("nav.faq")]].map(([href, label]) => (
               <a key={href} href={href} className="hover:text-ayana-gold transition-colors">{label}</a>
             ))}
