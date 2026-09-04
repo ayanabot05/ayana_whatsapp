@@ -24,7 +24,7 @@ import stripe
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from database import db
+from database import get_pool
 from pricing import PLAN_BY_ID, resolve_plan_id
 
 logger = logging.getLogger("ayana.payments")
@@ -89,36 +89,39 @@ async def create_stripe_checkout(user_id: str, payload: PaymentCheckoutInput, re
         logger.error("[stripe] checkout session creation failed: %s", e)
         raise HTTPException(status_code=502, detail="Could not start checkout. Please try again.")
 
-    await db.payment_transactions.insert_one({
-        "session_id": session.id,
-        "user_id": user_id,
-        "plan": plan_id,
-        "billing": payload.billing,
-        "amount": amount_cents / 100,
-        "currency": "usd",
-        "status": "initiated",
-        "payment_status": "pending",
-        "created_at": datetime.now(timezone.utc),
-        "updated_at": datetime.now(timezone.utc),
-    })
+    async with get_pool().acquire() as conn:
+        await conn.execute(
+            """
+            insert into payment_transactions
+                (session_id, user_id, plan, billing, amount, currency, status, payment_status,
+                 created_at, updated_at)
+            values ($1, $2::uuid, $3, $4, $5, 'usd', 'initiated', 'pending', now(), now())
+            """,
+            session.id, user_id, plan_id, payload.billing, amount_cents / 100,
+        )
     return {"checkout_url": session.url, "session_id": session.id}
 
 
 @payments_router.get("/payments/status/{session_id}")
 async def payment_status(session_id: str):
     """Unauthenticated status poll — returns only non-sensitive fields."""
-    record = await db.payment_transactions.find_one({"session_id": session_id})
-    if not record:
-        raise HTTPException(status_code=404, detail="Transaction not found")
+    async with get_pool().acquire() as conn:
+        record = await conn.fetchrow(
+            "select * from payment_transactions where session_id = $1", session_id
+        )
+        if not record:
+            raise HTTPException(status_code=404, detail="Transaction not found")
 
-    if record.get("payment_status") != "paid" and payments_enabled():
-        try:
-            session = await stripe.checkout.Session.retrieve_async(session_id)
-            if session.payment_status == "paid" or session.status == "complete":
-                await _mark_paid(session_id, record)
-                record = await db.payment_transactions.find_one({"session_id": session_id})
-        except stripe.error.StripeError as e:
-            logger.warning("[stripe] status poll failed for %s: %s", session_id, e)
+        if record["payment_status"] != "paid" and payments_enabled():
+            try:
+                session = await stripe.checkout.Session.retrieve_async(session_id)
+                if session.payment_status == "paid" or session.status == "complete":
+                    await _mark_paid(conn, session_id, record)
+                    record = await conn.fetchrow(
+                        "select * from payment_transactions where session_id = $1", session_id
+                    )
+            except stripe.error.StripeError as e:
+                logger.warning("[stripe] status poll failed for %s: %s", session_id, e)
 
     return {
         "session_id": record["session_id"],
@@ -127,20 +130,32 @@ async def payment_status(session_id: str):
     }
 
 
-async def _mark_paid(session_id: str, record: dict) -> None:
-    """Idempotently flip a transaction to paid AND upgrade the user's plan."""
-    res = await db.payment_transactions.update_one(
-        {"session_id": session_id, "payment_status": {"$ne": "paid"}},
-        {"$set": {"status": "completed", "payment_status": "paid",
-                  "updated_at": datetime.now(timezone.utc)}},
+async def _mark_paid(conn, session_id: str, record) -> None:
+    """Idempotently flip a transaction to paid AND upgrade the user's plan.
+    `conn` is passed in (rather than acquired here) so the webhook handler
+    and the status-poll path can both run this inside their own connection/
+    transaction — mirrors the old code's single-call convenience without
+    opening a second pool connection mid-request."""
+    result = await conn.execute(
+        """
+        update payment_transactions
+        set status = 'completed', payment_status = 'paid', updated_at = now()
+        where session_id = $1 and payment_status != 'paid'
+        """,
+        session_id,
     )
-    if res.modified_count and record.get("user_id"):
-        await db.payment_state.update_one(
-            {"user_id": record["user_id"]},
-            {"$set": {"status": "active", "plan": record.get("plan", "nitya"),
-                      "billing": record.get("billing", "month"),
-                      "updated_at": datetime.now(timezone.utc)}},
-            upsert=True,
+    # asyncpg's execute() returns a string like "UPDATE 1" — check the count
+    modified = result.split()[-1] != "0"
+    if modified and record.get("user_id"):
+        await conn.execute(
+            """
+            insert into payment_state (user_id, status, plan, billing, updated_at)
+            values ($1::uuid, 'active', $2, $3, now())
+            on conflict (user_id) do update
+                set status = 'active', plan = excluded.plan,
+                    billing = excluded.billing, updated_at = now()
+            """,
+            record["user_id"], record.get("plan", "nitya"), record.get("billing", "month"),
         )
 
 
@@ -163,8 +178,11 @@ async def stripe_webhook(request: Request):
         session = event["data"]["object"]
         session_id = session.get("id")
         if session.get("payment_status") == "paid" and session_id:
-            record = await db.payment_transactions.find_one({"session_id": session_id})
-            if record:
-                await _mark_paid(session_id, record)
+            async with get_pool().acquire() as conn:
+                record = await conn.fetchrow(
+                    "select * from payment_transactions where session_id = $1", session_id
+                )
+                if record:
+                    await _mark_paid(conn, session_id, record)
 
     return {"status": "ok"}

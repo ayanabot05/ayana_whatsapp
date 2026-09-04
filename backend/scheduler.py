@@ -27,20 +27,23 @@ DISTRIBUTED LOCK
     replica, every replica's scheduler fires independently — parents
     get duplicate WhatsApp messages (and you get double-billed by
     Meta) every single minute. `_with_lock()` wraps each job so only
-    one process across the whole fleet executes it per tick: it
-    upserts a short-lived doc in `scheduler_locks` with a TTL, and
-    any process that loses the race to acquire it simply skips that
-    tick. If the lock holder crashes mid-job, the TTL index (see
-    database.ensure_indexes) expires the lock automatically instead of
-    wedging delivery forever.
+    one process across the whole fleet executes it per tick.
+
+    MIGRATION NOTE: Mongo's atomic "upsert only if unheld or expired"
+    used a compound filter ($or on expires_at). Postgres's equivalent
+    is `INSERT ... ON CONFLICT DO UPDATE ... WHERE <condition>` — the
+    WHERE guards the update exactly like Mongo's filter guarded the
+    upsert, and RETURNING tells us whether we actually won the lock.
+    Still fully race-safe across replicas, still no separate lock
+    service needed. The TTL cleanup that used to be a Mongo TTL index
+    is now handled by the nightly purge job in schema.sql.
 
     This does NOT require running a separate worker process — it's
     safe to run the scheduler in every API replica as long as this
-    lock wraps every job. (You may still prefer a single dedicated
-    worker for clarity/cost; either way this makes concurrent
-    schedulers safe by default instead of silently duplicating sends.)
+    lock wraps every job.
 """
 
+import json
 import logging
 import os
 import socket
@@ -51,7 +54,7 @@ from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-from database import db
+from database import get_pool
 from escalation import run_care_watch_impl
 from monthly_report import generate_reports_for_month
 from pricing import plan_limits, resolve_plan_id
@@ -65,293 +68,292 @@ _scheduler: AsyncIOScheduler | None = None
 # Unique per-process identity so lock ownership is unambiguous in logs.
 _WORKER_ID = f"{socket.gethostname()}:{uuid.uuid4().hex[:8]}"
 
+
 async def _with_lock(job_name: str, ttl_seconds: int, coro_fn) -> None:
     """
-    Attempt to acquire a short-lived Mongo lock for `job_name`. Only the
-    process that wins runs `coro_fn()`. Uses an atomic upsert with a
-    filter that only matches an unheld-or-expired lock, so it's race-safe
-    across replicas without needing a separate lock service.
+    Attempt to acquire a short-lived Postgres lock for `job_name`. Only the
+    process that wins runs `coro_fn()`. The WHERE clause on the ON CONFLICT
+    UPDATE means the update (and therefore the RETURNING row) only happens
+    if the existing lock has already expired — so this is race-safe across
+    replicas the same way the old Mongo filtered-upsert was.
     """
     now = datetime.now(timezone.utc)
     expires_at = now + timedelta(seconds=ttl_seconds)
     try:
-        result = await db.scheduler_locks.update_one(
-            {
-                "_id": job_name,
-                "$or": [{"expires_at": {"$lte": now}}, {"expires_at": {"$exists": False}}],
-            },
-            {"$set": {"holder": _WORKER_ID, "acquired_at": now, "expires_at": expires_at}},
-            upsert=True,
-        )
+        async with get_pool().acquire() as conn:
+            won_row = await conn.fetchrow(
+                """
+                insert into scheduler_locks (lock_name, holder, acquired_at, expires_at)
+                values ($1, $2, $3, $4)
+                on conflict (lock_name) do update
+                    set holder = excluded.holder,
+                        acquired_at = excluded.acquired_at,
+                        expires_at = excluded.expires_at
+                    where scheduler_locks.expires_at <= $5
+                returning lock_name
+                """,
+                job_name, _WORKER_ID, now, expires_at, now,
+            )
     except Exception as e:
-        # Duplicate-key on a concurrent upsert race is expected/harmless —
-        # it just means another replica won this tick.
         logger.debug("[sched] Lock acquire race for %s (expected under concurrency): %s", job_name, e)
         return
 
-    won = result.upserted_id is not None or result.modified_count > 0
-    if not won:
+    if not won_row:
         return  # another replica holds the lock this tick — skip silently
 
     try:
         await coro_fn()
     finally:
         # Release early so the next tick doesn't wait out the full TTL
-        # unnecessarily — best effort, TTL index is the real safety net.
-        await db.scheduler_locks.update_one(
-            {"_id": job_name, "holder": _WORKER_ID},
-            {"$set": {"expires_at": now}},
-        )
+        # unnecessarily — best effort, nightly purge job is the real safety net.
+        async with get_pool().acquire() as conn:
+            await conn.execute(
+                "update scheduler_locks set expires_at = $1 where lock_name = $2 and holder = $3",
+                now, job_name, _WORKER_ID,
+            )
+
 
 async def _count_sent_today(schedule_id, day_key: str, msg_type: str) -> int:
-    return await db.message_logs.count_documents({"schedule_id": schedule_id, "day_key": day_key, "msg_type": msg_type})
+    async with get_pool().acquire() as conn:
+        return await conn.fetchval(
+            "select count(*) from message_logs where schedule_id = $1 and day_key = $2 and msg_type = $3",
+            schedule_id, day_key, msg_type,
+        )
+
 
 async def _deliver_due_messages_impl():
     now_utc = datetime.now(timezone.utc)
 
-    # Fetch all active schedules into a Python list first so the DB cursor is
-    # closed immediately and a mid-loop exception cannot leave it open.
     try:
-        schedules = await db.schedules.find({"active": True, "deleted_at": None}).to_list(None)
+        async with get_pool().acquire() as fetch_conn:
+            schedules = await fetch_conn.fetch(
+                "select * from schedules where active = true and deleted_at is null"
+            )
     except Exception as exc:
         logger.error("Scheduler: failed to fetch schedules — %s", exc)
         return
 
     for sched in schedules:
         try:
-            parent = await db.parents.find_one({"_id": sched["parent_id"]})
-            if not parent or parent.get("deleted_at"):
-                continue
+            async with get_pool().acquire() as conn:
+                parent = await conn.fetchrow("select * from parents where id = $1", sched["parent_id"])
+                if not parent or parent["deleted_at"]:
+                    continue
 
-            activation = await db.activation_state.find_one({"user_id": sched["user_id"]})
-            if not activation or not activation.get("whatsapp_activated"):
-                continue
-
-            try:
-                tz = ZoneInfo(parent.get("timezone", "Asia/Kolkata"))
-            except Exception:
-                tz = ZoneInfo("Asia/Kolkata")
-
-            local = now_utc.astimezone(tz)
-            hhmm = local.strftime("%H:%M")
-            day_key = local.strftime("%Y-%m-%d")
-
-            # Send-time activity window check — defer messages sent outside
-            # the parent's active hours. Window is child-set (activity_window_start/end
-            # as "HH:MM") or auto-learned if child enables auto_activity_detection.
-            # Default is 00:00-23:59 (no DND) so testing and new parents work 24/7.
-            # Child can set DND from UI (e.g., 22:00-07:00 for overnight).
-            # If the current local time falls outside the window, skip all
-            # scheduled sends for this tick — avoids waking / nagging parents
-            # during temple visits, market trips, sleep hours, etc.
-            DEFAULT_START = "00:00"
-            DEFAULT_END = "23:59"
-
-            manual_start = parent.get("activity_window_start")
-            manual_end = parent.get("activity_window_end")
-
-            if manual_start and manual_end:
-                # Child explicitly set DND window — respect it (takes priority)
-                win_start = manual_start
-                win_end = manual_end
-            elif manual_start or manual_end:
-                # Only one side of the manual window is set — likely a
-                # partial save from the UI. Fall back to the default window
-                # (rather than silently ignoring it) and surface it in logs
-                # so it doesn't go unnoticed.
-                logger.warning(
-                    "Scheduler: parent %s has a partial activity window (start=%r, end=%r) — "
-                    "ignoring and using default %s-%s until both fields are set",
-                    parent.get("name"), manual_start, manual_end, DEFAULT_START, DEFAULT_END,
+                activation = await conn.fetchrow(
+                    "select * from activation_state where user_id = $1", sched["user_id"]
                 )
-                win_start, win_end = DEFAULT_START, DEFAULT_END
-            elif parent.get("auto_activity_detection", False):
-                # Auto-learned window: check last-N parent replies. Reply
-                # docs (see server.py::_record_reply) have no "direction"
-                # field — every doc in parent_replies is inherently
-                # inbound (from the parent), so no filter is needed there.
-                # Only runs if auto_activity_detection=True AND no manual window set.
-                recent_replies = await db.parent_replies \
-                   .find({"parent_id": parent["_id"]}) \
-                   .sort("created_at", -1).to_list(20)
-                if recent_replies:
-                    reply_hours = [r["created_at"].astimezone(tz).hour for r in recent_replies]
-                    win_start = f"{min(reply_hours):02d}:00"
-                    win_end = f"{max(reply_hours):02d}:00"
-                else:
-                    win_start, win_end = DEFAULT_START, DEFAULT_END  # default 0-23 if no replies
-            else:
-                # No manual window, auto-learn off — allow all day (child-controlled DND)
-                win_start, win_end = DEFAULT_START, DEFAULT_END
+                if not activation or not activation["whatsapp_activated"]:
+                    continue
 
-            if win_start and win_end:
-                cur = local.strftime("%H:%M")
-                # Support overnight windows like 22:00-07:00
-                if win_start <= win_end:
-                    is_outside = not (win_start <= cur <= win_end)
-                else:
-                    # Overnight window wraps midnight
-                    is_outside = win_end < cur < win_start
+                try:
+                    tz = ZoneInfo(parent["timezone"] or "Asia/Kolkata")
+                except Exception:
+                    tz = ZoneInfo("Asia/Kolkata")
 
-                if is_outside:
-                    logger.info(
-                        "Scheduler: skipped sends for parent %s — outside activity window %s-%s (now %s)",
-                        parent.get("name"), win_start, win_end, cur,
+                local = now_utc.astimezone(tz)
+                hhmm = local.strftime("%H:%M")
+                day_key = local.strftime("%Y-%m-%d")
+
+                # Send-time activity window check — defer messages sent outside
+                # the parent's active hours. Window is child-set
+                # (activity_window_start/end as "HH:MM") or auto-learned if
+                # child enables auto_activity_detection. Default is
+                # 00:00-23:59 (no DND) so testing and new parents work 24/7.
+                DEFAULT_START = "00:00"
+                DEFAULT_END = "23:59"
+
+                manual_start = parent["activity_window_start"]
+                manual_end = parent["activity_window_end"]
+
+                if manual_start and manual_end:
+                    win_start = manual_start
+                    win_end = manual_end
+                elif manual_start or manual_end:
+                    logger.warning(
+                        "Scheduler: parent %s has a partial activity window (start=%r, end=%r) — "
+                        "ignoring and using default %s-%s until both fields are set",
+                        parent["name"], manual_start, manual_end, DEFAULT_START, DEFAULT_END,
                     )
-                    continue
+                    win_start, win_end = DEFAULT_START, DEFAULT_END
+                elif parent["auto_activity_detection"]:
+                    recent_replies = await conn.fetch(
+                        "select created_at from parent_replies where parent_id = $1 order by created_at desc limit 20",
+                        parent["id"],
+                    )
+                    if recent_replies:
+                        reply_hours = [r["created_at"].astimezone(tz).hour for r in recent_replies]
+                        win_start = f"{min(reply_hours):02d}:00"
+                        win_end = f"{max(reply_hours):02d}:00"
+                    else:
+                        win_start, win_end = DEFAULT_START, DEFAULT_END
+                else:
+                    win_start, win_end = DEFAULT_START, DEFAULT_END
 
-            ps = await db.payment_state.find_one({"user_id": sched["user_id"]})
-            plan_id = resolve_plan_id((ps or {}).get("plan", sched.get("mode", "nitya")))
-            limits = plan_limits(plan_id)
-            variants_per_slot = limits.get("variants_per_slot", 3)
-            # defaultdict so any msg_type returned by category_type() is safe —
-            # a KeyError here used to silently kill delivery for this whole
-            # schedule (swallowed by the outer except Exception below).
-            sent_counts = defaultdict(int)
+                if win_start and win_end:
+                    cur = local.strftime("%H:%M")
+                    if win_start <= win_end:
+                        is_outside = not (win_start <= cur <= win_end)
+                    else:
+                        is_outside = win_end < cur < win_start
 
-            for idx, msg in enumerate(sched.get("messages", [])):
-                if msg.get("time") != hhmm:
-                    continue
-                if msg.get("is_recovery") and not limits.get("recovery_mode"):
-                    continue
+                    if is_outside:
+                        logger.info(
+                            "Scheduler: skipped sends for parent %s — outside activity window %s-%s (now %s)",
+                            parent["name"], win_start, win_end, cur,
+                        )
+                        continue
 
-                # Deduplication: skip if already delivered today
-                already = await db.message_logs.find_one({
-                    "schedule_id": sched["_id"],
-                    "message_index": idx,
-                    "day_key": day_key,
-                })
-                if already:
-                    continue
+                ps = await conn.fetchrow("select * from payment_state where user_id = $1", sched["user_id"])
+                plan_id = resolve_plan_id((ps["plan"] if ps else None) or sched["mode"] or "nitya")
+                limits = plan_limits(plan_id)
+                variants_per_slot = limits.get("variants_per_slot", 3)
+                sent_counts = defaultdict(int)
 
-                msg_type = category_type(msg.get("category"))
-                if sent_counts[msg_type] >= limits.get(f"{msg_type}s", 0):
-                    continue
+                for idx, msg in enumerate(sched["messages"] or []):
+                    if msg.get("time") != hhmm:
+                        continue
+                    if msg.get("is_recovery") and not limits.get("recovery_mode"):
+                        continue
 
-                # Only look up a medicine name for actual medicine reminders.
-                # water/bp_check/sugar_check/health_check are NOT tied to any
-                # specific medicine_list entry — they're generic reminders to
-                # perform an action (drink water, measure BP), not to take a
-                # pill. Without this gate, a same-clock-time coincidence (or,
-                # with no match, an unconditional fallback to medicines[0])
-                # could hand an unrelated medicine's name to a non-medicine
-                # reminder once those categories become schedulable from the
-                # UI. See whatsapp.py's _build_approved_template_vars for the
-                # matching fix on the send side.
-                medicine_name = ""
-                if msg.get("category") == "medicine":
-                    medicines = parent.get("medicine_list") or []
-                    if medicines:
-                        # Find the medicine whose reminder_time matches this slot
-                        for med in medicines:
-                            if isinstance(med, dict) and med.get("reminder_time") == hhmm:
-                                medicine_name = med.get("name", "")
-                                break
-                        # Fallback to first medicine if no time match found
-                        if not medicine_name and isinstance(medicines[0], dict):
-                            medicine_name = medicines[0].get("name", "")
+                    already = await conn.fetchrow(
+                        "select 1 from message_logs where schedule_id = $1 and message_index = $2 and day_key = $3",
+                        sched["id"], idx, day_key,
+                    )
+                    if already:
+                        continue
 
-                result = await send_dynamic_checkin(
-                    db,
-                    parent,
-                    msg.get("category"),
-                    local.timetuple().tm_yday,
-                    variants_per_slot,
-                    medicine_name=medicine_name,
-                )
-                sent_counts[msg_type] += 1
-                await db.message_logs.insert_one({
-                    "user_id": sched["user_id"],
-                    "parent_id": sched["parent_id"],
-                    "schedule_id": sched["_id"],
-                    "message_index": idx,
-                    "day_key": day_key,
-                    "category": msg.get("category"),
-                    "body": msg.get("custom_text") or f"{msg.get('category')} check-in",
-                    "msg_type": msg_type,
-                    "status": result.get("status"),
-                    "detail": result.get("detail"),
-                    "sid": result.get("sid"),
-                    "created_at": now_utc,
-                })
-                logger.info(
-                    "Delivered msg (%s) to parent %s: %s",
-                    result.get("status"), parent.get("name"), msg.get("category"),
-                )
+                    msg_type = category_type(msg.get("category"))
+                    if sent_counts[msg_type] >= limits.get(f"{msg_type}s", 0):
+                        continue
+
+                    medicine_name = ""
+                    if msg.get("category") == "medicine":
+                        medicines = parent["medicine_list"] or []
+                        if medicines:
+                            for med in medicines:
+                                if isinstance(med, dict) and med.get("reminder_time") == hhmm:
+                                    medicine_name = med.get("name", "")
+                                    break
+                            if not medicine_name and isinstance(medicines[0], dict):
+                                medicine_name = medicines[0].get("name", "")
+
+                    result = await send_dynamic_checkin(
+                        dict(parent),
+                        msg.get("category"),
+                        local.timetuple().tm_yday,
+                        variants_per_slot,
+                        medicine_name=medicine_name,
+                    )
+                    sent_counts[msg_type] += 1
+                    await conn.execute(
+                        """
+                        insert into message_logs
+                            (user_id, parent_id, schedule_id, message_index, day_key, category,
+                             body, msg_type, status, detail, sid, created_at)
+                        values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+                        """,
+                        sched["user_id"], sched["parent_id"], sched["id"], idx, day_key,
+                        msg.get("category"), msg.get("custom_text") or f"{msg.get('category')} check-in",
+                        msg_type, result.get("status"), result.get("detail"), result.get("sid"), now_utc,
+                    )
+                    logger.info(
+                        "Delivered msg (%s) to parent %s: %s",
+                        result.get("status"), parent["name"], msg.get("category"),
+                    )
         except Exception as exc:
-            logger.error(
-                "Scheduler: unhandled error for schedule %s — %s",
-                sched.get("_id"), exc,
-            )
+            logger.error("Scheduler: unhandled error for schedule %s — %s", sched["id"], exc)
+
 
 async def _deliver_due_messages():
     await _with_lock("delivery", 55, _deliver_due_messages_impl)
 
+
 async def _check_reengagement_impl():
-    schedules = await db.schedules.find({"active": True, "deleted_at": None}).to_list(None)
+    async with get_pool().acquire() as conn:
+        schedules = await conn.fetch("select * from schedules where active = true and deleted_at is null")
+
     seen = set()
     for sched in schedules:
-        parent_id = sched.get("parent_id")
+        parent_id = sched["parent_id"]
         if not parent_id or parent_id in seen:
             continue
         seen.add(parent_id)
         try:
-            activation = await db.activation_state.find_one({"user_id": sched["user_id"]})
-            if not activation or not activation.get("whatsapp_activated"):
-                continue
-            parent = await db.parents.find_one({"_id": parent_id, "deleted_at": None})
-            if not parent:
-                continue
-            result = await send_reengagement(db, parent, sched.get("reengagement_hours", 4))
+            async with get_pool().acquire() as conn:
+                activation = await conn.fetchrow(
+                    "select * from activation_state where user_id = $1", sched["user_id"]
+                )
+                if not activation or not activation["whatsapp_activated"]:
+                    continue
+                parent = await conn.fetchrow(
+                    "select * from parents where id = $1 and deleted_at is null", parent_id
+                )
+                if not parent:
+                    continue
+
+            result = await send_reengagement(dict(parent), sched["reengagement_hours"] or 4)
             if result.get("status") in ("sent", "simulated"):
                 try:
-                    tz = ZoneInfo(parent.get("timezone", "Asia/Kolkata"))
+                    tz = ZoneInfo(parent["timezone"] or "Asia/Kolkata")
                 except Exception:
                     tz = ZoneInfo("Asia/Kolkata")
-                await db.message_logs.insert_one({
-                    "user_id": sched["user_id"],
-                    "parent_id": parent_id,
-                    "schedule_id": sched["_id"],
-                    "message_index": -1,
-                    "day_key": datetime.now(timezone.utc).astimezone(tz).strftime("%Y-%m-%d"),
-                    "category": "reengagement",
-                    "body": "reengagement",
-                    "msg_type": "reengagement",
-                    "status": result.get("status"),
-                    "detail": result.get("detail"),
-                    "sid": result.get("sid"),
-                    "created_at": datetime.now(timezone.utc),
-                })
+                async with get_pool().acquire() as conn:
+                    await conn.execute(
+                        """
+                        insert into message_logs
+                            (user_id, parent_id, schedule_id, message_index, day_key, category,
+                             body, msg_type, status, detail, sid, created_at)
+                        values ($1, $2, $3, -1, $4, 'reengagement', 'reengagement',
+                                'reengagement', $5, $6, $7, $8)
+                        """,
+                        sched["user_id"], parent_id, sched["id"],
+                        datetime.now(timezone.utc).astimezone(tz).strftime("%Y-%m-%d"),
+                        result.get("status"), result.get("detail"), result.get("sid"),
+                        datetime.now(timezone.utc),
+                    )
         except Exception as exc:
-            logger.error("Scheduler: reengagement failed for schedule %s - %s", sched.get("_id"), exc)
+            logger.error("Scheduler: reengagement failed for schedule %s - %s", sched["id"], exc)
+
 
 async def _check_reengagement():
     await _with_lock("reengagement", 14 * 60, _check_reengagement_impl)
 
+
 async def _check_recovery_expiry_impl():
     today = date.today().isoformat()
-    cursor = db.schedules.find({"deleted_at": None, "recovery_mode": True, "recovery_until": {"$lte": today}})
-    async for sched in cursor:
-        active_messages = [m for m in sched.get("messages", []) if not m.get("is_recovery")]
-        recovery_messages = [m for m in sched.get("messages", []) if m.get("is_recovery")]
-        await db.schedules.update_one(
-            {"_id": sched["_id"]},
-            {"$set": {
-                "messages": active_messages,
-                "recovery_mode": False,
-                "recovery_until": None,
-                "archived_recovery_messages": recovery_messages,
-            }},
+    async with get_pool().acquire() as conn:
+        schedules = await conn.fetch(
+            "select * from schedules where deleted_at is null and recovery_mode = true and recovery_until <= $1",
+            today,
         )
-        await db.audit_logs.insert_one({
-            "user_id": sched.get("user_id"),
-            "action": "recovery_auto_expired",
-            "meta": {"schedule_id": str(sched["_id"]), "archived": len(recovery_messages)},
-            "created_at": datetime.now(timezone.utc),
-        })
+        for sched in schedules:
+            _msgs_raw = sched["messages"]
+            messages = json.loads(_msgs_raw) if isinstance(_msgs_raw, str) else (_msgs_raw or [])
+            active_messages = [m for m in messages if not m.get("is_recovery")]
+            recovery_messages = [m for m in messages if m.get("is_recovery")]
+            await conn.execute(
+                """
+                update schedules
+                set messages = $1::jsonb, recovery_mode = false, recovery_until = null,
+                    archived_recovery_messages = $2::jsonb
+                where id = $3
+                """,
+                json.dumps(active_messages), json.dumps(recovery_messages), sched["id"],
+            )
+            await conn.execute(
+                """
+                insert into audit_logs (user_id, action, meta, created_at)
+                values ($1, 'recovery_auto_expired', $2, now())
+                """,
+                sched["user_id"],
+                json.dumps({"schedule_id": str(sched["id"]), "archived": len(recovery_messages)}),
+            )
+
 
 async def _check_recovery_expiry():
     await _with_lock("recovery_expiry", 60 * 60, _check_recovery_expiry_impl)
+
 
 async def _run_monthly_reports_impl():
     today = date.today()
@@ -361,11 +363,14 @@ async def _run_monthly_reports_impl():
     previous_month = first_this_month - timedelta(days=1)
     await generate_reports_for_month(previous_month.year, previous_month.month)
 
+
 async def _run_monthly_reports():
     await _with_lock("monthly_reports", 60 * 60, _run_monthly_reports_impl)
 
+
 async def _run_care_watch():
     await _with_lock("care_watch", 4 * 60, run_care_watch_impl)
+
 
 def start_scheduler():
     global _scheduler
@@ -384,6 +389,7 @@ def start_scheduler():
         "AYANA v2 scheduler started on worker=%s (delivery:1min, reengagement:15min, recovery-expiry:24h, monthly-reports:%s)",
         _WORKER_ID, "on" if _auto_monthly else "off",
     )
+
 
 def shutdown_scheduler():
     global _scheduler
