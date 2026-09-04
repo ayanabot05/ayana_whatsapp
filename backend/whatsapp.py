@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
 
+from database import get_pool
 from templates_data import (
     DEFAULT_EMERGENCY_KEYWORDS,
     get_template_sid_key,
@@ -33,18 +34,10 @@ MAX_BUTTON_TITLE_LEN = int(os.environ.get("WA_MAX_BUTTON_TITLE_LEN", "20"))  # W
 SESSION_WINDOW_HOURS = int(os.environ.get("WA_SESSION_WINDOW_HOURS", "24")) # Meta's 24h customer-service window
 
 # ── Delivery fallback & recheck ───────────────────────────────────────────
-# After a send, if Meta didn't return a message ID (indicating the message
-# wasn't accepted for delivery), we recheck 5 minutes later. If still no
-# message ID, we fall back to a plain-text send (in-session) or retry with
-# the next template variant. This catches silent failures like 21008
-# (template rejected), phone unreachable, etc.
 DELIVERY_RECHECK_MIN = int(os.environ.get("WA_DELIVERY_RECHECK_MIN", "5"))
 DELIVERY_FALLBACK_ENABLED = os.environ.get("WA_DELIVERY_FALLBACK", "true").strip().lower() == "true"
 
 # ── Map each template category → the approved Meta template's literal name ──
-# Meta identifies templates by (name, language code) directly — no SID
-# concept like Twilio's ContentSid. Language is passed separately per send.
-# These are the 6 templates: opener, medicine, meal, mood, reengagement, report_ready.
 _CATEGORY_TEMPLATE_NAME = {
     "opener": "ayana_opener",
     "medicine": "ayana_medicine",
@@ -172,7 +165,6 @@ async def _send_content_template_with_retry(
             if attempt < MAX_SEND_RETRIES:
                 await asyncio.sleep(RETRY_BACKOFF_SECONDS * attempt)
 
-    # Fallback: if template send completely failed after all retries, fall back to plain text body
     if DELIVERY_FALLBACK_ENABLED:
         logger.warning("[wa] Template %s failed for %s — falling back to plain text send", template_key, to_phone)
         body_text = content_variables.get("2") or content_variables.get("1") or "Hello from AYANA 💛"
@@ -196,18 +188,14 @@ MOMENT_INTRO = {
 
 
 async def _send_quick_reply(
-    db, to_phone: str, body: str, buttons: List[Tuple[str, str]], context: str = "dynamic", language: str = "en",
+    to_phone: str, body: str, buttons: List[Tuple[str, str]], context: str = "dynamic", language: str = "en",
 ) -> Dict[str, Any]:
     """
     Meta interactive button messages are sent inline every time — no
-    pre-registered Content resource needed (that was a Twilio-only
-    requirement). `db` is kept in the signature for call-site
-    compatibility but is unused now.
+    pre-registered Content resource needed.
     """
     token, phone_id = _creds()
     buttons = buttons[:MAX_BUTTONS]
-    # Gentle, localized mic hint under every parent message — invites a voice
-    # note without requiring any typing (v1: templates; v2: child's own voice).
     hint = MIC_HINT.get(language, MIC_HINT["en"])
     if hint and hint not in body:
         body = f"{body}\n\n{hint}"
@@ -249,14 +237,19 @@ async def _send_quick_reply(
 
 
 # ── Session state ────────────────────────────────────────────────────────
-async def get_session(db, parent_id) -> Optional[Dict[str, Any]]:
-    from bson import ObjectId
-    pid = ObjectId(parent_id) if not isinstance(parent_id, ObjectId) else parent_id
-    return await db.wa_sessions.find_one({"parent_id": pid})
+# MIGRATION NOTE: dropped the `db` parameter from every function in this
+# section (get_session, is_session_open, refresh_session, mark_opener_sent,
+# mark_reengagement_sent) — same "import get_pool directly" pattern used
+# throughout this migration. Update any call sites accordingly.
+
+async def get_session(parent_id) -> Optional[Dict[str, Any]]:
+    async with get_pool().acquire() as conn:
+        row = await conn.fetchrow("select * from wa_sessions where parent_id = $1", parent_id)
+    return dict(row) if row else None
 
 
-async def is_session_open(db, parent_id) -> bool:
-    session = await get_session(db, parent_id)
+async def is_session_open(parent_id) -> bool:
+    session = await get_session(parent_id)
     if not session:
         return False
     last_inbound = session.get("last_inbound_at")
@@ -268,53 +261,59 @@ async def is_session_open(db, parent_id) -> bool:
     return last_inbound >= cutoff
 
 
-async def refresh_session(db, parent_id) -> None:
-    from bson import ObjectId
-    pid = ObjectId(parent_id) if not isinstance(parent_id, ObjectId) else parent_id
+async def refresh_session(parent_id) -> None:
     now = datetime.now(timezone.utc)
-    await db.wa_sessions.update_one(
-        {"parent_id": pid},
-        {"$set": {"parent_id": pid, "last_inbound_at": now, "session_open": True, "last_activity": now}},
-        upsert=True,
-    )
+    async with get_pool().acquire() as conn:
+        await conn.execute(
+            """
+            insert into wa_sessions (parent_id, last_inbound_at, session_open, last_activity, updated_at)
+            values ($1, $2, true, $2, now())
+            on conflict (parent_id) do update
+                set last_inbound_at = excluded.last_inbound_at,
+                    session_open = true,
+                    last_activity = excluded.last_activity,
+                    updated_at = now()
+            """,
+            parent_id, now,
+        )
 
 
-async def mark_opener_sent(db, parent_id, template_type: str = "opener") -> None:
-    from bson import ObjectId
-    pid = ObjectId(parent_id) if not isinstance(parent_id, ObjectId) else parent_id
+async def mark_opener_sent(parent_id, template_type: str = "opener") -> None:
     now = datetime.now(timezone.utc)
-    await db.wa_sessions.update_one(
-        {"parent_id": pid},
-        {"$set": {"parent_id": pid, "opener_sent_at": now, "last_template_type": template_type, "reengagement_sent": False, "last_outbound_at": now}},
-        upsert=True,
-    )
+    async with get_pool().acquire() as conn:
+        await conn.execute(
+            """
+            insert into wa_sessions (parent_id, opener_sent_at, last_template_type,
+                                      reengagement_sent, last_outbound_at, updated_at)
+            values ($1, $2, $3, false, $2, now())
+            on conflict (parent_id) do update
+                set opener_sent_at = excluded.opener_sent_at,
+                    last_template_type = excluded.last_template_type,
+                    reengagement_sent = false,
+                    last_outbound_at = excluded.last_outbound_at,
+                    updated_at = now()
+            """,
+            parent_id, now, template_type,
+        )
 
 
-async def mark_reengagement_sent(db, parent_id) -> None:
-    from bson import ObjectId
-    pid = ObjectId(parent_id) if not isinstance(parent_id, ObjectId) else parent_id
-    await db.wa_sessions.update_one(
-        {"parent_id": pid},
-        {"$set": {"reengagement_sent": True, "reengagement_sent_at": datetime.now(timezone.utc)}},
-        upsert=True,
-    )
+async def mark_reengagement_sent(parent_id) -> None:
+    now = datetime.now(timezone.utc)
+    async with get_pool().acquire() as conn:
+        await conn.execute(
+            """
+            insert into wa_sessions (parent_id, reengagement_sent, reengagement_sent_at, updated_at)
+            values ($1, true, $2, now())
+            on conflict (parent_id) do update
+                set reengagement_sent = true,
+                    reengagement_sent_at = excluded.reengagement_sent_at,
+                    updated_at = now()
+            """,
+            parent_id, now,
+        )
 
 
 # ── Approved-template variable resolver ─────────────────────────────────
-# Meta's approved templates are short, fixed sentences with 1-2 variables
-# (e.g. ayana_opener_en: "Hi {{1}}! This is AYANA checking in for {{2}}.
-# Reply anytime..."). The rotating dynamic body from render_slot_body_async
-# is NOT one of those variables — it's only for send_dynamic_checkin
-# (in-session free replies, unrestricted by Meta). Each template_key gets
-# its own short {{2}} value here instead.
-#
-# `medicine`, `water`, `bp_check`, `sugar_check`, and `health_check` all
-# route through the same approved `ayana_medicine` template (see
-# get_template_sid_key in templates_data.py), so template_key alone can't
-# tell them apart by the time we get here — `category` is what actually
-# distinguishes a real medicine reminder ("time for your Metformin tablet")
-# from a generic reminder ("time for your BP check"). Without this, every
-# non-medicine reminder rendered as "time for your your medicine tablet".
 _NON_MEDICINE_REMINDER_LABELS = {
     "water": "water",
     "bp_check": "BP check",
@@ -330,40 +329,38 @@ def _build_approved_template_vars(
         return {"1": preferred, "2": parent_relation_label(parent, language)}
     if template_key == "medicine":
         if category == "medicine":
-            # Real medicine reminder — say what it is AND that it's a
-            # tablet, since the drug name alone ("Metformin") isn't
-            # self-explanatory on its own.
             name = medicine_name or "your medicine"
             label = f"{name} tablet" if not name.lower().endswith("tablet") else name
         else:
-            # water/bp_check/sugar_check/health_check — not a medicine at
-            # all, so no "tablet" wording.
             label = _NON_MEDICINE_REMINDER_LABELS.get(category, medicine_name or "your medicine")
         return {"1": preferred, "2": label}
     return {"1": preferred}  # mood, meal, reengagement
 
 
 # ── Public sending API ───────────────────────────────────────────────────
-async def send_template_for_category(db, parent: Dict[str, Any], category: str, day_index: int, variants_per_slot: int, medicine_name: str = "") -> Dict[str, Any]:
+# MIGRATION NOTE: dropped `db` from every function below too — parent
+# records now come in as plain dicts keyed by "id" (Postgres uuid),
+# not Mongo's "_id". render_slot_body_async's signature also needs to
+# drop `db` when templates_data.py is converted next — that file is
+# the one remaining piece these functions depend on.
+
+async def send_template_for_category(parent: Dict[str, Any], category: str, day_index: int, variants_per_slot: int, medicine_name: str = "") -> Dict[str, Any]:
     """
     Unified entry point: resolves category -> one of the approved
     templates, renders the {{2}} body via render_slot_body (nicknames,
     season, habits, stories all applied), sends with retry.
     """
-    parent_id = parent["_id"]
+    parent_id = parent["id"]
     phone = parent.get("phone", "")
     language = parent.get("language", "en")
     preferred = parent.get("preferred_name") or parent.get("name", "") or "Amma"
 
-    if await is_session_open(db, parent_id):
-        return await send_dynamic_checkin(db, parent, category, day_index, variants_per_slot, medicine_name)
+    if await is_session_open(parent_id):
+        return await send_dynamic_checkin(parent, category, day_index, variants_per_slot, medicine_name)
 
     template_key = get_template_sid_key(category)
     template_name = _get_template_name(template_key)
-    # Async render: static zero-cost fast-path for en/te/hi, AI-translate
-    # + permanently-cached path for any other configured language — see
-    # templates_data.py's render_slot_body_async / translation_engine.py.
-    body = await render_slot_body_async(db, category, language, parent, day_index, medicine_name or "your medicine", variants_per_slot)
+    body = await render_slot_body_async(category, language, parent, day_index, medicine_name or "your medicine", variants_per_slot)
 
     if template_name and whatsapp_enabled():
         content_vars = _build_approved_template_vars(template_key, category, preferred, parent, language, medicine_name)
@@ -372,51 +369,51 @@ async def send_template_for_category(db, parent: Dict[str, Any], category: str, 
         result = send_whatsapp(phone, body)
 
     if result and result.get("status") in ("sent", "simulated"):
-        await mark_opener_sent(db, parent_id, template_key)
+        await mark_opener_sent(parent_id, template_key)
     return result or {"status": "failed", "detail": "No result from template send"}
 
 
 # Back-compat named wrappers (used by scheduler / API for explicit sends)
-async def send_whatsapp_opener(db, parent, day_index: int = 0, variants_per_slot: int = 7):
-    if await is_session_open(db, parent["_id"]):
+async def send_whatsapp_opener(parent, day_index: int = 0, variants_per_slot: int = 7):
+    if await is_session_open(parent["id"]):
         return {"skipped": True, "reason": "session_open"}
-    return await send_template_for_category(db, parent, "morning_wish", day_index, variants_per_slot)
+    return await send_template_for_category(parent, "morning_wish", day_index, variants_per_slot)
 
 
-async def send_medicine_template(db, parent, day_index: int = 0, variants_per_slot: int = 7, medicine_name: str = ""):
-    return await send_template_for_category(db, parent, "medicine", day_index, variants_per_slot, medicine_name)
+async def send_medicine_template(parent, day_index: int = 0, variants_per_slot: int = 7, medicine_name: str = ""):
+    return await send_template_for_category(parent, "medicine", day_index, variants_per_slot, medicine_name)
 
 
-async def send_meal_template(db, parent, meal_type: str = "lunch", day_index: int = 0, variants_per_slot: int = 7):
-    return await send_template_for_category(db, parent, meal_type, day_index, variants_per_slot)
+async def send_meal_template(parent, meal_type: str = "lunch", day_index: int = 0, variants_per_slot: int = 7):
+    return await send_template_for_category(parent, meal_type, day_index, variants_per_slot)
 
 
-async def send_mood_template(db, parent, category: str = "goodnight", day_index: int = 0, variants_per_slot: int = 7):
-    return await send_template_for_category(db, parent, category, day_index, variants_per_slot)
+async def send_mood_template(parent, category: str = "goodnight", day_index: int = 0, variants_per_slot: int = 7):
+    return await send_template_for_category(parent, category, day_index, variants_per_slot)
 
 
-async def send_dynamic_checkin(db, parent: Dict[str, Any], category: str, day_index: int, variants_per_slot: int, medicine_name: str = "") -> Dict[str, Any]:
+async def send_dynamic_checkin(parent: Dict[str, Any], category: str, day_index: int, variants_per_slot: int, medicine_name: str = "") -> Dict[str, Any]:
     """FREE in-session quick-reply — no approval needed while session is open."""
-    parent_id = parent["_id"]
+    parent_id = parent["id"]
     phone = parent.get("phone", "")
     language = parent.get("language", "en")
 
-    if not await is_session_open(db, parent_id):
-        return await send_template_for_category(db, parent, category, day_index, variants_per_slot, medicine_name)
+    if not await is_session_open(parent_id):
+        return await send_template_for_category(parent, category, day_index, variants_per_slot, medicine_name)
 
-    body = await render_slot_body_async(db, category, language, parent, day_index, medicine_name or "your medicine", variants_per_slot)
+    body = await render_slot_body_async(category, language, parent, day_index, medicine_name or "your medicine", variants_per_slot)
     buttons = render_slot_buttons(category, language)
-    return await _send_quick_reply(db, phone, body, buttons, context=category, language=language)
+    return await _send_quick_reply(phone, body, buttons, context=category, language=language)
 
 
-async def send_reengagement(db, parent: Dict[str, Any], reengagement_hours: int = 4) -> Dict[str, Any]:
+async def send_reengagement(parent: Dict[str, Any], reengagement_hours: int = 4) -> Dict[str, Any]:
     """Fires after `reengagement_hours` (user-configurable per schedule, not a static tier constant)."""
-    parent_id = parent["_id"]
+    parent_id = parent["id"]
     phone = parent.get("phone", "")
     language = parent.get("language", "en")
     preferred = parent.get("preferred_name") or parent.get("name", "") or "Amma"
 
-    session = await get_session(db, parent_id)
+    session = await get_session(parent_id)
     if not session:
         return {"skipped": True, "reason": "no_session"}
     if session.get("reengagement_sent"):
@@ -447,11 +444,11 @@ async def send_reengagement(db, parent: Dict[str, Any], reengagement_hours: int 
         result = send_whatsapp(phone, body)
 
     if result and result.get("status") in ("sent", "simulated"):
-        await mark_reengagement_sent(db, parent_id)
+        await mark_reengagement_sent(parent_id)
     return result or {"status": "failed", "detail": "No result"}
 
 
-async def send_moment(db, parent: Dict[str, Any], text: str, sender_name: str, image_url: str = "", image_urls: List[str] = None) -> Dict[str, Any]:
+async def send_moment(parent: Dict[str, Any], text: str, sender_name: str, image_url: str = "", image_urls: List[str] = None) -> Dict[str, Any]:
     """Two-way moment: a child pushes a warm message/photo, delivered to the
     parent on WhatsApp with a gentle intro. Available on all plans.
 
@@ -462,7 +459,6 @@ async def send_moment(db, parent: Dict[str, Any], text: str, sender_name: str, i
     intro = MOMENT_INTRO.get(language, MOMENT_INTRO["en"]).format(sender=sender_name or "Your family")
     body = f"{intro}\n\n{text}".strip()
 
-    # Normalize to a list of up to 2 image URLs
     urls = list(image_urls or [])
     if image_url and image_url not in urls:
         urls.append(image_url)
@@ -473,8 +469,6 @@ async def send_moment(db, parent: Dict[str, Any], text: str, sender_name: str, i
     last_result = None
     any_sent = False
 
-    # Send each image as a separate message with the caption; the text body
-    # goes on the first image, subsequent images are sent without captions.
     if urls and whatsapp_enabled() and token and phone_id:
         for idx, url in enumerate(urls):
             caption = body if idx == 0 else ""
@@ -508,17 +502,7 @@ async def send_moment(db, parent: Dict[str, Any], text: str, sender_name: str, i
 
 
 async def send_report_ready(to_phone: str, language: str, parent_display: str) -> Dict[str, Any]:
-    """Notify a child/family member that a monthly report is ready.
-
-    Uses the approved `ayana_report_ready` template (UTILITY category, one
-    variable — the parent's display name). This recipient is the child, not
-    the parent, so the session-open check the other template sends use
-    (is_session_open, keyed to the parent's own WhatsApp conversation) isn't
-    a valid signal for whether the child's own 24h session is open — the app
-    doesn't track that separately today. Always going through the approved
-    template sidesteps that gap entirely and is guaranteed to be deliverable
-    regardless of session state, which is exactly what it's approved for.
-    """
+    """Notify a child/family member that a monthly report is ready."""
     template_name = _get_template_name("report_ready")
     content_vars = {"1": parent_display or "your parent"}
     return await _send_content_template_with_retry(to_phone, template_name, language, content_vars, "report_ready")
@@ -548,13 +532,7 @@ def verify_meta_signature(raw_body: bytes, signature: str) -> bool:
     """
     Verify inbound Meta webhook signature (X-Hub-Signature-256 header,
     format 'sha256=<hex>'), computed as HMAC-SHA256 of the raw request
-    body using the Meta app's secret (META_WA_APP_SECRET, from the
-    app's Basic Settings in developers.facebook.com — NOT the access
-    token).
-
-    Dev-mode bypass (WEBHOOK_DEV_TOKEN) is handled by the caller in
-    server.py before this is even reached — this function assumes
-    WHATSAPP_ENABLED=true / production verification is wanted.
+    body using the Meta app's secret (META_WA_APP_SECRET).
     """
     app_secret = os.environ.get("META_WA_APP_SECRET", "").strip()
     if not app_secret:
@@ -582,7 +560,6 @@ def detect_emergency(text: str, extra_keywords: Optional[List[str]] = None) -> L
 NUMERIC_CHECKIN_MAP = {"1": "feeling:good", "2": "feeling:okay", "3": "feeling:not_well"}
 NUMERIC_REMINDER_MAP = {"1": "done:generic", "2": "pending:generic", "3": "skip:generic"}
 
-# Multilingual feeling phrases — maps a parent's free-text reply to a feeling state.
 FEELING_PATTERNS = {
     "good": [
         "బాగున్నా", "బాగుంది", "బాగుందాం", "చాలా బాగుంది", "గుడ్", "సుఖంగా",
@@ -620,7 +597,6 @@ def parse_intent(button_payload: Optional[str], body: Optional[str], last_msg_ty
     numeric_map = NUMERIC_CHECKIN_MAP if last_msg_type == "checkin" else NUMERIC_REMINDER_MAP
     if text in numeric_map:
         return numeric_map[text]
-    # Multilingual free-text reply detection (Telugu / Hindi / English phrases)
     if last_msg_type == "checkin":
         feeling = _match_feeling(text)
         if feeling:

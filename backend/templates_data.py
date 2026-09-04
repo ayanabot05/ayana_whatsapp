@@ -498,20 +498,24 @@ def render_slot_body(
     )
 
 
-async def get_variants_async(db, category: str, language: str) -> list[str]:
+async def get_variants_async(category: str, language: str) -> list[str]:
     """
     Fast path (en/te/hi): returns the hand-written SLOT_VARIANTS list —
     no DB read, no network call, zero added latency or token cost.
 
     Adaptive path (any other language): delegates entirely to
     translation_engine.get_variants(), which owns both the cache
-    (db.template_variants_cache — the collection database.py actually
-    indexes) and the Sarvam translation call. That function returns
+    (template_variants_cache — the Postgres table schema.sql creates)
+    and the Sarvam translation call. That function returns
     None on any failure (disabled, unsupported language, API error) —
     we fall back to the English copy in that case rather than crashing,
     matching what translation_engine.py's docstring promises callers.
     This is what makes new-language support additive (edit LANGUAGES,
     nothing else) rather than a code change.
+
+    MIGRATION NOTE: dropped the `db` parameter — translation_engine.py
+    now imports the Postgres pool directly, same pattern used
+    throughout this migration.
     """
     bucket = SLOT_VARIANTS.get(category) or SLOT_VARIANTS.get("how_feeling", {})
     if language in bucket:
@@ -520,7 +524,7 @@ async def get_variants_async(db, category: str, language: str) -> list[str]:
     english = bucket.get("en") or ["{nick1}, thinking of you 💛"]
     if language not in STATIC_LANGUAGES:
         from translation_engine import get_variants as get_dynamic_variants
-        variants = await get_dynamic_variants(db, category, language)
+        variants = await get_dynamic_variants(category, language)
         if variants:
             return variants
         return english
@@ -529,7 +533,6 @@ async def get_variants_async(db, category: str, language: str) -> list[str]:
 
 
 async def render_slot_body_async(
-    db,
     category: str,
     language: str,
     parent: dict,
@@ -542,8 +545,11 @@ async def render_slot_body_async(
     logic, but sources variants via get_variants_async so languages
     outside en/te/hi resolve through the AI-translation cache instead of
     silently falling back to English mid-sentence.
+
+    MIGRATION NOTE: dropped the `db` parameter — matches whatsapp.py's
+    call sites, which no longer pass one.
     """
-    variants = await get_variants_async(db, category, language)
+    variants = await get_variants_async(category, language)
     variants = trim_variants_for_plan(variants, variants_per_slot)
     template = variants[day_index % len(variants)]
 

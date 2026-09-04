@@ -16,7 +16,7 @@ This module adds a fallback path, not a replacement:
      (unchanged, zero-cost, zero-latency — this is still the path for
      every en/te/hi send today).
   2. If the requested language isn't in the static set, it checks
-     `template_variants_cache` in Mongo for a previously-generated
+     `template_variants_cache` in Postgres for a previously-generated
      translation of that (category, language) pair.
   3. Only on a cache MISS does it call Sarvam's translation API once,
      store the result, and serve from cache forever after. This is the
@@ -30,6 +30,10 @@ and free as before, while making "we're expanding to a new state /
 language" a config change (add the language code) instead of an
 engineering task — without silently machine-translating copy for
 languages you've already hand-reviewed.
+
+MIGRATION NOTE: previously took a Mongo `db` handle as a parameter.
+Now imports the Postgres pool directly via get_pool(). Callers should
+drop the `db` argument from get_variants() calls.
 """
 
 import logging
@@ -38,6 +42,7 @@ from datetime import datetime, timezone
 
 import httpx
 
+from database import get_pool
 from templates_data import SLOT_VARIANTS
 
 logger = logging.getLogger("ayana.translation")
@@ -105,7 +110,7 @@ async def _translate_variants(english_variants: list[str], target_lang: str) -> 
     return translated
 
 
-async def get_variants(db, category: str, language: str) -> list[str] | None:
+async def get_variants(category: str, language: str) -> list[str] | None:
     """
     Returns rotational message variants for (category, language) beyond
     the static set, using a cache-first strategy. Returns None if
@@ -117,26 +122,34 @@ async def get_variants(db, category: str, language: str) -> list[str] | None:
     if language in ("en", "te", "hi"):
         return None  # static set already covers these — no AI call needed
 
-    cached = await db.template_variants_cache.find_one({"category": category, "language": language})
-    if cached and cached.get("variants"):
-        return cached["variants"]
+    async with get_pool().acquire() as conn:
+        cached = await conn.fetchrow(
+            "select variants from template_variants_cache where category = $1 and language = $2",
+            category, language,
+        )
+        if cached and cached["variants"]:
+            return cached["variants"]
 
-    english_variants = (SLOT_VARIANTS.get(category) or {}).get("en")
-    if not english_variants:
-        return None
+        english_variants = (SLOT_VARIANTS.get(category) or {}).get("en")
+        if not english_variants:
+            return None
 
-    translated = await _translate_variants(english_variants, language)
-    if not translated:
-        return None
+        translated = await _translate_variants(english_variants, language)
+        if not translated:
+            return None
 
-    await db.template_variants_cache.update_one(
-        {"category": category, "language": language},
-        {"$set": {
-            "category": category, "language": language, "variants": translated,
-            "source": "sarvam_translate", "generated_at": datetime.now(timezone.utc),
-        }},
-        upsert=True,
-    )
+        await conn.execute(
+            """
+            insert into template_variants_cache (category, language, variants, source, generated_at)
+            values ($1, $2, $3::jsonb, 'sarvam_translate', now())
+            on conflict (category, language) do update
+                set variants = excluded.variants,
+                    source = excluded.source,
+                    generated_at = now()
+            """,
+            category, language, translated,
+        )
+
     logger.info("[translate] Cached %d variants for %s/%s", len(translated), category, language)
     return translated
 

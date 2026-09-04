@@ -28,6 +28,11 @@ This module deliberately does NOT try to infer distress from tap-button
 choices (feeling:good/okay/not_well) — those are the parent's stated
 answer and are taken at face value. The gap this fills is specifically
 in free text / voice, where nuance can hide behind a "fine."
+
+MIGRATION NOTE: previously took a Mongo `db` handle as a parameter
+(passed down from server.py). Now imports the Postgres pool directly
+via get_pool() — one less thing every caller needs to thread through.
+Callers should drop the `db` argument from assess_transcript() calls.
 """
 
 import logging
@@ -37,6 +42,8 @@ from datetime import datetime, timezone
 from typing import Optional
 
 import httpx
+
+from database import get_pool
 
 logger = logging.getLogger("ayana.distress")
 
@@ -131,7 +138,6 @@ async def _pretrained_distress_score(transcript: str, language: str) -> Optional
 
 
 async def assess_transcript(
-    db,
     parent_id,
     transcript: str,
     language: str,
@@ -147,19 +153,18 @@ async def assess_transcript(
     is_keyword_emergency = bool(keyword_matches)
     is_ml_flagged = ml_score is not None and ml_score >= 0.7
 
-    log_entry = {
-        "parent_id": parent_id,
-        "transcript": transcript,
-        "language": language,
-        "keyword_matches": keyword_matches,
-        "ml_score": ml_score,
-        "keyword_emergency": is_keyword_emergency,
-        "ml_flagged": is_ml_flagged,
-        "outcome": None,  # filled in later if/when a human confirms — the actual training label
-        "created_at": datetime.now(timezone.utc),
-    }
     try:
-        await db.distress_logs.insert_one(log_entry)
+        async with get_pool().acquire() as conn:
+            await conn.execute(
+                """
+                insert into distress_logs
+                    (parent_id, transcript, language, keyword_matches, ml_score,
+                     keyword_emergency, ml_flagged, outcome, created_at)
+                values ($1::uuid, $2, $3, $4::jsonb, $5, $6, $7, null, now())
+                """,
+                parent_id, transcript, language, json.dumps(keyword_matches),
+                ml_score, is_keyword_emergency, is_ml_flagged,
+            )
     except Exception as e:
         logger.error("[distress] Failed to log transcript assessment: %s", e)
 

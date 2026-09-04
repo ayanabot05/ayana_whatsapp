@@ -16,16 +16,18 @@ three things, all timezone-aware to the parent's local day:
    emergency contacts get a gentle "they haven't replied yet" alert. Once/day.
 
 3. BIRTHDAY + FESTIVAL auto-wishes to the parent, in their language. Once/day.
+
+MIGRATION NOTE: Mongo's `insert_one` + catch `DuplicateKeyError` pattern
+(used for the once-a-day markers) is replaced by Postgres's native
+`ON CONFLICT DO NOTHING`, which reports whether a row was actually
+inserted instead of relying on an exception.
 """
 
 import logging
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 
-from bson import ObjectId
-from pymongo.errors import DuplicateKeyError
-
-from database import db
+from database import get_pool
 from whatsapp import send_whatsapp, send_medicine_template, send_dynamic_checkin
 
 logger = logging.getLogger("ayana.escalation")
@@ -44,7 +46,6 @@ BIRTHDAY_WISH = {
     "hi": "🎂💛 जन्मदिन मुबारक हो, {name}! आज आपको सेहत, हँसी और प्यार मिले। आपका परिवार आपको याद कर रहा है।",
 }
 
-# Fixed-date festivals (same MM-DD every year).
 FESTIVALS = {
     "01-01": {"en": "🎉 Happy New Year, {name}! May this year be gentle and joyful for you. 💛",
               "te": "🎉 నూతన సంవత్సర శుభాకాంక్షలు, {name}! ఈ సంవత్సరం మీకు ప్రశాంతంగా, ఆనందంగా గడవాలి. 💛",
@@ -57,8 +58,6 @@ FESTIVALS = {
               "hi": "🇮🇳 स्वतंत्रता दिवस की शुभकामनाएँ, {name}! 💛"},
 }
 
-# Lunar festivals vary each year — keyed by full YYYY-MM-DD (Rangwali Holi &
-# Diwali Lakshmi Puja, India reference dates). Update yearly.
 _HOLI = {"en": "🌈 Happy Holi, {name}! May your days be full of colour and joy. 💛",
          "te": "🌈 హోళీ శుభాకాంక్షలు, {name}! మీ జీవితం రంగులతో నిండాలి. 💛",
          "hi": "🌈 होली की शुभकामनाएँ, {name}! आपका जीवन रंगों से भरा रहे। 💛"}
@@ -78,24 +77,26 @@ def _aware(dt):
     return dt
 
 
-async def _has_reply_since(parent_id, since_dt) -> bool:
-    doc = await db.parent_replies.find_one({"parent_id": parent_id, "created_at": {"$gte": since_dt}})
-    return doc is not None
+async def _has_reply_since(conn, parent_id, since_dt) -> bool:
+    row = await conn.fetchrow(
+        "select 1 from parent_replies where parent_id = $1 and created_at >= $2 limit 1",
+        parent_id, since_dt,
+    )
+    return row is not None
 
 
-async def _notify_child(user_id, parent, text: str):
+async def _notify_child(conn, user_id, parent, text: str):
     """Alert owner + Care Circle members + emergency contacts."""
-    owner = None
-    try:
-        owner = await db.users.find_one({"_id": ObjectId(user_id)})
-    except Exception:
-        pass
-    members = await db.users.find({"household_owner_id": str(user_id), "deleted_at": None}).to_list(20)
+    owner = await conn.fetchrow("select * from users where id = $1::uuid", user_id)
+    members = await conn.fetch(
+        "select * from users where household_owner_id = $1::uuid and deleted_at is null limit 20",
+        user_id,
+    )
     phones = []
-    for r in ([owner] if owner else []) + members:
-        if r and r.get("phone"):
+    for r in ([owner] if owner else []) + list(members):
+        if r and r["phone"]:
             phones.append(r["phone"])
-    for c in (parent.get("emergency_contacts") or []):
+    for c in (parent["emergency_contacts"] or []):
         if c.get("phone"):
             phones.append(c["phone"])
     for p in dict.fromkeys(phones):  # de-dupe, keep order
@@ -107,115 +108,152 @@ async def _notify_child(user_id, parent, text: str):
 
 async def run_care_watch_impl():
     now = datetime.now(timezone.utc)
-    async for sched in db.schedules.find({"active": True, "deleted_at": None}):
-        parent = await db.parents.find_one({"_id": sched["parent_id"]})
-        if not parent or parent.get("deleted_at"):
-            continue
-        activation = await db.activation_state.find_one({"user_id": sched["user_id"]})
-        if not activation or not activation.get("whatsapp_activated"):
-            continue
 
-        try:
-            tz = ZoneInfo(parent.get("timezone", "Asia/Kolkata"))
-        except Exception:
-            tz = ZoneInfo("Asia/Kolkata")
-        local = now.astimezone(tz)
-        day_key = local.strftime("%Y-%m-%d")
-        day_index = local.timetuple().tm_yday
-        user_id = sched["user_id"]
-        parent_id = parent["_id"]
-        lang = parent.get("language", "en")
-        preferred = parent.get("preferred_name") or parent.get("name") or "Amma"
+    async with get_pool().acquire() as conn:
+        schedules = await conn.fetch(
+            "select * from schedules where active = true and deleted_at is null"
+        )
 
-        # ---- 1) Retry unanswered check-ins / medicine reminders ----
-        logs = await db.message_logs.find({
-            "parent_id": parent_id, "day_key": day_key,
-            "msg_type": {"$in": ["checkin", "reminder"]},
-            "status": {"$in": ["sent", "simulated"]},
-        }).to_list(200)
-        for log in logs:
-            base = _aware(log.get("created_at"))
-            if not base:
-                continue
-            # kind no longer affects interval/window — both use the same
-            # REMINDER_INTERVAL / REMINDER_WINDOW constants now.
-            interval = RETRY_INTERVAL_MIN
-            window = RETRY_WINDOW_MIN
-            max_attempts = MAX_RESEND_ATTEMPTS
-            elapsed_min = (now - base).total_seconds() / 60
-            if elapsed_min > window:
-                continue  # 2-hour window closed — give up
-            if await _has_reply_since(parent_id, base):
-                continue  # answered — stop nagging
-            state = await db.escalation_state.find_one({"_id": str(log["_id"])}) or {}
-            attempts = state.get("attempts", 0)
-            if attempts >= max_attempts:
-                continue
-            due_at = base + timedelta(minutes=interval * (attempts + 1))
-            if now < due_at:
-                continue
-
-            category = log.get("category", "how_feeling")
-            msg_type = log.get("msg_type", "checkin")
-            kind = "medicine" if msg_type == "reminder" else "checkin"
-
-            if kind == "medicine":
-                result = await send_medicine_template(db, parent, day_index, 7, "")
-            else:
-                result = await send_dynamic_checkin(db, parent, category, day_index, 7, "")
-
-            await db.escalation_state.update_one(
-                {"_id": str(log["_id"])},
-                {"$set": {"parent_id": parent_id, "user_id": user_id, "attempts": attempts + 1,
-                          "last_attempt_at": now, "kind": kind, "day_key": day_key},
-                 "$setOnInsert": {"first_at": now}},
-                upsert=True,
+        for sched in schedules:
+            parent = await conn.fetchrow(
+                "select * from parents where id = $1", sched["parent_id"]
             )
-            await db.message_logs.insert_one({
-                "user_id": user_id, "parent_id": parent_id, "schedule_id": sched["_id"],
-                "day_key": day_key, "category": category, "msg_type": "escalation",
-                "status": (result or {}).get("status"), "escalation_of": str(log["_id"]),
-                "attempt": attempts + 1, "kind": kind, "created_at": now,
-            })
-            logger.info("[escalation] %s retry #%d -> %s (%s)", kind, attempts + 1, parent.get("name"), category)
+            if not parent or parent["deleted_at"]:
+                continue
+            activation = await conn.fetchrow(
+                "select * from activation_state where user_id = $1", sched["user_id"]
+            )
+            if not activation or not activation["whatsapp_activated"]:
+                continue
 
-        # ---- 2) Afternoon no-response warning ----
-        if local.hour >= AFTERNOON_HOUR:
-            day_start_local = local.replace(hour=0, minute=0, second=0, microsecond=0)
-            day_start_utc = day_start_local.astimezone(timezone.utc)
-            sent_today = await db.message_logs.count_documents({
-                "parent_id": parent_id, "day_key": day_key,
-                "status": {"$in": ["sent", "simulated"]},
-            })
-            if sent_today > 0 and not await _has_reply_since(parent_id, day_start_utc):
-                marker = f"{parent_id}:{day_key}:noreply"
-                try:
-                    await db.escalation_daily.insert_one({"_id": marker, "at": now})
-                    pname = parent.get("name", "your parent")
-                    await _notify_child(
-                        user_id, parent,
-                        f"⚠️ {pname} hasn't replied to any of today's check-ins yet. "
-                        f"You may want to give them a call to make sure all is well. — AYANA 💛",
-                    )
-                    logger.info("[escalation] afternoon no-reply warning sent for %s", pname)
-                except DuplicateKeyError:
-                    pass
-
-        # ---- 3) Birthday + festival auto-wish ----
-        mmdd = local.strftime("%m-%d")
-        ymd = local.strftime("%Y-%m-%d")
-        greet = None
-        if parent.get("birthday") == mmdd:
-            greet = BIRTHDAY_WISH.get(lang, BIRTHDAY_WISH["en"]).format(name=preferred)
-        elif ymd in LUNAR_FESTIVALS:
-            greet = LUNAR_FESTIVALS[ymd].get(lang, LUNAR_FESTIVALS[ymd]["en"]).format(name=preferred)
-        elif mmdd in FESTIVALS:
-            greet = FESTIVALS[mmdd].get(lang, FESTIVALS[mmdd]["en"]).format(name=preferred)
-        if greet:
-            marker = f"{parent_id}:{day_key}:greet"
             try:
-                await db.escalation_daily.insert_one({"_id": marker, "at": now})
-                send_whatsapp(parent.get("phone", ""), greet)
-                logger.info("[escalation] festival/birthday wish sent to %s", parent.get("name"))
-            except DuplicateKeyError:
-                pass
+                tz = ZoneInfo(parent["timezone"] or "Asia/Kolkata")
+            except Exception:
+                tz = ZoneInfo("Asia/Kolkata")
+            local = now.astimezone(tz)
+            day_key = local.strftime("%Y-%m-%d")
+            day_index = local.timetuple().tm_yday
+            user_id = sched["user_id"]
+            parent_id = parent["id"]
+            lang = parent["language"] or "en"
+            preferred = parent["preferred_name"] or parent["name"] or "Amma"
+
+            # ---- 1) Retry unanswered check-ins / medicine reminders ----
+            logs = await conn.fetch(
+                """
+                select * from message_logs
+                where parent_id = $1 and day_key = $2
+                  and msg_type in ('checkin', 'reminder')
+                  and status in ('sent', 'simulated')
+                limit 200
+                """,
+                parent_id, day_key,
+            )
+            for log in logs:
+                base = _aware(log["created_at"])
+                if not base:
+                    continue
+                interval = RETRY_INTERVAL_MIN
+                window = RETRY_WINDOW_MIN
+                max_attempts = MAX_RESEND_ATTEMPTS
+                elapsed_min = (now - base).total_seconds() / 60
+                if elapsed_min > window:
+                    continue  # 2-hour window closed — give up
+                if await _has_reply_since(conn, parent_id, base):
+                    continue  # answered — stop nagging
+                state = await conn.fetchrow(
+                    "select * from escalation_state where id = $1", str(log["id"])
+                )
+                attempts = state["attempts"] if state else 0
+                if attempts >= max_attempts:
+                    continue
+                due_at = base + timedelta(minutes=interval * (attempts + 1))
+                if now < due_at:
+                    continue
+
+                category = log["category"] or "how_feeling"
+                msg_type = log["msg_type"] or "checkin"
+                kind = "medicine" if msg_type == "reminder" else "checkin"
+
+                if kind == "medicine":
+                    result = await send_medicine_template(parent, day_index, 7, "")
+                else:
+                    result = await send_dynamic_checkin(parent, category, day_index, 7, "")
+
+                await conn.execute(
+                    """
+                    insert into escalation_state (id, parent_id, user_id, attempts,
+                                                   last_attempt_at, kind, day_key, first_at)
+                    values ($1, $2, $3, $4, $5, $6, $7, now())
+                    on conflict (id) do update
+                        set attempts = excluded.attempts,
+                            last_attempt_at = excluded.last_attempt_at,
+                            kind = excluded.kind,
+                            day_key = excluded.day_key
+                    """,
+                    str(log["id"]), parent_id, user_id, attempts + 1, now, kind, day_key,
+                )
+                await conn.execute(
+                    """
+                    insert into message_logs (user_id, parent_id, schedule_id, day_key, category,
+                                               msg_type, status, escalation_of, attempt, kind, created_at)
+                    values ($1, $2, $3, $4, $5, 'escalation', $6, $7, $8, $9, $10)
+                    """,
+                    user_id, parent_id, sched["id"], day_key, category,
+                    (result or {}).get("status"), log["id"], attempts + 1, kind, now,
+                )
+                logger.info("[escalation] %s retry #%d -> %s (%s)", kind, attempts + 1, parent["name"], category)
+
+            # ---- 2) Afternoon no-response warning ----
+            if local.hour >= AFTERNOON_HOUR:
+                day_start_local = local.replace(hour=0, minute=0, second=0, microsecond=0)
+                day_start_utc = day_start_local.astimezone(timezone.utc)
+                sent_today = await conn.fetchval(
+                    """
+                    select count(*) from message_logs
+                    where parent_id = $1 and day_key = $2 and status in ('sent', 'simulated')
+                    """,
+                    parent_id, day_key,
+                )
+                if sent_today > 0 and not await _has_reply_since(conn, parent_id, day_start_utc):
+                    marker = f"{parent_id}:{day_key}:noreply"
+                    inserted = await conn.fetchval(
+                        """
+                        insert into escalation_daily (marker, at) values ($1, now())
+                        on conflict (marker) do nothing
+                        returning marker
+                        """,
+                        marker,
+                    )
+                    if inserted:
+                        pname = parent["name"] or "your parent"
+                        await _notify_child(
+                            conn, user_id, parent,
+                            f"⚠️ {pname} hasn't replied to any of today's check-ins yet. "
+                            f"You may want to give them a call to make sure all is well. — AYANA 💛",
+                        )
+                        logger.info("[escalation] afternoon no-reply warning sent for %s", pname)
+
+            # ---- 3) Birthday + festival auto-wish ----
+            mmdd = local.strftime("%m-%d")
+            ymd = local.strftime("%Y-%m-%d")
+            greet = None
+            if parent["birthday"] == mmdd:
+                greet = BIRTHDAY_WISH.get(lang, BIRTHDAY_WISH["en"]).format(name=preferred)
+            elif ymd in LUNAR_FESTIVALS:
+                greet = LUNAR_FESTIVALS[ymd].get(lang, LUNAR_FESTIVALS[ymd]["en"]).format(name=preferred)
+            elif mmdd in FESTIVALS:
+                greet = FESTIVALS[mmdd].get(lang, FESTIVALS[mmdd]["en"]).format(name=preferred)
+            if greet:
+                marker = f"{parent_id}:{day_key}:greet"
+                inserted = await conn.fetchval(
+                    """
+                    insert into escalation_daily (marker, at) values ($1, now())
+                    on conflict (marker) do nothing
+                    returning marker
+                    """,
+                    marker,
+                )
+                if inserted:
+                    send_whatsapp(parent["phone"] or "", greet)
+                    logger.info("[escalation] festival/birthday wish sent to %s", parent["name"])
