@@ -4,6 +4,65 @@
 > (see below). Previous version was 2026-08-11. Treat older history
 > at the bottom of this file as unverified against the current code.
 
+## 2026-09-04 · Day 1 completion — Sentry monitoring + storage feature flag
+
+**Day 1 fully closed.** Beyond the migration + auth + activation fixes
+earlier today, added:
+
+6. **Sentry error monitoring** — frontend (`@sentry/react`) + backend
+   (`sentry-sdk[fastapi]`). Silent no-op without DSN so local/CI stays
+   quiet. `ErrorBoundary` wraps the whole React app with a friendly
+   "We hit a snag" fallback. `AuthContext.setSentryUser` tags every
+   authenticated event with `{id, email}`; `get_current_user` does the
+   same on the backend per-request. Both scrub cookies/CSRF/Authorization
+   before send. Founder must set `REACT_APP_SENTRY_DSN` on Vercel and
+   `SENTRY_DSN` on Railway; canary at `/api/debug/sentry-canary`
+   (admin-only) fires an intentional error for verification.
+
+7. **Deep `/api/health`** — returns 503 if either Postgres query fails
+   OR Meta creds missing/disabled. Railway auto-rollback hook. Also
+   surfaces the current release hash for correlating errors with
+   deploys.
+
+8. **Object storage feature flag** — `backend/storage.py` was calling
+   Emergent's preview-only object store on every Railway startup,
+   spamming Sentry with a 400 and breaking any moment-image upload
+   with a 500. Now gated on `OBJECT_STORAGE_ENABLED=true` +
+   `EMERGENT_LLM_KEY`. When disabled (production default): startup
+   logs "Object storage disabled", `/moments/upload-image` returns a
+   clean 501 with friendly copy ("Photo sharing temporarily
+   unavailable — text moments still work"), `/uploads/signed/*`
+   returns 404. Post-launch swap to Cloudinary or Supabase Storage by
+   reimplementing the same 3 functions (is_enabled, put_object,
+   get_object).
+
+**All 8 fixes verified by testing_agent iterations 8-11 (100% pass on
+functional flow; upload-image 501 pending deploy).**
+
+## Day 2 plan (starts tomorrow)
+
+- Invite 5–10 personal contacts as beta users
+- `PAYMENTS_ENABLED=false` stays as-is
+- Watch Sentry + Railway + Supabase logs live
+- Track completion in a spreadsheet
+- Gate D2: 5+ users completed activation, ≥3 parents replied, zero P0
+  bugs, error rate <2%
+
+## Post-launch backlog (surfaced during Day 1 audit)
+
+- Split `server.py` (2,534 lines) into `routes/*.py` modules
+- Split `Dashboard.js` (1,112 lines) by tab
+- Remove `swr` OR `@tanstack/react-query` (both installed today)
+- GitHub Actions CI (pytest + eslint + smoke test on Supabase branch DB)
+- Backend test suite green (currently stale post-migration)
+- Scheduler perf — index on `next_send_at`, dead-letter queue for Meta
+  5xx, dedupe webhook by message_id
+- Async activation with status polling (currently 16.5s synchronous)
+- Real image storage (Cloudinary or Supabase Storage) so photo Moments
+  work — remove the 501 gate
+- Frontend gracefully handles 501 from `/moments/upload-image` with a
+  friendly copy instead of a generic toast
+
 ## 2026-09-04 · Migration completion & pre-launch unblock
 
 **Reported by founder:** "Since the Mongo→Supabase migration I cannot log in

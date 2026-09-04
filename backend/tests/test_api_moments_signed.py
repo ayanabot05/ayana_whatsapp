@@ -1,8 +1,8 @@
-import pytest
-from unittest.mock import patch
-import uuid
-from datetime import datetime, timezone, timedelta
 import io
+from unittest.mock import patch
+
+import pytest
+
 
 # We need to test upload-image which uses put_object from storage
 @pytest.fixture
@@ -14,13 +14,12 @@ def mock_storage():
             yield m_put, m_get
 
 def test_upload_image_success(api_client, api_url, fresh_user, mock_storage):
-    m_put, m_get = mock_storage
+    m_put, _m_get = mock_storage
     h = fresh_user["headers"]
     
     # Create a small valid valid-ish image (or just bytes that Pillow can decode)
     # Actually, the server parses with Pillow. We should provide a valid 1x1 JPEG.
     from PIL import Image
-    import io
     img_byte_arr = io.BytesIO()
     img = Image.new('RGB', (10, 10), color = 'red')
     img.save(img_byte_arr, format='JPEG')
@@ -49,11 +48,10 @@ def test_upload_image_oversized(api_client, api_url, fresh_user, mock_storage):
     assert r.status_code == 413
 
 def test_signed_url(api_client, api_url, fresh_user, mock_storage):
-    m_put, m_get = mock_storage
+    _m_put, _m_get = mock_storage
     h = fresh_user["headers"]
     
     from PIL import Image
-    import io
     img_byte_arr = io.BytesIO()
     img = Image.new('RGB', (10, 10), color = 'red')
     img.save(img_byte_arr, format='JPEG')
@@ -77,7 +75,7 @@ def test_signed_url(api_client, api_url, fresh_user, mock_storage):
     # Expired url logic testing - manually construct expired url
     import urllib.parse
     parsed = urllib.parse.urlparse(url)
-    qs = urllib.parse.parse_qs(parsed.query)
+    urllib.parse.parse_qs(parsed.query)
     filename = r.json()["filename"]
     
     from server import _build_signed_url

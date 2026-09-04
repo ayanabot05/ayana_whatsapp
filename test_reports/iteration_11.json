@@ -1,0 +1,57 @@
+{
+  "summary": "Backend-only iteration 11 test run against live production (https://api.ayanabott.com). Verified clean startup via /api/health (200 healthy, postgres up, meta configured, no problems), public GETs return no 500s, signed-URL endpoint returns 403 (no 500), and the FULL onboarding flow still passes end-to-end via API (register -> otp/send dev_code -> otp/verify -> PUT /profile/child -> /payment/checkout nitya trial -> /parents (+GET persistence check) -> /schedules -> /activation/activate all HTTP 200). PRIMARY FIX IS NOT LIVE: POST /api/moments/upload-image returns HTTP 502 {'detail':'Image upload failed. Please try again.'} — i.e. old (pre-fix) code path where put_object -> Emergent objstore init fails. Case (a) from your list: DEPLOY PENDING. Locally the rewritten backend/storage.py contract is correct — 4/4 new unit tests pass (is_enabled False by default, init_storage() no-op returns None, put_object/get_object raise RuntimeError).",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "POST /api/moments/upload-image",
+        "issue": "Production returns 502 'Image upload failed. Please try again.' instead of the expected 501 friendly copy. Root cause: the storage feature-flag fix is NOT deployed. Production /api/health reports release=91a84af12ce97adfae97651347e7e46f282862d8, which does not exist in this repo, and `git diff` shows backend/storage.py + backend/server.py changes are still UNCOMMITTED locally (last commit touching storage.py is 64be9eb). Fix = commit + push so Railway auto-deploys; Sentry will keep logging 'Object storage init failed' until then.",
+        "priority": "CRITICAL"
+      }
+    ],
+    "minor": [
+      {
+        "endpoint": "GET /api/uploads/signed/{filename}?sig=x&exp=1",
+        "issue": "Returns 403 'Unsigned URL has expired' (acceptable old behavior, never 500). After deploy this should become 404 'Image not found' when storage is disabled — retest post-deploy."
+      },
+      {
+        "endpoint": "backend/storage.py (docstring)",
+        "issue": "Docstring says init requires OBJECT_STORAGE_ENABLED + INTEGRATION_PROXY_URL + EMERGENT_LLM_KEY, but _ENABLED only checks OBJECT_STORAGE_ENABLED + EMERGENT_LLM_KEY. Cosmetic mismatch."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_prod_storage_flag.py",
+    "/app/backend/tests/test_storage_flag_unit.py",
+    "/app/test_reports/pytest/iteration_11_results.xml"
+  ],
+  "action_items": [
+    "COMMIT AND PUSH backend/storage.py + backend/server.py (currently uncommitted -> Railway is still running pre-fix code). Then re-run /app/backend/tests/test_prod_storage_flag.py.",
+    "After deploy, confirm OBJECT_STORAGE_ENABLED is NOT set (or set to false) on Railway so upload-image returns 501 and not a live objstore call.",
+    "Post-deploy, expect GET /api/uploads/signed/... to return 404; update the frontend moment-upload UI to handle 501 gracefully (show the friendly copy instead of a generic error toast).",
+    "Optional: align storage.py docstring with the actual _ENABLED condition."
+  ],
+  "critical_code_review_comments": [
+    "server.py:960-964 — when storage IS enabled but the remote objstore is unreachable, upload still returns 502 with a generic message; consider surfacing the same friendly copy plus a Sentry breadcrumb so the founder can distinguish 'disabled' from 'broken'.",
+    "storage.py — _ENABLED is evaluated at import time, so flipping the Railway env requires a restart/redeploy (acceptable, but document it).",
+    "server.py is 2534 lines — over the 700-line guideline; consider splitting moments/uploads, auth, and schedules into routes/ modules."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_prod_storage_flag.py (new)",
+    "/app/backend/tests/test_storage_flag_unit.py (new)"
+  ],
+  "success_rate": {
+    "backend": "89% (8/9 pytest tests pass; the single failure is the primary fix, blocked on deploy)",
+    "frontend": "not tested (backend-only iteration per request)"
+  },
+  "seed_data_creation": "Created 2 fresh production test users qa-storage-<epoch>@ayanabott.com (password TestPass!2026) with phone +9195########; one of them completed the full onboarding (child profile, nitya trial, parent 'Amma' +919999999911, 09:00 morning_wish schedule, activation). Clean these rows up before launch.",
+  "should_call_test_agent_after_fix": true,
+  "should_main_agent_self_test": false,
+  "test_credentials": "Existing account from /app/memory/test_credentials.md (qa-1788539779@ayanabott.com / TestPass!2026) plus new qa-storage-* accounts created this run.",
+  "context_for_next_testing_agent": "Local backend cannot be run in-process: /app/backend/.env is absent, so database.py raises 'SUPABASE_DB_URL or DATABASE_URL must be set' and tests/conftest.py fails to import (also needs ADMIN_PASSWORD). Run live tests with: cd /app/backend && python -m pytest tests/test_prod_storage_flag.py -v --noconftest -o addopts=''. Correct payload shapes discovered: /profile/child is PUT (name, phone, city, timezone); /parents requires timezone + nicknames[] (relationship must be mother|father); /schedules takes {parent_id, mode, active, messages:[{time,category}]} with category from models.VALID_CATEGORIES; /activation/activate takes empty JSON. CSRF token comes from the csrf_token cookie set on register and must be sent as X-CSRF-Token on every POST/PUT.",
+  "rca_of_the_issue": "Production release hash 91a84af1 (from /api/health) predates the fix, and `git status` shows backend/storage.py and backend/server.py as modified-but-uncommitted in /app. Railway auto-deploys from GitHub, so the feature flag never reached production: /moments/upload-image still executes put_object(), storage init POSTs to https://integrations.emergentagent.com/objstore/api/v1/storage/init, that fails, and the except branch returns 502. Mitigation: push the two files; then upload-image returns 501 with the friendly copy and startup logs 'Object storage disabled' instead of raising into Sentry."
+}
