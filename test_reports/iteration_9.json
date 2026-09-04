@@ -1,0 +1,40 @@
+{
+  "summary": "Frontend-only regression verification on LIVE production (https://www.ayanabott.com + https://api.ayanabott.com) of the axios-timeout fix from iteration 8. Executed a full fresh journey in a clean browser context: signup -> onboarding Step0 (child + dev_code OTP + consent) -> Step1 (Choose Nitya) -> Step2 (add parent Amma / Telugu / nickname Bangaram + schedule) -> Step3 (Activate Care Circle, real Meta WhatsApp send) -> /activation -> dashboard -> refresh -> logout -> re-login -> dashboard. RESULT: 100% PASS. The founder-reported 'Something went wrong. Please try again.' toast NO LONGER appears on any of the 4 mutating wizard steps. Every /api/* call returned 200 and the UI now waits for the real latency instead of aborting. Measured timings: POST /auth/register 4.6s, POST /auth/otp/send 3.8s, /otp/verify 6.1s, PUT /profile/child 4.2s, POST /consent 3.6s, POST /payment/checkout 7.2s (advanced to Step 2 in 7.8s with green toast 'AYANA Nitya selected.'), POST /parents 5.7s + /consent 3.8s + POST /schedules 7.1s (17.1s total, toast 'Parent added!'), POST /activation/activate 17.6s within the 60s override (toast '\ud83c\udf89 Care Circle activated!' + redirect to /activation). Dashboard renders parent 'Amma  mother \u00b7 Telugu  Known as: Bangaram' proving the JSONB codec returns a real list (no nicknames.map crash, no console errors related to it). Session persisted across hard refresh; logout revoked access to /dashboard (redirect to /login); re-login succeeded in ~2s.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/payment/checkout", "issue": "7.2s response (200). Still far above acceptable; consider warming the asyncpg pool / co-locating Railway with Supabase region."},
+      {"endpoint": "POST /api/schedules", "issue": "7.1s (200)"},
+      {"endpoint": "POST /api/activation/activate", "issue": "17.6s (200) \u2014 real Meta send, works but user waits with only a spinner."},
+      {"endpoint": "GET /api/circle", "issue": "4.1-6.9s (200); GET /api/checkins?days=7 4.6-5.5s; GET /api/payment/state 5.7-5.9s. Baseline 2.6-2.8s on every GET suggests a fresh DB connection per request."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Onboarding Step 2 (save parent) and Step 3 (activate)", "issues": ["Save/Activate buttons show only a small spinner for 17s with no progress copy. Users on slow first-write are likely to think it hung and double-click/reload. Recommend inline 'Setting up their care circle \u2014 this can take up to 30 seconds\u2026' copy while pending."]},
+      {"screen": "Dashboard first paint", "issues": ["Full-page spinner for ~6s while /circle, /checkins, /payment/state resolve serially-ish; skeleton placeholders would be better than a blank page."]},
+      {"screen": "Global (index.html)", "issues": ["Console error: 'X-Frame-Options may only be set via an HTTP header sent along with a document. It may not be set inside <meta>.' \u2014 the meta tag is ignored; move it to a Vercel header.", "Console error on navigation/reload: 'Failed to load module script: Expected a JavaScript-or-Wasm module script but the server responded with a MIME type of \"text/html\"' \u2014 a module/chunk request is being served the SPA HTML fallback (likely a stale hashed asset after the Vercel redeploy or a rewrite catching /assets/*). Non-blocking in this run but can white-screen returning users mid-deploy."]}
+    ]
+  },
+  "test_report_links": [],
+  "action_items": [
+    "No functional action required for the reported bug \u2014 axios timeout 30s + 60s activation override + formatAxiosError fully resolve the 'Something went wrong' regression; all 4 wizard steps advance.",
+    "Reduce backend write latency (pool warm-up / region co-location); 7-18s writes are the real remaining UX risk.",
+    "Add pending-state copy on save-parent and activate buttons (17s waits).",
+    "Fix Vercel asset rewrite/MIME fallback for module chunks and move X-Frame-Options from <meta> to an HTTP header."
+  ],
+  "critical_code_review_comments": [
+    "formatAxiosError falls through to formatApiError(error.response?.data?.detail) when error.response is undefined and it is not a timeout/network error \u2014 that path always yields the generic 'Something went wrong'. Low risk but consider logging error.code there for diagnosability.",
+    "Onboarding.js is 466 lines with 4 sequential awaits inside saveParentForm (parents -> consent -> schedules). If the schedule POST fails after the parent POST succeeds, the UI keeps the parent in state but no schedule exists and the user retries, creating duplicate schedules (test_credentials.md already notes duplicates from the pre-fix retry loop). Consider a single transactional backend endpoint or idempotency key."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (all 20+ /api calls observed returned 200)", "frontend": "100% (signup, 4 onboarding steps, activation, dashboard, refresh, logout, re-login all pass)"},
+  "seed_data_creation": "Created live production account qa-1788541098@ayanabott.com / TestPass!2026, child phone +919699588028 (verified via dev_code), plan Nitya (trial), 1 parent: Amma / mother / +919999999999 / te / nickname Bangaram, 1 schedule (08:00 morning_wish, 13:00 lunch), WhatsApp activated (real Meta send fired to +919999999999). Delete this row before launch.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "qa-1788541098@ayanabott.com / TestPass!2026 (fully onboarded + activated). Note: /app/memory/test_credentials.md still lists the iteration-8 account qa-1788539779@ayanabott.com; both are valid.",
+  "context_for_next_testing_agent": "Selectors confirmed working: signup-*, child-name/city/consent, child-otp-send/-code/-verify/-verified-badge, step0-next, select-plan-nitya, add-parent, parent-form, parent-name, parent-relationship(value='mother'), parent-phone (PhoneInput expects LOCAL digits only, country code is a separate select data-testid=parent-phone-code), parent-language (use value 'te' \u2014 visible label is '\u0c24\u0c46\u0c32\u0c41\u0c17\u0c41 (Telugu)', label-based select_option fails), parent-timezone (value 'Asia/Kolkata'), parent-nicknames (comma-separated string), parent-consent, save-parent, step2-next, activate-care-circle. Capture dev_code via page.on('response') on /auth/otp/send. Always use a fresh random +91 phone (OTP limit 3/15min per number). Allow >=20s waits for mutating steps and >=60s for activation. Dashboard needs ~6s before parent cards render.",
+  "rca_of_the_issue": "Iteration 8 RCA confirmed correct: axios timeout was 6000ms while production writes take 7-18s, so the client aborted requests the server had already committed and formatApiError(undefined) rendered 'Something went wrong'. With timeout=30000 globally, a 60000 override on /activation/activate, and formatAxiosError distinguishing ECONNABORTED/network/server errors, all four mutating steps now complete and advance correctly. No new frontend bug found; the only remaining risk is the underlying 7-18s backend write latency, which is a performance (not correctness) issue."
+}
