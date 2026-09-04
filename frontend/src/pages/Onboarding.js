@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Loader2, ArrowRight, ArrowLeft, Check, MessageCircle, Sparkles, Plus, Trash2, Pencil,
 } from "lucide-react";
-import { api, formatApiError } from "../lib/api";
+import { api, formatApiError, formatAxiosError } from "../lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { TIMEZONES } from "@/lib/constants";
 import { PhoneInput } from "@/components/PhoneInput";
@@ -126,7 +126,7 @@ export default function Onboarding() {
       await api.put("/profile/child", { name: child.name, phone: child.phone, city: child.city, timezone: child.timezone });
       await api.post("/consent", { consent_type: "child", agreed: true, text: "I consent to AYANA managing my care setup." });
       setStep(1);
-    } catch (e) { toast.error(formatApiError(e.response?.data?.detail)); } finally { setLoading(false); }
+    } catch (e) { toast.error(formatAxiosError(e)); } finally { setLoading(false); }
   };
 
   const sendChildOtp = async (phone) => {
@@ -151,7 +151,7 @@ export default function Onboarding() {
       if (data?.checkout_url) { window.location.href = data.checkout_url; return; }
       toast.success(`${plans.find(p => p.id === id)?.name} selected.`);
       setStep(2);
-    } catch (e) { toast.error(formatApiError(e.response?.data?.detail)); } finally { setLoading(false); }
+    } catch (e) { toast.error(formatAxiosError(e)); } finally { setLoading(false); }
   };
 
   const openAddParent = () => {
@@ -245,7 +245,7 @@ export default function Onboarding() {
       }
       closeParentForm();
     } catch (e) {
-      toast.error(formatApiError(e.response?.data?.detail));
+      toast.error(formatAxiosError(e));
     } finally {
       setLoading(false);
     }
@@ -257,13 +257,18 @@ export default function Onboarding() {
       await api.delete(`/parents/${p.id}`);
       setParentsList((list) => list.filter((x) => x.id!== p.id));
       toast.success(`Removed ${p.name}.`);
-    } catch (e) { toast.error(formatApiError(e.response?.data?.detail)); } finally { setDeletingId(null); }
+    } catch (e) { toast.error(formatAxiosError(e)); } finally { setDeletingId(null); }
   };
 
   const activate = async () => {
     setLoading(true);
     try {
-      const { data } = await api.post("/activation/activate");
+      // Activation fires a real Meta WhatsApp send per parent, which can
+      // take 15-20s on the first cold call (measured 16.5s in production).
+      // Override the default 30s axios timeout with a generous 60s so the
+      // client waits for the actual result instead of falsely toasting a
+      // failure while the server already sent the message.
+      const { data } = await api.post("/activation/activate", null, { timeout: 60000 });
       if (data?.activated) {
         toast.success("🎉 Care Circle activated! Your parent will start receiving daily check-ins.");
         skipRedirect.current = true;
@@ -273,7 +278,7 @@ export default function Onboarding() {
         navigate("/dashboard");
       }
       refreshUser();
-    } catch (e) { toast.error(formatApiError(e.response?.data?.detail)); } finally { setLoading(false); }
+    } catch (e) { toast.error(formatAxiosError(e)); } finally { setLoading(false); }
   };
 
   const parentNames = parentsList.map((p) => p.name).filter(Boolean).join(", ");

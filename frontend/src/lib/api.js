@@ -5,8 +5,17 @@ const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || "http://localhost:8001"
 export const API = `${BACKEND_URL}/api`;
 
 // Use the fetch adapter (axios' default XHR transport intermittently hangs on
-// the very first request behind this ingress); short timeout so retries recover.
-export const api = axios.create({ baseURL: API, adapter: "fetch", timeout: 6000, withCredentials: true });
+// the very first request behind this ingress).
+//
+// Timeout tuning: production Railway<->Supabase cross-region latency runs
+// 3-16s for cold-pool writes (measured post-migration:
+//   /payment/checkout 7.4s, /schedules 6.7s, /activation/activate 16.5s).
+// A short timeout aborts client-side, error.response is undefined, and
+// formatApiError() falls back to the generic 'Something went wrong'
+// toast — even though the server already committed the change. So we
+// use a generous 30s default and let /activation/activate override per
+// request (see Onboarding.js).
+export const api = axios.create({ baseURL: API, adapter: "fetch", timeout: 30000, withCredentials: true });
 
 // Auth tokens are sent via HttpOnly, Secure cookies (set by the backend on
 // login/register/refresh). withCredentials:true includes them on every request.
@@ -127,4 +136,21 @@ export function formatApiError(detail) {
     if (typeof detail.msg === "string") return detail.msg;
   }
   return String(detail);
+}
+
+// Wrapper: axios timeouts and network aborts have no error.response, so
+// error.response?.data?.detail is undefined and formatApiError returns
+// the generic 'Something went wrong'. Callers pass the whole error and
+// get a message that actually tells the user what happened, so they
+// don't retry a step whose server-side write already succeeded.
+export function formatAxiosError(error) {
+  if (!error) return "Something went wrong. Please try again.";
+  if (error.code === "ECONNABORTED" || /timeout/i.test(error.message || "")) {
+    return "The server is taking longer than usual. Your change may have gone through — please refresh the page in a moment before retrying.";
+  }
+  if (error.response) return formatApiError(error.response.data?.detail);
+  if (error.message === "Network Error" || error.code === "ERR_NETWORK") {
+    return "Can't reach the server. Please check your internet and try again.";
+  }
+  return formatApiError(error.response?.data?.detail);
 }
