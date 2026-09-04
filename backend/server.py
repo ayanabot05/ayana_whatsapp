@@ -30,6 +30,41 @@ from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
 load_dotenv()
 
+# ── Sentry error monitoring ────────────────────────────────────────────────
+# MUST init before FastAPI() so Starlette/FastAPI middleware is instrumented.
+# Silently no-ops if SENTRY_DSN is not set (safe for local dev).
+_SENTRY_DSN = os.environ.get("SENTRY_DSN", "").strip()
+if _SENTRY_DSN:
+    import sentry_sdk
+    from sentry_sdk.integrations.fastapi import FastApiIntegration
+    from sentry_sdk.integrations.starlette import StarletteIntegration
+
+    def _sentry_before_send(event, hint):
+        # Drop noisy request bodies, cookies, auth headers before shipping
+        # to Sentry. Explicit set_user(id/email) still flows through.
+        event.pop("extra", None)
+        req = event.get("request")
+        if req:
+            req.pop("data", None)
+            req.pop("cookies", None)
+            headers = req.get("headers")
+            if headers:
+                for name in list(headers):
+                    if name.lower() in {"authorization", "cookie", "set-cookie", "x-csrf-token", "x-api-key"}:
+                        headers.pop(name, None)
+        return event
+
+    sentry_sdk.init(
+        dsn=_SENTRY_DSN,
+        environment=os.environ.get("SENTRY_ENVIRONMENT", "production"),
+        release=os.environ.get("SENTRY_RELEASE") or os.environ.get("RAILWAY_GIT_COMMIT_SHA") or "local",
+        sample_rate=1.0,
+        # No APM/tracing — errors only. Keeps free-tier quota for real crashes.
+        send_default_pii=False,
+        integrations=[StarletteIntegration(), FastApiIntegration()],
+        before_send=_sentry_before_send,
+    )
+
 from fastapi import Depends, FastAPI, APIRouter, HTTPException, Query, Request, Response, File, UploadFile, Form
 from pydantic import BaseModel, Field
 from typing import Optional, List, Any, Tuple
@@ -317,13 +352,63 @@ async def _validate_plan_transition(owner_id, target_plan: str) -> dict:
     return usage
 
 # ---------------- Health / meta ----------------
+@api.get("/debug/sentry-canary")
+async def sentry_canary(user: dict = Depends(get_current_admin)):
+    """Admin-only: intentionally raises so Sentry can capture a test error.
+
+    Curl after setting SENTRY_DSN on Railway:
+      curl -H "Authorization: Bearer $ADMIN_TOKEN" \
+           https://api.ayanabott.com/api/debug/sentry-canary
+    Check Sentry.io within 30s — event should be there. Delete this
+    endpoint or leave it (harmless: admin-only, no side effects).
+    """
+    raise RuntimeError("Sentry canary: this error is intentional. If you see this in Sentry, monitoring works.")
+
+
 @api.get("/")
 async def root():
     return {"app": "AYANA-BOT", "status": "ok"}
 
 @api.get("/health")
 async def health():
-    return {"status": "healthy"}
+    """Deep health check for Railway/uptime monitors.
+
+    Returns HTTP 200 only if the app can talk to Postgres AND has valid
+    Meta WhatsApp credentials configured. Returns 503 otherwise so
+    Railway will roll the deploy back / an uptime monitor pages you.
+    """
+    problems = []
+
+    # 1. Postgres reachability
+    try:
+        async with get_pool().acquire() as conn:
+            await conn.fetchval("select 1")
+        pg_ok = True
+    except Exception as e:
+        problems.append(f"postgres:{type(e).__name__}")
+        pg_ok = False
+
+    # 2. Meta WhatsApp credentials sanity (presence + shape, not a live send)
+    meta_token = os.environ.get("META_WA_ACCESS_TOKEN", "").strip()
+    meta_phone_id = os.environ.get("META_WA_PHONE_NUMBER_ID", "").strip()
+    meta_ok = bool(meta_token) and bool(meta_phone_id) and whatsapp_enabled()
+    if not meta_ok:
+        if not whatsapp_enabled():
+            problems.append("meta:disabled")
+        else:
+            problems.append("meta:missing_creds")
+
+    status_code = 200 if (pg_ok and meta_ok) else 503
+    body = {
+        "status": "healthy" if not problems else "unhealthy",
+        "postgres": "up" if pg_ok else "down",
+        "meta": "configured" if meta_ok else "not_configured",
+        "problems": problems,
+        "release": os.environ.get("SENTRY_RELEASE") or os.environ.get("RAILWAY_GIT_COMMIT_SHA") or "local",
+    }
+    if status_code == 503:
+        raise HTTPException(status_code=503, detail=body)
+    return body
 
 @api.get("/ready")
 async def ready():
