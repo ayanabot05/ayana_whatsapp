@@ -43,6 +43,7 @@ DISTRIBUTED LOCK
     lock wraps every job.
 """
 
+import json
 import logging
 import os
 import socket
@@ -327,25 +328,26 @@ async def _check_recovery_expiry_impl():
             today,
         )
         for sched in schedules:
-            messages = sched["messages"] or []
+            _msgs_raw = sched["messages"]
+            messages = json.loads(_msgs_raw) if isinstance(_msgs_raw, str) else (_msgs_raw or [])
             active_messages = [m for m in messages if not m.get("is_recovery")]
             recovery_messages = [m for m in messages if m.get("is_recovery")]
             await conn.execute(
                 """
                 update schedules
-                set messages = $1, recovery_mode = false, recovery_until = null,
-                    archived_recovery_messages = $2
+                set messages = $1::jsonb, recovery_mode = false, recovery_until = null,
+                    archived_recovery_messages = $2::jsonb
                 where id = $3
                 """,
-                active_messages, recovery_messages, sched["id"],
+                json.dumps(active_messages), json.dumps(recovery_messages), sched["id"],
             )
             await conn.execute(
                 """
-                insert into audit_logs (user_id, action, detail, created_at)
+                insert into audit_logs (user_id, action, meta, created_at)
                 values ($1, 'recovery_auto_expired', $2, now())
                 """,
                 sched["user_id"],
-                {"schedule_id": str(sched["id"]), "archived": len(recovery_messages)},
+                json.dumps({"schedule_id": str(sched["id"]), "archived": len(recovery_messages)}),
             )
 
 
