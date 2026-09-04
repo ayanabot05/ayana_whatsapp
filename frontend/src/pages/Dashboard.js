@@ -153,7 +153,43 @@ export default function Dashboard() {
     { icon: CheckCircle2, label: "Care circle", value: activation.whatsapp_activated ? "Active" : "Off", color: "text-ayana-coral", bg: "rgba(255,92,122,0.12)" },
   ];
 
-  if (loading) return <div className="min-h-screen bg-ayana-bg"><Navbar /><div className="flex items-center justify-center py-40"><Loader2 className="w-8 h-8 animate-spin text-ayana-primary" /></div></div>;
+  if (loading) return (
+    <div className="min-h-screen bg-ayana-bg" data-testid="dashboard-skeleton">
+      <Navbar />
+      <main className="max-w-6xl mx-auto px-5 sm:px-8 py-10">
+        {/* Greeting skeleton */}
+        <div className="mb-8 space-y-3">
+          <div className="h-9 w-64 rounded-lg bg-ayana-alt animate-pulse" />
+          <div className="h-4 w-96 rounded bg-ayana-alt animate-pulse" />
+        </div>
+        {/* Stat cards skeleton (4 cards) */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-10">
+          {[0,1,2,3].map((i) => (
+            <div key={i} className="rounded-2xl border border-ayana-line bg-white p-5 space-y-3">
+              <div className="w-10 h-10 rounded-xl bg-ayana-alt animate-pulse" />
+              <div className="h-3 w-24 rounded bg-ayana-alt animate-pulse" />
+              <div className="h-7 w-16 rounded bg-ayana-alt animate-pulse" />
+            </div>
+          ))}
+        </div>
+        {/* Tab strip skeleton */}
+        <div className="flex gap-2 mb-6">
+          {[0,1,2,3,4,5,6].map((i) => (
+            <div key={i} className="h-9 w-24 rounded-full bg-ayana-alt animate-pulse" />
+          ))}
+        </div>
+        {/* Main content card skeleton */}
+        <div className="rounded-2xl border border-ayana-line bg-white p-6 space-y-4">
+          <div className="h-5 w-40 rounded bg-ayana-alt animate-pulse" />
+          <div className="space-y-3">
+            <div className="h-14 w-full rounded-xl bg-ayana-alt animate-pulse" />
+            <div className="h-14 w-full rounded-xl bg-ayana-alt animate-pulse" />
+          </div>
+        </div>
+        <p className="mt-6 text-center text-xs text-ayana-secondary italic">Loading your care circle…</p>
+      </main>
+    </div>
+  );
 
   return (
     <div className="min-h-screen bg-ayana-bg relative">

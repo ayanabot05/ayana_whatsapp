@@ -425,11 +425,16 @@ export default function Onboarding() {
                           <span className="text-sm text-ayana-secondary">I confirm my parent is aware of and consents to receiving these caring messages on WhatsApp.</span>
                         </label>
                       </div>
-                      <div className="flex justify-end pt-2">
+                      <div className="flex flex-col items-end gap-2 pt-2">
                         <button onClick={saveParentForm} disabled={loading ||!parentForm.name || parentForm.phone.length < 8 ||!parentConsent} data-testid="save-parent"
                           className="inline-flex items-center gap-2 px-8 py-4 rounded-full bg-ayana-primary text-white font-semibold hover:bg-ayana-primary-hover transition-colors shadow-md disabled:opacity-50">
                           {loading? <Loader2 className="w-4 h-4 animate-spin" /> : <>{editingParentId? "Save changes" : "Confirm parent"} <Check className="w-4 h-4" /></>}
                         </button>
+                        {loading && (
+                          <p className="text-xs text-ayana-secondary italic" data-testid="save-parent-pending-copy">
+                            Setting up their care schedule — this can take up to 30 seconds…
+                          </p>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -456,6 +461,11 @@ export default function Onboarding() {
                     {loading? <Loader2 className="w-4 h-4 animate-spin" /> : <>Activate Care Circle <ArrowRight className="w-4 h-4" /></>}
                   </button>
                 </div>
+                {loading && (
+                  <p className="mt-4 text-sm text-ayana-secondary italic" data-testid="activate-pending-copy">
+                    Sending the welcome WhatsApp to {parentNames || "your parent"} — this can take up to a minute. Please don't refresh.
+                  </p>
+                )}
               </div>
             )}
           </motion.div>
