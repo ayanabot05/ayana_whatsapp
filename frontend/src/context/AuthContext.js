@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState, useCallback, useRef } from "react";
 import { api } from "../lib/api";
+import { setSentryUser, clearSentryUser } from "../lib/sentryUser";
 
 const AuthContext = createContext(null);
 const INACTIVITY_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
@@ -12,15 +13,20 @@ export function AuthProvider({ children }) {
   const logout = useCallback(async () => {
     try { await api.post("/auth/logout"); } catch {}
     setUser(false);
+    clearSentryUser();
   }, []);
 
   const refreshAccessToken = useCallback(async () => {
     try {
       const { data } = await api.post("/auth/refresh", {});
-      if (data.user) setUser(data.user);
+      if (data.user) {
+        setUser(data.user);
+        setSentryUser(data.user);
+      }
       return true;
     } catch {
       setUser(false);
+      clearSentryUser();
       return false;
     }
   }, []);
@@ -29,14 +35,17 @@ export function AuthProvider({ children }) {
     try {
       const { data } = await api.get("/auth/me");
       setUser(data);
+      setSentryUser(data);
     } catch {
       const refreshed = await refreshAccessToken();
       if (!refreshed) return;
       try {
         const { data } = await api.get("/auth/me");
         setUser(data);
+        setSentryUser(data);
       } catch {
         setUser(false);
+        clearSentryUser();
       }
     }
   }, [refreshAccessToken]);
@@ -76,6 +85,7 @@ export function AuthProvider({ children }) {
 
   const loginWithToken = (_accessToken, _refreshToken, userData) => {
     setUser(userData);
+    setSentryUser(userData);
   };
 
   return (

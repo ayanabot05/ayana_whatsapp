@@ -30,6 +30,41 @@ from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
 load_dotenv()
 
+# ── Sentry error monitoring ────────────────────────────────────────────────
+# MUST init before FastAPI() so Starlette/FastAPI middleware is instrumented.
+# Silently no-ops if SENTRY_DSN is not set (safe for local dev).
+_SENTRY_DSN = os.environ.get("SENTRY_DSN", "").strip()
+if _SENTRY_DSN:
+    import sentry_sdk
+    from sentry_sdk.integrations.fastapi import FastApiIntegration
+    from sentry_sdk.integrations.starlette import StarletteIntegration
+
+    def _sentry_before_send(event, hint):
+        # Drop noisy request bodies, cookies, auth headers before shipping
+        # to Sentry. Explicit set_user(id/email) still flows through.
+        event.pop("extra", None)
+        req = event.get("request")
+        if req:
+            req.pop("data", None)
+            req.pop("cookies", None)
+            headers = req.get("headers")
+            if headers:
+                for name in list(headers):
+                    if name.lower() in {"authorization", "cookie", "set-cookie", "x-csrf-token", "x-api-key"}:
+                        headers.pop(name, None)
+        return event
+
+    sentry_sdk.init(
+        dsn=_SENTRY_DSN,
+        environment=os.environ.get("SENTRY_ENVIRONMENT", "production"),
+        release=os.environ.get("SENTRY_RELEASE") or os.environ.get("RAILWAY_GIT_COMMIT_SHA") or "local",
+        sample_rate=1.0,
+        # No APM/tracing — errors only. Keeps free-tier quota for real crashes.
+        send_default_pii=False,
+        integrations=[StarletteIntegration(), FastApiIntegration()],
+        before_send=_sentry_before_send,
+    )
+
 from fastapi import Depends, FastAPI, APIRouter, HTTPException, Query, Request, Response, File, UploadFile, Form
 from pydantic import BaseModel, Field
 from typing import Optional, List, Any, Tuple
