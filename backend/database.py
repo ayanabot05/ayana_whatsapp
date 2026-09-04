@@ -1,3 +1,4 @@
+import json
 import os
 from pathlib import Path
 from dotenv import load_dotenv
@@ -5,6 +6,40 @@ import asyncpg
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
+
+
+# ---------------------------------------------------------------------------
+# JSONB codec — critical fix for the incomplete Mongo→Supabase migration.
+#
+# Without this, every `select` that returns a jsonb column comes back as a
+# raw JSON string ("[]", "{}", "[\"Bangaram\"]") instead of a Python
+# list/dict. Downstream code that does `parent["habits"].get("tea_type")`
+# or `parent["nicknames"][0]` then crashes with AttributeError, which
+# manifests as the 500 on /activation/activate (render_slot_body chokes
+# on the string).
+#
+# The encoder is intentionally forgiving: much of the existing code base
+# already does `json.dumps(val)` before passing the value with a `::jsonb`
+# cast — if we passed those strings back through json.dumps() we'd double-
+# encode. So: if we get a string, assume it's already JSON and pass it
+# through untouched; otherwise dump it. Both write patterns work.
+# ---------------------------------------------------------------------------
+def _jsonb_dumps(value):
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value  # already a JSON-encoded string, pass through
+    return json.dumps(value, default=str)
+
+
+async def _init_connection(conn: asyncpg.Connection) -> None:
+    for typename in ("jsonb", "json"):
+        await conn.set_type_codec(
+            typename,
+            encoder=_jsonb_dumps,
+            decoder=json.loads,
+            schema="pg_catalog",
+        )
 
 # ---------------------------------------------------------------------------
 # Connection string
@@ -40,6 +75,9 @@ async def init_db():
         # side in transaction mode — it does not support prepared statements
         # across requests, so this must stay disabled.
         statement_cache_size=0,
+        # Register the JSONB codec on every new connection so reads decode
+        # to real Python dicts/lists, not raw JSON strings.
+        init=_init_connection,
     )
 
 
