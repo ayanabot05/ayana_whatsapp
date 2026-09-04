@@ -91,7 +91,7 @@ from models import (
     MEDICINE_SHAPES, MEDICINE_COLORS, MEDICINE_TIMINGS,
 )
 from medicine_sync import sync_medicine_reminders
-from storage import init_storage, put_object, get_object, APP_NAME as STORAGE_APP_NAME
+from storage import init_storage, put_object, get_object, is_enabled as storage_enabled, APP_NAME as STORAGE_APP_NAME
 from otp import create_and_send_otp, verify_otp_code, _normalize_phone
 
 class CheckoutInput(BaseModel):
@@ -186,11 +186,14 @@ async def lifespan(app: FastAPI):
         raise RuntimeError("JWT_SECRET environment variable is required but not set")
     await init_db()
     await seed_admin()
-    try:
-        init_storage()
-        logger.info("Object storage initialized")
-    except Exception as e:
-        logger.error("Object storage init failed (moment images will fail until fixed): %s", e)
+    if storage_enabled():
+        try:
+            init_storage()
+            logger.info("Object storage initialized")
+        except Exception as e:
+            logger.error("Object storage init failed (moment images will fail until fixed): %s", e)
+    else:
+        logger.info("Object storage disabled — /moments photo upload will return 501 until enabled")
     start_scheduler()
     logger.info("AYANA-BOT backend ready")
     yield
@@ -900,6 +903,11 @@ async def admin_update_emergency_event(event_id: str, payload: EmergencyEventUpd
 # ---------------- Two-way moments (child -> parent) ----------------
 @api.post("/moments/upload-image")
 async def upload_moment_image(file: UploadFile = File(...), user: dict = Depends(get_current_user), _csrf: None = Depends(validate_csrf_token)):
+    if not storage_enabled():
+        raise HTTPException(
+            status_code=501,
+            detail="Photo sharing is temporarily unavailable — we're setting up secure image hosting. Text moments still work.",
+        )
     MAX_SIZE = 5 * 1024 * 1024
     ALLOWED_TYPES = {"image/jpeg", "image/png", "image/webp"}
     MAX_DIMENSION = 1200
@@ -986,6 +994,8 @@ def _build_signed_url(filename: str, expires_sec: int = 3600) -> str:
 
 @api.get("/uploads/signed/{filename}")
 async def serve_uploaded_image(filename: str, sig: str = Query(...), exp: int = Query(...)):
+    if not storage_enabled():
+        raise HTTPException(status_code=404, detail="Image not found")
     now = datetime.now(timezone.utc).timestamp()
     if exp < int(now) - 300:
         raise HTTPException(status_code=403, detail="Unsigned URL has expired")
@@ -1387,6 +1397,47 @@ async def message_logs(
         )
     return {"total": total, "skip": skip, "limit": limit, "items": [serialize(d) for d in docs]}
 
+
+# Language-native fallback when a parent has no medicines set — avoids
+# stuffing English "your medicine" into a Telugu/Hindi Meta template.
+_MEDICINE_FALLBACK = {
+    "en": "your medicine",
+    "te": "మందు",
+    "hi": "दवाई",
+}
+
+
+def _resolve_medicine_name(parent: dict, target_time: str = "") -> str:
+    """Pick a real medicine name from parent.medicine_list.
+
+    Mirrors scheduler.py: if target_time is provided, look for the med
+    whose reminder_time matches (HH:MM); else return the first med's
+    name. Falls back to a language-native placeholder if the list is
+    empty.
+    """
+    meds = parent.get("medicine_list") or []
+    # JSONB codec should decode to list-of-dicts; guard for pre-codec strings.
+    if isinstance(meds, str):
+        try:
+            meds = json.loads(meds) or []
+        except Exception:
+            meds = []
+    if isinstance(meds, list) and meds:
+        if target_time:
+            for m in meds:
+                if isinstance(m, dict) and m.get("reminder_time") == target_time:
+                    name = (m.get("name") or "").strip()
+                    if name:
+                        return name
+        first = meds[0]
+        if isinstance(first, dict):
+            name = (first.get("name") or "").strip()
+            if name:
+                return name
+    lang = (parent.get("language") or "en").lower()
+    return _MEDICINE_FALLBACK.get(lang, _MEDICINE_FALLBACK["en"])
+
+
 @api.post("/whatsapp/send-test")
 @api.post("/messages/send-test")
 async def send_test(payload: SendTestInput, user: dict = Depends(get_current_user), _csrf: None = Depends(validate_csrf_token), _rl: None = Depends(api_rate_limit_dependency)):
@@ -1408,16 +1459,21 @@ async def send_test(payload: SendTestInput, user: dict = Depends(get_current_use
     plan_id = await _get_plan_id(user)
     variants_per_slot = plan_limits(plan_id)["variants_per_slot"]
     day_index = datetime.now(timezone.utc).timetuple().tm_yday
+    # Resolve a real medicine name from the parent's medicine_list so
+    # Meta template {{2}} isn't the literal English word "your medicine"
+    # awkwardly injected mid-Telugu/Hindi sentence. Falls back to a
+    # language-native placeholder when the parent has no medicines set.
+    med_name = _resolve_medicine_name(parent_d)
 
     try:
         if session_open:
             if slot_type in ["medicine", "bp_check", "sugar_check"]:
-                result = await send_dynamic_checkin(parent_d, slot_type, day_index, variants_per_slot, medicine_name="your medicine")
+                result = await send_dynamic_checkin(parent_d, slot_type, day_index, variants_per_slot, medicine_name=med_name)
             else:
                 result = await send_dynamic_checkin(parent_d, slot_type, day_index, variants_per_slot)
         else:
             if slot_type in ["medicine", "bp_check", "sugar_check", "water", "health_check"]:
-                result = await send_medicine_template(parent_d, day_index, variants_per_slot, medicine_name="your medicine")
+                result = await send_medicine_template(parent_d, day_index, variants_per_slot, medicine_name=med_name)
             elif slot_type in ["breakfast", "lunch", "dinner", "afternoon_checkin"]:
                 result = await send_meal_template(parent_d, meal_type=slot_type, day_index=day_index, variants_per_slot=variants_per_slot)
             elif slot_type in ["goodnight", "love_note", "how_feeling"]:
@@ -1486,7 +1542,7 @@ async def preview_message(payload: PreviewInput, user: dict = Depends(get_curren
     plan_id = await _get_plan_id(user)
     variants_per_slot = plan_limits(plan_id)["variants_per_slot"]
     day_index = datetime.now(timezone.utc).timetuple().tm_yday
-    body = render_slot_body(category, language, dict(parent), day_index, "your medicine", variants_per_slot)
+    body = render_slot_body(category, language, dict(parent), day_index, _resolve_medicine_name(dict(parent)), variants_per_slot)
     buttons = render_slot_buttons(category, language)
     return {"text": body, "buttons": buttons, "language": language}
 

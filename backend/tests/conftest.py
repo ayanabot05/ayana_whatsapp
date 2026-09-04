@@ -3,14 +3,13 @@ import pytest
 import uuid
 from fastapi.testclient import TestClient
 from server import app
-from database import db
 
 # Read admin credentials from .env to match the live DB
 from dotenv import load_dotenv
 load_dotenv()
 
 ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "admin@ayanabot.com")
-ADMIN_PASSWORD = os.environ["ADMIN_PASSWORD"]
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
 
 
 # Disable rate limiting during tests to prevent 429 errors on parallel fixtures

@@ -1,5 +1,5 @@
-import pytest
 import uuid
+
 
 def _setup_parent(api_client, api_url, headers):
     r = api_client.post(f"{api_url}/parents", json={
@@ -84,7 +84,6 @@ def test_emergency_events(api_client, api_url, fresh_user, admin_headers):
     assert r.json()["event"]["status"] == "resolved"
 
 def _register_new(api_client):
-    import uuid
     unique = uuid.uuid4().hex[:8]
     payload = {"name": f"TEST_{unique}", "email": f"test_{unique}@example.com",
                "phone": "+919876500000", "password": "test1234"}
