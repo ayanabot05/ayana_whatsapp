@@ -1,0 +1,84 @@
+{
+  "summary": "Iteration 12, backend-only. Verified the medicine-name substitution fix. (A) 30 offline unit tests against the LOCAL (uncommitted) code: server.py::_resolve_medicine_name is correct in every case — real name, reminder_time match, JSONB-string guard, blank-name guard, case-insensitive language, te='మందు' / hi='दवाई' / en='your medicine' fallbacks; whatsapp.py::_language_native_medicine_placeholder correct for en/te/hi/unknown/None. (B) 11 live-production tests on https://api.ayanabott.com with a fresh account (qa-medname-*@ayanabott.com): parent created with medicine_list=[{Amlokind,09:00}] persists correctly, POST /api/messages/send-test category=medicine returns HTTP 200 status='sent' for te+med, te+empty and hi+empty (no crash from the new helper), non-medicine categories (how_feeling, morning_wish) still 200, /api/messages/preview returns 200 with no English literal, and POST /api/schedules still 200. 39/41 total pass. TWO REAL DEFECTS FOUND: (1) whatsapp.py::_build_approved_template_vars still appends the English word ' tablet' to {{2}}, so ayana_medicine_te renders 'మీ Amlokind tablet టాబ్లెట్' (and 'మీ మందు tablet టాబ్లెట్' on the fallback) — the founder will STILL see an English word mid-Telugu sentence; (2) templates_data.py render_slot_body/render_slot_body_async still default medicine_name='your medicine'. ALSO: the fix is NOT DEPLOYED — /api/health release is still 91a84af12ce97adfae97651347e7e46f282862d8 and git status shows backend/server.py + backend/whatsapp.py UNCOMMITTED, same deploy-pending situation as iteration 11.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "backend/whatsapp.py::_build_approved_template_vars (line ~341) -> POST /api/messages/send-test, scheduler medicine sends",
+        "issue": "For category='medicine' the code does label = f\"{name} tablet\" and sends that as Meta {{2}}. But the approved templates ALREADY contain the word after {{2}}: ayana_medicine_te = '⏰{{1}}, మందుల టైం మీ {{2}} టాబ్లెట్ 💊...', ayana_medicine_hi = '...अपनी {{2}} की टैबलेट...', ayana_medicine_en = '💊 {{1}} Time for a {{2}} tablet.'. Result for the founder's Telugu parent: 'మందుల టైం మీ Amlokind tablet టాబ్లెట్ 💊' — English 'tablet' injected mid-Telugu AND duplicated; with an empty medicine_list it is 'మీ మందు tablet టాబ్లెట్'. This is the same class of bug that was reported and it is NOT fixed. Fix: pass the bare medicine name as {{2}} (drop the ' tablet' suffix entirely, or make the suffix language-aware and only for languages whose template lacks it). Failing test: tests/test_medicine_name_resolution_unit.py::TestApprovedTemplateVars::test_medicine_te_var2_has_no_ascii_word_tablet",
+        "priority": "CRITICAL"
+      },
+      {
+        "endpoint": "deployment",
+        "issue": "Fix is deploy-pending. GET /api/health returns release=91a84af12ce97adfae97651347e7e46f282862d8 (pre-fix), and `git status` shows backend/server.py + backend/whatsapp.py still modified/uncommitted. Everything verified in production today ran against the OLD code — the prod passes are NOT proof the fix is live (see rca). Commit + push (together with the iteration-11 storage flag) and re-run tests/test_prod_medicine_name.py.",
+        "priority": "HIGH"
+      }
+    ],
+    "minor": [
+      {
+        "endpoint": "backend/templates_data.py:472 and :540",
+        "issue": "render_slot_body / render_slot_body_async still default medicine_name='your medicine'. All current call sites pass an explicit value, but any future caller that forgets re-creates the founder's exact bug. Change the default to '' and resolve language-natively inside, or make it a required arg. Failing test: TestPreviewBody::test_render_slot_body_default_arg_is_not_english_literal"
+      },
+      {
+        "endpoint": "backend/templates_data.py SLOT_VARIANTS['medicine']['en'] variant 2",
+        "issue": "en template is 'Please take your {medicine}' and the en fallback name is 'your medicine' -> renders 'Please take your your medicine' (double 'your'). The en placeholder should be just 'medicine'. Same duplication on the Meta en template ('Time for a your medicine tablet.')."
+      },
+      {
+        "endpoint": "POST /api/messages/send-test response + message_logs insert",
+        "issue": "Response always reports template_type='dynamic' (result.get('template_type','dynamic') — none of the whatsapp.py send functions ever return template_type), and message_logs only stores category/msg_type/status. There is NO way to verify from the API or DB which template/variables were actually sent, which is precisely why this bug shipped unnoticed. Recommend logging template_name + the resolved {{2}} value into message_logs (or returning them in the send-test response)."
+      },
+      {
+        "endpoint": "PUT /api/parents/{parent_id}",
+        "issue": "Uses model_dump(exclude_unset=True) for a partial update but validates against ParentInput, whose name/relationship/phone are required -> a genuine partial update (e.g. only medicine_list) returns 422. Needs a ParentUpdate model with all-optional fields."
+      },
+      {
+        "endpoint": "POST /api/messages/preview",
+        "issue": "Not a defect, but note for verification: preview rotates variants by UTC day-of-year and only 2 of the 3 Nitya medicine variants contain {medicine}. Today (day 247, idx 1) the variant is 'మందులు వేసుకున్నావా, {nick2}? 💊' with no medicine slot, so preview cannot be used to eyeball the substitution on every day."
+      },
+      {
+        "endpoint": "backend/tests/conftest.py",
+        "issue": "FIXED BY ME (test-only): conftest did `from database import db` (Mongo leftover — database.py has no `db`) and `os.environ[\"ADMIN_PASSWORD\"]`, so pytest collection failed for the ENTIRE /app/backend/tests suite with ImportError. Now removed / .get() with default."
+      },
+      {
+        "endpoint": "backend/tests (pre-existing test debt, unrelated to this iteration)",
+        "issue": "8 stale unit tests fail on migration signature drift: test_whatsapp_unit.py (is_session_open/send_moment still called with a `db` arg) and test_translation_engine_unit.py (get_variants(db, ...) -> now 2 args). These are pre-existing, not caused by the medicine fix, but they mask regressions."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_medicine_name_resolution_unit.py",
+    "/app/backend/tests/test_prod_medicine_name.py",
+    "/app/test_reports/pytest/iteration_12_results.xml"
+  ],
+  "action_items": [
+    "CRITICAL: remove the English ' tablet' suffix from whatsapp.py::_build_approved_template_vars — the approved te/hi/en templates already include టాబ్లెట్ / टैबलेट / tablet after {{2}}. Right now a Telugu parent gets 'మీ Amlokind tablet టాబ్లెట్'.",
+    "HIGH: commit + push backend/server.py and backend/whatsapp.py (still uncommitted; prod release is 91a84af1). Nothing verified in production today exercised the new code.",
+    "Change templates_data.render_slot_body/_async default medicine_name from 'your medicine' to '' (or make it required) and fix the en fallback to 'medicine' so 'Please take your {medicine}' does not render 'your your medicine'.",
+    "Add template_name + resolved {{2}} to message_logs (or to the send-test response) so template-variable bugs are observable without Railway log access; also make send-test return the real template_type instead of always defaulting to 'dynamic'.",
+    "Add a ParentUpdate model (all fields optional) for PUT /api/parents/{id} so partial updates stop returning 422.",
+    "Clean up the 8 stale unit tests in test_whatsapp_unit.py / test_translation_engine_unit.py (Mongo-era `db` positional arg)."
+  ],
+  "critical_code_review_comments": [
+    "whatsapp.py:341 `label = f\"{name} tablet\" if not name.lower().endswith('tablet') else name` — the .endswith('tablet') guard only catches an English suffix, so Telugu/Hindi templates always get the duplicate. The suffix should be dropped, since it lives in the approved template body.",
+    "server.py:_resolve_medicine_name duplicates scheduler.py:230-239 almost line for line. Extract one shared resolver (e.g. into medicine_sync.py or templates_data.py) so the next fix does not have to be applied in two places again — that duplication is exactly how the send-test path drifted from the scheduler path.",
+    "Two separate fallback maps now exist for the same concept: server.py::_MEDICINE_FALLBACK and whatsapp.py::_language_native_medicine_placeholder. Consolidate into one module-level constant to avoid them diverging when a 4th language is added.",
+    "server.py is 2579 lines — well past the 700-line guideline. The messaging endpoints (send-test/preview/say-hi) are good candidates for routes/messages.py.",
+    "server.py:1466 calls _resolve_medicine_name(parent_d) with no target_time, so a parent with several meds always test-sends the FIRST med regardless of the schedule slot being tested. Consider passing the slot time from the dashboard so the test send matches what the parent will actually receive."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_medicine_name_resolution_unit.py",
+    "/app/backend/tests/test_prod_medicine_name.py",
+    "/app/backend/tests/conftest.py"
+  ],
+  "success_rate": {"backend": "95% (39/41 assertions pass; 2 failures are real product defects)", "frontend": "not tested (backend-only request)"},
+  "seed_data_creation": "Live-production account created per run: qa-medname-<epoch>@ayanabott.com / TestPass!2026, child phone +9195<epoch-8>, plan nitya (trial), one parent 'Amma' phone +9198<...>01 whose language/medicine_list is mutated per scenario, and one schedule. 3 runs of this suite were executed today, so ~3 such accounts exist in Supabase — delete them before launch. Not activated (/activation/activate deliberately not called).",
+  "should_call_test_agent_after_fix": true,
+  "should_main_agent_self_test": false,
+  "test_credentials": "Used /app/memory/test_credentials.md for reference; created fresh accounts qa-medname-*@ayanabott.com / TestPass!2026 instead of reusing qa-1788539779.",
+  "context_for_next_testing_agent": "No local .env exists in /app/backend, so database.py raises at import. Run any test that imports server/whatsapp with DATABASE_URL and ADMIN_PASSWORD dummies: `cd /app/backend && DATABASE_URL=postgresql://qa:qa@127.0.0.1:5432/qa ADMIN_PASSWORD=qa-dummy python -m pytest tests/test_medicine_name_resolution_unit.py tests/test_prod_medicine_name.py -o addopts='' -p no:cacheprovider -v`. Everything DB-backed must be tested against live prod (https://api.ayanabott.com) — there is no local DB. Nitya trial allows only 1 parent, so test_prod_medicine_name.py mutates one parent via PUT /parents/{id} (full ParentInput payload required). Auth: Bearer header short-circuits validate_csrf_token, but the register response also sets a csrf_token cookie. After the founder pushes, re-run both files: the two unit failures should turn green only after the ' tablet' suffix and the render_slot_body default are fixed, and check /api/health release changes away from 91a84af1.",
+  "rca_of_the_issue": "Root cause of the original founder report is correctly fixed in the local code: /api/messages/send-test and /api/messages/preview no longer hardcode 'your medicine' — they call _resolve_medicine_name(parent), which reads parent.medicine_list (matching reminder_time when given, else first med) and falls back to a language-native placeholder. 30/30 unit assertions on that helper pass. HOWEVER the substitution still passes through whatsapp.py::_build_approved_template_vars, which builds {{2}} as f'{name} tablet'. Because ayana_medicine_te/hi/en already contain 'టాబ్లెట్'/'टैबलेट'/'tablet' immediately after {{2}}, the founder's Telugu WhatsApp message will now read '⏰Ammmmmaaa, మందుల టైం మీ Amlokind tablet టాబ్లెట్ 💊...' — the English contamination the fix set out to remove is merely moved from the medicine name to the unit word. Reproduce: whatsapp._build_approved_template_vars('medicine','medicine','Ammmmmaaa',parent_te,'te','Amlokind') -> {'2': 'Amlokind tablet'}. Mitigation: return the bare name. Separately, none of this is live: production still serves release 91a84af1 and the two modified backend files are uncommitted, so today's prod 200s exercised the old hardcoded path (they happened to look clean only because today's rotating Telugu variant, day-of-year 247 -> index 1, contains no {medicine} placeholder at all)."
+}

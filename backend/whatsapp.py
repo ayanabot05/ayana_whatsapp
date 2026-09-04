@@ -322,6 +322,14 @@ _NON_MEDICINE_REMINDER_LABELS = {
 }
 
 
+def _language_native_medicine_placeholder(language: str) -> str:
+    """When medicine_name is empty (no meds set on parent), fall back
+    to a placeholder in the parent's language so the Meta template
+    doesn't stuff English 'your medicine' into a Telugu/Hindi sentence."""
+    lang = (language or "en").lower()
+    return {"en": "your medicine", "te": "మందు", "hi": "दवाई"}.get(lang, "your medicine")
+
+
 def _build_approved_template_vars(
     template_key: str, category: str, preferred: str, parent: Dict[str, Any], language: str, medicine_name: str
 ) -> Dict[str, str]:
@@ -329,10 +337,10 @@ def _build_approved_template_vars(
         return {"1": preferred, "2": parent_relation_label(parent, language)}
     if template_key == "medicine":
         if category == "medicine":
-            name = medicine_name or "your medicine"
+            name = medicine_name or _language_native_medicine_placeholder(language)
             label = f"{name} tablet" if not name.lower().endswith("tablet") else name
         else:
-            label = _NON_MEDICINE_REMINDER_LABELS.get(category, medicine_name or "your medicine")
+            label = _NON_MEDICINE_REMINDER_LABELS.get(category, medicine_name or _language_native_medicine_placeholder(language))
         return {"1": preferred, "2": label}
     return {"1": preferred}  # mood, meal, reengagement
 
@@ -360,7 +368,7 @@ async def send_template_for_category(parent: Dict[str, Any], category: str, day_
 
     template_key = get_template_sid_key(category)
     template_name = _get_template_name(template_key)
-    body = await render_slot_body_async(category, language, parent, day_index, medicine_name or "your medicine", variants_per_slot)
+    body = await render_slot_body_async(category, language, parent, day_index, medicine_name or _language_native_medicine_placeholder(language), variants_per_slot)
 
     if template_name and whatsapp_enabled():
         content_vars = _build_approved_template_vars(template_key, category, preferred, parent, language, medicine_name)
@@ -401,7 +409,7 @@ async def send_dynamic_checkin(parent: Dict[str, Any], category: str, day_index:
     if not await is_session_open(parent_id):
         return await send_template_for_category(parent, category, day_index, variants_per_slot, medicine_name)
 
-    body = await render_slot_body_async(category, language, parent, day_index, medicine_name or "your medicine", variants_per_slot)
+    body = await render_slot_body_async(category, language, parent, day_index, medicine_name or _language_native_medicine_placeholder(language), variants_per_slot)
     buttons = render_slot_buttons(category, language)
     return await _send_quick_reply(phone, body, buttons, context=category, language=language)
 
