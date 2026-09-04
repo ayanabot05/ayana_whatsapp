@@ -122,6 +122,13 @@ async def get_current_user(request: Request) -> dict:
             )
         if not user:
             raise HTTPException(status_code=401, detail="User not found")
+        # Sentry: tag this request with the real user so errors are
+        # attributable. No-op if Sentry isn't initialized.
+        try:
+            import sentry_sdk
+            sentry_sdk.set_user({"id": str(user["id"]), "email": user.get("email")})
+        except Exception:
+            pass
         return dict(user)
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Token expired")
