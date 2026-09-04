@@ -13,7 +13,8 @@ jest.mock("@/components/PhoneInput", () => ({
 }));
 
 jest.mock("@/components/ScheduleEditor", () => ({
-  ScheduleEditor: () => <div data-testid="mock-schedule-editor"></div>
+  ScheduleEditor: () => <div data-testid="mock-schedule-editor"></div>,
+  ReminderEditor: () => <div data-testid="mock-reminder-editor"></div>
 }));
 
 describe("ParentCareForm", () => {

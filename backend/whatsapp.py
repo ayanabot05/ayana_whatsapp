@@ -43,7 +43,7 @@ _CATEGORY_TEMPLATE_NAME = {
     "medicine": "ayana_medicine",
     "meal": "ayana_meal",
     "mood": "ayana_mood",
-    "reengagement": "ayana_reengager",
+    "reengagement": "ayana_reengagement",
     "report_ready": "ayana_report_ready",
 }
 

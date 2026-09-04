@@ -2,6 +2,7 @@ import {
   Users, Sunrise, Clock, Pill, Coffee, Heart, Utensils, Moon, Plus, Trash2,
   CalendarDays, BookOpen, VolumeX, Timer, HeartPulse,
 } from "lucide-react";
+import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import { PhoneInput } from "@/components/PhoneInput";
 import { ScheduleEditor, ReminderEditor } from "@/components/ScheduleEditor";
@@ -125,17 +126,32 @@ export function ParentCareForm({ form, setForm, newMed, setNewMed, config, limit
   };
   const updateHabit = (key, val) => setForm({ ...form, habits: { ...form.habits, [key]: val } });
 
-  // ── Birthday (MM-DD, stored as a single string) ──
-  const [bMonth, bDay] = (form.birthday || "").split("-");
-  const setBirthdayPart = (part, val) => {
-    const month = part === "month" ? val : (bMonth || "");
-    const day = part === "day" ? val : (bDay || "");
-    if (!month || !day) {
-      // Incomplete selection — keep as blank rather than sending a partial value.
-      setForm({ ...form, birthday: month && day ? `${month}-${day}` : "" });
-      return;
+  // ── Birthday (MM-DD, stored as a single string on form; local state
+  // holds the two halves independently so the UI reflects a half-filled
+  // selection instead of collapsing back to blank between clicks).
+  const [bMonth, setBMonth] = useState(() => (form.birthday || "").split("-")[0] || "");
+  const [bDay, setBDay] = useState(() => (form.birthday || "").split("-")[1] || "");
+  // Keep local state in sync ONLY when form.birthday is a full valid
+  // MM-DD (initial mount, or switching to a different parent to edit).
+  // If form.birthday is empty (user is mid-edit with only one half chosen),
+  // leave local state alone so the visible dropdowns don't reset.
+  useEffect(() => {
+    const bday = form.birthday || "";
+    if (/^\d{2}-\d{2}$/.test(bday)) {
+      const [m, d] = bday.split("-");
+      setBMonth(m);
+      setBDay(d);
     }
-    setForm({ ...form, birthday: `${month}-${day}` });
+  }, [form.birthday]);
+  const setBirthdayPart = (part, val) => {
+    const month = part === "month" ? val : bMonth;
+    const day = part === "day" ? val : bDay;
+    if (part === "month") setBMonth(val);
+    else setBDay(val);
+    // Only commit to form.birthday when both halves are set (backend
+    // rejects half-filled MM-DD with a 422); otherwise clear the field
+    // so old value doesn't linger.
+    setForm({ ...form, birthday: month && day ? `${month}-${day}` : "" });
   };
 
   // ── Family stories (up to 5) ──

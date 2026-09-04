@@ -1,0 +1,46 @@
+{
+  "summary": "Frontend-only regression run targeting the BIRTHDAY PICKER fix on live production (https://www.ayanabott.com). KEY FINDING: the fix is NOT LIVE. Both fixes claimed in this iteration (ParentCareForm.jsx bMonth/bDay useState, backend/whatsapp.py 'ayana_reengagement') are still UNCOMMITTED in the working tree (git status shows both files as ' M', HEAD=9823de2), so GitHub -> Vercel/Railway never received them. I reproduced the founder's bug on production twice: logged in as qa-1788541098@ayanabott.com, opened Edit parent, selected Month=March -> the select immediately collapsed back to 'Month' (value=''); then selected Day=15 -> both selects still ''. Saved (PUT /api/parents/<id> -> 200) and reopened: month='' day='' — i.e. on production TODAY the birthday can never be entered or persisted at all. Root cause verified in the deployed bundle itself: /static/js/877.749f0897.chunk.js contains the OLD derived-value code `[ne,ie]=(Y.birthday||'').split('-')` bound to the select `value`, not the new useState halves. Because form.birthday is only committed when BOTH halves are set, a single pick sets birthday='' and the derived value re-renders blank. Separately I verified the WORKING-TREE fix with a new jest/RTL suite against a stateful host component: 7/8 birthday cases pass (month-only sticks, day-only sticks, month->day and day->month both commit '03-15'/'11-09', survives unrelated field edit, hydrates '12-25' into both selects, Feb->29 day options). The 8th case fails: clearing one half of an already-saved birthday wipes BOTH selects, because setForm(birthday='') changes the [form.birthday] dep and the sync useEffect resets bMonth and bDay. So the shipped fix is correct for the reported scenario but has one residual edge case. Regression items still on the deployed build: dashboard-skeleton (data-testid='dashboard-skeleton') confirmed VISIBLE on first paint before parents-list rendered; pending-copy strings 'Setting up their care schedule — this can take up to 30 seconds…' and 'Sending the welcome WhatsApp to' with testids save-parent-pending-copy / activate-pending-copy are present in the deployed chunk 749.f2868f15 (so already live, matching the founder's confirmation). Login + dashboard load + parent PUT all returned 200. I deliberately did NOT run another fresh signup/OTP/activate onboarding pass: production is running the exact same build iteration 9 already certified 100%, so a new live account + real Meta WhatsApp send would add production junk data with zero new coverage.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "backend/whatsapp.py", "issue": "The 'ayana_reengager' -> 'ayana_reengagement' template-name fix is uncommitted, so Railway is still running the old name. Not verifiable by frontend testing; must be committed + deployed."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "ParentCareForm birthday picker (production build)", "issue": "REPRODUCED on live prod: selecting a month blanks the select back to 'Month'; selecting a day afterwards also blanks. Birthday can never be set or saved (PUT succeeds with no birthday). Deployed chunk still has the pre-fix derived `(form.birthday||'').split('-')` binding — the useState fix exists only in /app working tree and is not committed/deployed.", "selector": "[data-testid='pd-birthday-month'], [data-testid='pd-birthday-day']", "priority": "CRITICAL"},
+      {"component": "ParentCareForm birthday picker (working-tree fix)", "issue": "Residual edge case in the new code: after a full birthday (e.g. 12-25), clearing just the Day resets form.birthday to '' which re-fires the [form.birthday] sync useEffect and wipes the Month too. User editing a saved birthday loses both halves. Fix: only sync from form.birthday when it is a full MM-DD (or track the last committed value / drop the effect and hydrate on mount+parent change).", "selector": "[data-testid='pd-birthday-day']", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Dashboard (first paint)", "issues": ["dashboard-skeleton renders correctly for ~5-6s before parents-list — verified OK, no bare spinner."]},
+      {"screen": "Login/Dashboard console", "issues": ["Two 401 console errors fire on the login page before authentication (probe calls to /api/me or similar) — harmless but noisy in production consoles."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/frontend/src/components/ParentCareForm.birthday.test.js",
+    "/app/frontend/src/components/ParentCareForm.test.js"
+  ],
+  "action_items": [
+    "COMMIT AND PUSH the two changed files (frontend/src/components/ParentCareForm.jsx, backend/whatsapp.py). They are only in the local working tree — `git status` shows ' M' on both, HEAD is 9823de2 with no birthday-fix commit. Vercel/Railway auto-deploy from GitHub, so nothing shipped this iteration and the founder is still testing the old build.",
+    "After deploy, re-verify: pick Month=March in the parent form and confirm the select keeps 'March' (value '03'), then Day=15, save, and confirm GET /api/parents returns birthday='03-15'.",
+    "Fix the residual edge case: clearing one half of an already-saved birthday must not wipe the other half (guard the [form.birthday] useEffect to only hydrate on a full MM-DD or on parent identity change).",
+    "Test data cleanup: parent c5d4973b-b722-4f97-b323-1cd4eeb96629 on account qa-1788541098@ayanabott.com was PUT twice during this run (city left blank, no field values changed permanently)."
+  ],
+  "critical_code_review_comments": [
+    "ParentCareForm.jsx:136-140 — useEffect([form.birthday]) is the source of the residual bug: any partial edit that resets form.birthday to '' re-syncs and clears both local halves. Sync only when form.birthday matches /^\\d{2}-\\d{2}$/, or key the hydration off a parentId prop instead of the birthday string.",
+    "Dashboard.js:757 — ParentDialog's useEffect deps are [open, parent, schedules]; `schedules` is a new array reference on every Dashboard reload, so the whole form (including a half-picked birthday) is silently rebuilt mid-edit if any background refresh lands. Depend on `open` + parent.id only.",
+    "Deployment hygiene: two consecutive iterations have claimed fixes that are not in a commit. Add a pre-handoff check (git status clean + deployed asset hash changed) before declaring a production fix shipped."
+  ],
+  "updated_files": [
+    "/app/frontend/src/components/ParentCareForm.birthday.test.js (new — 8 regression cases for the birthday picker)",
+    "/app/frontend/src/components/ParentCareForm.test.js (fixed stale jest mock: ScheduleEditor mock did not export ReminderEditor, so all 5 existing tests crashed with 'Element type is invalid'. Now 5/5 pass.)"
+  ],
+  "success_rate": {"backend": "not tested (frontend-only run)", "frontend": "Birthday picker on production: 0% (bug fully reproduced, fix not deployed). Working-tree fix unit coverage: 7/8 (87.5%). Login/dashboard/skeleton/parent-save regression: 100%."},
+  "seed_data_creation": "None created. Reused iteration-9 account qa-1788541098@ayanabott.com / TestPass!2026 (already onboarded + activated).",
+  "should_call_test_agent_after_fix": true,
+  "should_main_agent_self_test": false,
+  "test_credentials": "qa-1788541098@ayanabott.com / TestPass!2026 (production, fully onboarded, 1 parent Amma id=c5d4973b-b722-4f97-b323-1cd4eeb96629)",
+  "context_for_next_testing_agent": "Fastest way to test the birthday picker without burning an OTP or creating live data: log in with qa-1788541098@ayanabott.com / TestPass!2026, wait for [data-testid='parents-list'], click [data-testid^='edit-parent-'], then drive [data-testid='pd-birthday-month'] / 'pd-birthday-day' (option VALUES are '01'..'12' and '01'..'31'; visible labels are January..December). Onboarding's copy of the same component uses the 'parent-' prefix. Before trusting any 'fix', confirm it is actually deployed: curl https://www.ayanabott.com/ -> /static/js/main.<hash>.js, read the chunk map object at the top of main.js, download the chunk containing 'birthday-month' (was 877.749f0897) and grep for `split(\"-\")` bound to the select value (= stale build) vs. two local state vars. Jest suite for the component logic: cd /app/frontend && CI=true npx craco test --testPathPattern ParentCareForm --watchAll=false.",
+  "rca_of_the_issue": "Two layers. (1) Deployment: the ParentCareForm useState fix and the whatsapp.py template rename were never committed (git status: ' M' on both; HEAD 9823de2 predates them), so Vercel/Railway still serve the pre-fix code — hence the founder's bug reproduces unchanged and the deployed chunk still contains `[ne,ie]=(Y.birthday||'').split('-')`. (2) Original defect: both selects derived their value from form.birthday, while setBirthdayPart only commits form.birthday when BOTH halves are set; a single pick therefore wrote '' and the derived value re-rendered blank, making the birthday field unusable. The working-tree fix (local bMonth/bDay state) resolves this for all forward-entry sequences (verified by unit test) but its [form.birthday] sync effect still wipes both halves when a previously saved birthday is partially cleared."
+}
