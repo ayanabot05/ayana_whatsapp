@@ -16,7 +16,9 @@ load_dotenv(ROOT_DIR / ".env")
 #
 # .env example:
 #   SUPABASE_DB_URL=postgresql://postgres.xxxxx:[password]@aws-0-xx.pooler.supabase.com:6543/postgres
-SUPABASE_DB_URL = os.environ["SUPABASE_DB_URL"]
+SUPABASE_DB_URL = os.environ.get("SUPABASE_DB_URL") or os.environ.get("DATABASE_URL")
+if not SUPABASE_DB_URL:
+    raise RuntimeError("SUPABASE_DB_URL or DATABASE_URL must be set")
 
 # Module-level pool, created once at app startup via init_db().
 pool: asyncpg.Pool | None = None
