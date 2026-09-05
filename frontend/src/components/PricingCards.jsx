@@ -2,7 +2,12 @@ import { useState } from "react";
 import { Check, Sparkles } from "lucide-react";
 
 export function PricingCards({ plans = [], currencies = [], selectedPlan, onSelect, compact = false }) {
-  const [currency, setCurrency] = useState("USD");
+  const [currency, setCurrency] = useState(() => {
+    try {
+      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
+      return tz === "Asia/Kolkata" || tz === "Asia/Calcutta" ? "INR" : "USD";
+    } catch { return "USD"; }
+  });
   const [billing, setBilling] = useState("month");
   const cur = currencies.find((c) => c.code === currency) || { symbol: "$", code: "USD" };
 

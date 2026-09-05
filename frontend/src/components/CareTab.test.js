@@ -58,7 +58,7 @@ describe("CareTab", () => {
   it("hides recovery card functionality if plan is not Raksha", () => {
     renderComponent("nitya");
     expect(screen.getByText(/Upgrade to/)).toBeInTheDocument();
-    expect(screen.getByText(/Raksha/)).toBeInTheDocument();
+    expect(screen.getAllByText(/Raksha/).length).toBeGreaterThan(0);
     expect(screen.queryByTestId("recovery-days")).not.toBeInTheDocument();
   });
 

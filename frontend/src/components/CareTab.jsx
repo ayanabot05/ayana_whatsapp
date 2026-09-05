@@ -254,7 +254,11 @@ function MomentComposer({ parents }) {
       qc.invalidateQueries({ queryKey: ["moments"] });
       qc.invalidateQueries({ queryKey: ["moments-quota"] });
     } catch (e) {
-      toast.error(formatApiError(e.response?.data?.detail));
+      if (e.response?.status === 501) {
+        toast.error("Photo sharing isn't switched on yet — your text moment can still be sent without the photo.", { duration: 8000 });
+      } else {
+        toast.error(formatApiError(e.response?.data?.detail));
+      }
     } finally {
       setSending(false);
     }
@@ -356,17 +360,18 @@ function MomentComposer({ parents }) {
   );
 }
 
-function RecoveryCard({ parents, schedules, planId }) {
+function RecoveryCard({ parents, schedules, planId, limits }) {
   const qc = useQueryClient();
   const parentName = (id) => parents.find((p) => p.id === id)?.name || "Parent";
   const [days, setDays] = useState(30);
   const [reminders, setReminders] = useState([{ time: "12:00", category: "medicine" }]);
   const [busy, setBusy] = useState("");
 
-  const isRaksha = planId === "raksha";
+  const isRaksha = limits?.recovery_mode ?? planId === "raksha";
+  const maxExtra = limits?.recovery_extra_reminders ?? 2;
 
   const addReminder = () => {
-    if (reminders.length < 4) {
+    if (reminders.length < maxExtra) {
       setReminders([...reminders, { time: "12:00", category: "medicine" }]);
     }
   };
@@ -415,8 +420,8 @@ function RecoveryCard({ parents, schedules, planId }) {
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <label className="text-xs font-semibold text-ayana-muted uppercase tracking-wider">Extra Reminders</label>
-              <button onClick={addReminder} disabled={reminders.length >= 4} className="text-xs text-ayana-primary font-medium hover:underline disabled:opacity-40">
-                + Add reminder
+              <button onClick={addReminder} disabled={reminders.length >= maxExtra} className="text-xs text-ayana-primary font-medium hover:underline disabled:opacity-40">
+                + Add reminder ({reminders.length}/{maxExtra})
               </button>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -461,14 +466,14 @@ function RecoveryCard({ parents, schedules, planId }) {
   );
 }
 
-export function CareTab({ parents, schedules = [], planId }) {
+export function CareTab({ parents, schedules = [], planId, limits }) {
   if (!parents || parents.length === 0) {
     return <EmptyState text="Add a parent first to manage moments and emergency contacts." />;
   }
   return (
     <div className="space-y-6" data-testid="care-tab">
       <MomentComposer parents={parents} />
-      <RecoveryCard parents={parents} schedules={schedules} planId={planId} />
+      <RecoveryCard parents={parents} schedules={schedules} planId={planId} limits={limits} />
       {parents.map((p) => (
         <div key={p.id} className="space-y-4">
           <EmergencyContacts parent={p} />

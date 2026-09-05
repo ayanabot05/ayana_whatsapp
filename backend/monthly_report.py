@@ -29,7 +29,7 @@ from datetime import datetime, timezone, timedelta
 from calendar import monthrange
 
 from database import get_pool
-from pricing import plan_limits
+from pricing import plan_limits, PLAN_BY_ID
 from whatsapp import send_report_ready
 
 logger = logging.getLogger("ayana.monthly_report")
@@ -48,34 +48,108 @@ def _day_key_to_dt(day_key: str) -> datetime:
 
 async def _mood_series(conn, parent_id, start_day: str, end_day: str) -> list[dict]:
     """One point per day the parent tapped a feeling — used for the mood graph."""
+    range_start = _day_key_to_dt(start_day)
+    range_end = _day_key_to_dt(end_day) + timedelta(days=1)
+    replies = await conn.fetch(
+        """
+        select created_at, intent from parent_replies
+        where parent_id = $1 and created_at >= $2 and created_at < $3
+          and intent like 'feeling:%'
+        order by created_at asc
+        """,
+        parent_id, range_start, range_end,
+    )
+    series, seen = [], set()
+    for r in replies:
+        day = r["created_at"].strftime("%Y-%m-%d")
+        if day in seen:
+            continue
+        seen.add(day)
+        feeling = r["intent"].split(":", 1)[1]
+        series.append({"day": day, "feeling": feeling, "score": _FEELING_SCORE.get(feeling)})
+    return series
+
+
+async def _daily_details(conn, parent_id, start_day: str, end_day: str) -> dict:
+    """Per-day / per-category breakdown stored alongside the summary so the
+    report page (and its PDF) can show exactly what happened each day."""
+    range_start = _day_key_to_dt(start_day)
+    range_end = _day_key_to_dt(end_day) + timedelta(days=1)
     logs = await conn.fetch(
         """
-        select * from message_logs
-        where parent_id = $1 and day_key >= $2 and day_key <= $3
-          and category in ('how_feeling', 'morning_wish', 'goodnight')
-        order by day_key asc
+        select id, day_key, category, msg_type, status, reply_status, created_at
+        from message_logs where parent_id = $1 and day_key >= $2 and day_key <= $3
+        order by created_at asc
         """,
         parent_id, start_day, end_day,
     )
+    replies = await conn.fetch(
+        """
+        select created_at, intent, is_voice, body from parent_replies
+        where parent_id = $1 and created_at >= $2 and created_at < $3
+        order by created_at asc
+        """,
+        parent_id, range_start, range_end,
+    )
+    emergencies = await conn.fetchval(
+        "select count(*) from emergency_events where parent_id = $1 and created_at >= $2 and created_at < $3",
+        parent_id, range_start, range_end,
+    )
 
-    series = []
+    replies_by_day: dict[str, list] = {}
+    for r in replies:
+        replies_by_day.setdefault(r["created_at"].strftime("%Y-%m-%d"), []).append(r)
+
+    days: dict[str, dict] = {}
+    by_category: dict[str, dict] = {}
     for log in logs:
-        day_start = _day_key_to_dt(log["day_key"])
-        day_end = day_start + timedelta(days=1)
-        reply = await conn.fetchrow(
-            """
-            select * from parent_replies
-            where parent_id = $1 and created_at >= $2 and created_at < $3
-              and intent like 'feeling:%'
-            order by created_at asc
-            limit 1
-            """,
-            parent_id, day_start, day_end,
-        )
-        if reply and reply["intent"] and reply["intent"].startswith("feeling:"):
-            feeling = reply["intent"].split(":", 1)[1]
-            series.append({"day": log["day_key"], "feeling": feeling, "score": _FEELING_SCORE.get(feeling)})
-    return series
+        d = days.setdefault(log["day_key"], {"day": log["day_key"], "sent": 0, "replied": 0, "items": []})
+        delivered = log["status"] in ("sent", "simulated")
+        day_replies = replies_by_day.get(log["day_key"], [])
+        replied = log["reply_status"] in ("done", "skipped", "pending") or any(r["created_at"] >= log["created_at"] for r in day_replies)
+        if delivered:
+            d["sent"] += 1
+        if replied:
+            d["replied"] += 1
+        d["items"].append({
+            "time": log["created_at"].strftime("%H:%M"),
+            "category": log["category"],
+            "msg_type": log["msg_type"],
+            "status": log["status"],
+            "reply_status": log["reply_status"],
+            "replied": replied,
+        })
+        cat = by_category.setdefault(log["category"], {"category": log["category"], "sent": 0, "replied": 0})
+        if delivered:
+            cat["sent"] += 1
+        if replied:
+            cat["replied"] += 1
+
+    feelings = {"good": 0, "okay": 0, "not_well": 0}
+    medicine = {"done": 0, "skipped": 0}
+    for r in replies:
+        intent = r["intent"] or ""
+        if intent.startswith("feeling:"):
+            f = intent.split(":", 1)[1]
+            if f in feelings:
+                feelings[f] += 1
+        elif intent.startswith(("done:", "skip:")):
+            action, _, cat = intent.partition(":")
+            if "medicine" in (cat or ""):
+                medicine["done" if action == "done" else "skipped"] += 1
+
+    total_sent = sum(d["sent"] for d in days.values())
+    total_replied = sum(d["replied"] for d in days.values())
+    return {
+        "days": sorted(days.values(), key=lambda x: x["day"]),
+        "by_category": sorted(by_category.values(), key=lambda x: -x["sent"]),
+        "feelings": feelings,
+        "medicine": medicine,
+        "emergencies": emergencies,
+        "replies_total": len(replies),
+        "reply_rate": round(total_replied / total_sent, 3) if total_sent else None,
+        "active_days": len([d for d in days.values() if d["sent"] > 0]),
+    }
 
 
 def _trend_note(series: list[dict]) -> str:
@@ -123,7 +197,7 @@ async def _notify_report_ready(conn, user_id: str, parent_id, period: str, share
             logger.error("[monthly_report] report_ready notify failed for user %s: %s", r["id"], e)
 
 
-async def generate_monthly_report(user_id: str, parent_id, plan_id: str, year: int, month: int) -> dict:
+async def generate_monthly_report(user_id: str, parent_id, plan_id: str, year: int, month: int, notify: bool = False) -> dict:
     start_day, end_day = _month_bounds(year, month)
     range_start = _day_key_to_dt(start_day)
     range_end = _day_key_to_dt(end_day) + timedelta(days=1)  # exclusive upper bound
@@ -147,6 +221,12 @@ async def generate_monthly_report(user_id: str, parent_id, plan_id: str, year: i
             parent_id, range_start, range_end,
         )
 
+        parent_row = await conn.fetchrow("select name, preferred_name, relationship, language from parents where id = $1", parent_id)
+        details = await _daily_details(conn, parent_id, start_day, end_day)
+        details["parent_name"] = (parent_row["name"] if parent_row else None) or "Parent"
+        details["relationship"] = parent_row["relationship"] if parent_row else None
+        details["plan_name"] = (PLAN_BY_ID.get(plan_id) or {}).get("name", plan_id)
+
         report = {
             "user_id": user_id,
             "parent_id": parent_id,
@@ -158,6 +238,7 @@ async def generate_monthly_report(user_id: str, parent_id, plan_id: str, year: i
             "voice_replies": voice_replies,
             "mood_graph": None,
             "trend_note": None,
+            "details": details,
             "shared_with_care_circle": limits.get("family_members", 1) > 1,
             "generated_at": datetime.now(timezone.utc),
         }
@@ -172,8 +253,8 @@ async def generate_monthly_report(user_id: str, parent_id, plan_id: str, year: i
             """
             insert into monthly_reports
                 (user_id, parent_id, plan, period, total_touches, delivered, skipped,
-                 voice_replies, mood_graph, trend_note, shared_with_care_circle, generated_at)
-            values ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11, $12)
+                 voice_replies, mood_graph, trend_note, shared_with_care_circle, generated_at, details)
+            values ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11, $12, $13::jsonb)
             on conflict (user_id, parent_id, period) do update
                 set plan = excluded.plan,
                     total_touches = excluded.total_touches,
@@ -183,14 +264,20 @@ async def generate_monthly_report(user_id: str, parent_id, plan_id: str, year: i
                     mood_graph = excluded.mood_graph,
                     trend_note = excluded.trend_note,
                     shared_with_care_circle = excluded.shared_with_care_circle,
-                    generated_at = excluded.generated_at
+                    generated_at = excluded.generated_at,
+                    details = excluded.details
             """,
             user_id, parent_id, plan_id, report["period"], total, sent, skipped,
             voice_replies, report["mood_graph"],
             report["trend_note"], report["shared_with_care_circle"], report["generated_at"],
+            details,
         )
-        await _notify_report_ready(conn, user_id, parent_id, report["period"], report["shared_with_care_circle"])
+        if notify:
+            await _notify_report_ready(conn, user_id, parent_id, report["period"], report["shared_with_care_circle"])
 
+    report["generated_at"] = report["generated_at"].isoformat()
+    report["parent_id"] = str(parent_id)
+    report["user_id"] = str(user_id)
     return report
 
 
@@ -206,6 +293,6 @@ async def generate_reports_for_month(year: int, month: int):
             )
         plan_id = (ps["plan"] if ps else None) or "nitya"
         try:
-            await generate_monthly_report(parent["user_id"], parent["id"], plan_id, year, month)
+            await generate_monthly_report(parent["user_id"], parent["id"], plan_id, year, month, notify=True)
         except Exception as e:
             logger.error("[monthly_report] Failed for parent %s: %s", parent["id"], e, exc_info=True)

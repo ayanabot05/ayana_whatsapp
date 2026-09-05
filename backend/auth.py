@@ -41,6 +41,7 @@ def create_access_token(user_id: str, email: str, role: str) -> str:
         "sub": user_id,
         "email": email,
         "role": role,
+        "iat": datetime.now(timezone.utc),
         "exp": datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TTL_MIN),
         "type": "access",
         "jti": jti,
@@ -54,6 +55,7 @@ def create_refresh_token(user_id: str, email: str, role: str) -> str:
         "sub": user_id,
         "email": email,
         "role": role,
+        "iat": datetime.now(timezone.utc),
         "exp": expires_at,
         "type": "refresh",
         "jti": jti,
@@ -103,6 +105,15 @@ async def revoke_token(jti: str, expires_at: datetime):
             jti, expires_at,
         )
 
+def token_still_valid(payload: dict, user: dict) -> bool:
+    """Tokens minted before the user's last password change are dead."""
+    changed = user.get("password_changed_at")
+    iat = payload.get("iat")
+    if not changed or iat is None:
+        return True
+    return int(iat) >= int(changed.timestamp())
+
+
 async def get_current_user(request: Request) -> dict:
     token = _extract_token(request)
     if not token:
@@ -112,16 +123,23 @@ async def get_current_user(request: Request) -> dict:
         if payload.get("type")!= "access":
             raise HTTPException(status_code=401, detail="Invalid token type")
         jti = payload.get("jti")
-        if await _is_token_blacklisted(jti):
-            raise HTTPException(status_code=401, detail="Token has been revoked")
-
         async with get_pool().acquire() as conn:
             user = await conn.fetchrow(
-                "select * from users where id = $1::uuid and deleted_at is null",
-                payload["sub"],
+                """
+                select u.*, exists(select 1 from jwt_blacklist b where b.jti = $2) as _revoked
+                from users u
+                where u.id = $1::uuid and u.deleted_at is null
+                """,
+                payload["sub"], jti or "",
             )
+        if user and user["_revoked"]:
+            raise HTTPException(status_code=401, detail="Token has been revoked")
         if not user:
             raise HTTPException(status_code=401, detail="User not found")
+        user = dict(user)
+        user.pop("_revoked", None)
+        if not token_still_valid(payload, user):
+            raise HTTPException(status_code=401, detail="Session expired after password change. Please log in again.")
         # Sentry: tag this request with the real user so errors are
         # attributable. No-op if Sentry isn't initialized.
         try:
@@ -129,7 +147,7 @@ async def get_current_user(request: Request) -> dict:
             sentry_sdk.set_user({"id": str(user["id"]), "email": user.get("email")})
         except Exception:
             pass
-        return dict(user)
+        return user
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Token expired")
     except jwt.InvalidTokenError:

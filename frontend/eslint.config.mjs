@@ -18,6 +18,7 @@ export default [
     ],
   },
   js.configs.recommended,
+  { linterOptions: { reportUnusedDisableDirectives: "off" } },
   {
     files: ["**/*.{js,jsx}"],
     plugins: { "react-hooks": reactHooks, react: react },

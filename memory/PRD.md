@@ -1,8 +1,57 @@
 # AYANA — Product Requirements Document
 
-> Last refreshed 2026-09-04 during the Mongo→Supabase migration cleanup
-> (see below). Previous version was 2026-08-11. Treat older history
-> at the bottom of this file as unverified against the current code.
+> Last refreshed 2026-09-05 (dashboard bug-fix sprint). Older history below.
+
+## 2026-09-05 · Dashboard bug sprint (6 founder-reported bugs + extras)
+
+**Root causes found & fixed**
+1. **Plan limits not in sync / "We hit a snag" on Add parent** — Dashboard never read plan
+   limits; `ParentDialog` had an infinite `useEffect` loop (`schedules=[]` default prop in
+   deps → "Maximum update depth exceeded"). Now: `canAddParent` gating with upgrade CTA,
+   `parent-limit-note`, real plan/status badge, per-tab `ErrorBoundary`, recovery/care-circle
+   gating from `plan.limits`, optimistic plan update after checkout. Add-parent save is
+   idempotent (remembers created parent id on schedule failure).
+2. **WhatsApp replies never showed** — `parent_replies` table was EMPTY in prod: Meta sends
+   `from=919…` (no `+`), lookup `phone = $1` missed → `parent_id NULL` → NOT NULL violation
+   → webhook **500** on every real reply. Fixed with digits-only match
+   (`_PARENT_BY_PHONE_SQL`), unknown numbers ignored (200), per-message try/except (always
+   200 to Meta), startup backfill of orphan replies, dashboard polls every 30s + on focus.
+3. **Photo Moment 501** — storage.py rewritten for **Supabase Storage** (private bucket
+   `moments`, 7-day signed URLs Meta can fetch). Needs Railway env:
+   `OBJECT_STORAGE_ENABLED=true`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`.
+   Startup migration made `moment_images.moment_id` nullable.
+4. **Monthly report** — `monthly_report.py` now stores `details` jsonb (per-day/per-category
+   breakdown, feelings, medicine, emergencies, reply rate). New `MonthlyReportView.jsx`:
+   header w/ logo, stat cards, mood graph (Bandham+), tables, **logo watermark**,
+   **disclaimer footer**, **Download PDF** (print CSS). GET returns `{found:false}` not 404.
+5. **Slowness** — Railway (Amsterdam) ↔ Supabase (Sydney) ≈ 280ms/RTT; every request did
+   4–10 sequential RTTs; asyncpg ran a RESET query on every pool release (extra RTT each).
+   Fixes: `reset=_noop_reset`, warm pool (min 10, 30-min idle), auth in 1 query, audit writes
+   in background, `GET /api/dashboard/bootstrap` (1 call replaces ~10), parallel queries
+   (`asyncio.gather`) in checkins/payment_state/circle/_plan_usage. Bootstrap 3.2s → 0.87s
+   from preview pod; founder to move Railway → **Southeast Asia (Singapore)**.
+6. **Navbar** — How it works · What parents see · Safety · Our promise · Pricing · FAQ (en/te/hi).
+
+**Extras:** INR added as first currency (default when browser tz is Asia/Kolkata);
+`SCHEDULER_ENABLED` flag (preview runs with scheduler off to avoid double sends);
+`/api/health` reports webhook secret, storage, last inbound reply; `META_APP_SECRET`
+accepted as alias; mobile tab strip scrolls; language-suggestion label humanised.
+
+**Verified:** testing_agent iteration 13 (backend 10/10; frontend all flows green after
+re-verifying plan-switch timing manually). Unit tests updated (pricing, storage, Dashboard,
+CareTab).
+
+**Founder actions for production (Railway env):** move region to Singapore; add
+`OBJECT_STORAGE_ENABLED=true`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`; redeploy.
+
+**Backlog after this sprint**
+- Per-request user cache (saves 1 RTT/request) once profile-update invalidation is wired
+- Move Supabase project to ap-south-1 (Mumbai) for India users (needs new project + restore)
+- Async `/activation/activate` with status polling
+- Stripe live mode (PAYMENTS_ENABLED) — plan-change UI already handles `checkout_url`
+- `_apply_button_tap_effects` day_key uses UTC; use parent timezone
+- Medicine reminder sync ignored a medicine with `time: 09:00` in test data — verify field name
+
 
 ## 2026-09-04 · Day 1 completion — Sentry monitoring + storage feature flag
 

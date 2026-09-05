@@ -321,3 +321,16 @@ h1, h2, h3, h4, h5, .font-display {
 .btn-whatsapp:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .btn-sm { padding: 0.5rem 1rem !important; font-size: 0.8125rem !important; }
+
+/* Monthly report — print / "Download PDF" */
+@media print {
+  @page { margin: 12mm; }
+  body * { visibility: hidden; }
+  .print-area, .print-area * { visibility: visible; }
+  .print-area { position: absolute; left: 0; top: 0; width: 100%; border: none !important; border-radius: 0 !important; background: #fff !important; }
+  .print-area .report-watermark { visibility: visible; opacity: 0.07 !important; position: fixed; }
+  .print\:hidden { display: none !important; }
+}
+
+.no-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }

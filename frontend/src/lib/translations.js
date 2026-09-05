@@ -1,6 +1,6 @@
 export const translations = {
   en: {
-    nav: { how: "How it works", trust: "Why it helps", pricing: "Pricing", faq: "FAQ", login: "Log in", signup: "Get started" },
+    nav: { how: "How it works", see: "What parents see", safety: "Safety", trust: "Our promise", pricing: "Pricing", faq: "FAQ", login: "Log in", signup: "Get started" },
     hero: {
       badge: "For families living far apart",
       title: "Never miss a day with the ones who raised you.",
@@ -108,7 +108,7 @@ export const translations = {
   },
 
   te: {
-    nav: { how: "ఎలా పనిచేస్తుంది", trust: "ఎందుకు మంచిది", pricing: "ధరలు", faq: "ప్రశ్నలు", login: "లాగిన్", signup: "మొదలుపెట్టండి" },
+    nav: { how: "ఎలా పనిచేస్తుంది", see: "అమ్మానాన్నలకు ఏం కనిపిస్తుంది", safety: "భద్రత", trust: "మా మాట", pricing: "ధరలు", faq: "ప్రశ్నలు", login: "లాగిన్", signup: "మొదలుపెట్టండి" },
     hero: {
       badge: "దూరంగా ఉన్న కుటుంబాల కోసం",
       title: "మిమ్మల్ని పెంచిన వారితో ప్రతిరోజూ కనెక్ట్ అవ్వండి.",
@@ -216,7 +216,7 @@ export const translations = {
   },
 
   hi: {
-    nav: { how: "यह कैसे काम करता है", trust: "क्यों मददगार", pricing: "कीमत", faq: "सवाल", login: "लॉग इन", signup: "शुरू करें" },
+    nav: { how: "यह कैसे काम करता है", see: "माँ-पापा क्या देखते हैं", safety: "सुरक्षा", trust: "हमारा वादा", pricing: "कीमत", faq: "सवाल", login: "लॉग इन", signup: "शुरू करें" },
     hero: {
       badge: "दूर रहने वाले परिवारों के लिए",
       title: "जिन्होंने आपको पाला, उनसे हर दिन जुड़े रहें।",

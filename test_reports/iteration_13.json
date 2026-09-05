@@ -1,0 +1,75 @@
+{
+  "summary": "Iteration 13 tests all 6 dashboard fixes for AYANA (ravi.e1test account, Bandham trial). Backend: 10/10 pytest pass — /api/health flags configured/enabled/up; GET /api/dashboard/bootstrap returns single payload with keys [activation,audit,checkins,circle,moments,moments_quota,parents,payment,schedules,server_time] (no /api/parents call from dashboard); Meta webhook accepts phone WITHOUT '+' and returns 200 (bug 2 fixed), and an UNKNOWN number also returns 200 (no 500 crash); /api/reports/monthly returns 200 with found=true for current period and found=false for 2015-01 (not 404, bug 4 fixed); /api/moments/upload-image returns 200 with a Supabase signed URL under storage/v1/object/sign, GET on that URL returns 200 image/jpeg (bug 3 fixed). Latencies from preview pod: login 729ms, /auth/me 467ms, bootstrap 2995ms (bootstrap slightly over the 2.5s target — Supabase Sydney round-trip explains most of it). Frontend: login → /dashboard with plan-badge='AYANA Bandham · trial'; Parents tab shows parent-limit-note='1/2 parents on Bandham'; add-parent opens the dialog without tab-error-parents (bug 1 fixed); Plan tab has currency-select with India (INR) → Bandham monthly renders ₹299 (bug 1 pricing OK); Reports tab: report-generate → report-content with title 'Amma · September 2026', disclaimer contains 'emergency', report-print button, and img.report-watermark all present (bug 4 fully rendered); landing/dashboard Navbar shows the 6 required items (How it works, What parents see, Safety, Our promise, Pricing, FAQ) with hrefs (#how, #what-they-see, #safety, #trust, #pricing, #faq) (bug 6 OK). TWO REAL DEFECTS FOUND on the plan-switch flow, plus one mobile overflow.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "GET /api/dashboard/bootstrap",
+        "issue": "First-hit latency measured at 2995 ms from the preview pod (target < 2500 ms). Auth/me was 467 ms and login 729 ms, so it is not a general network issue — this endpoint is doing more sequential work than the others. Production (Railway → Sydney) should be materially faster, but consider (a) parallelising the moments/checkins/schedules queries with asyncio.gather if not already, (b) caching plan/subscription lookup per-request. The founder explicitly listed 'everything slow' as bug 5 — this is now single-round-trip but not yet under the stated 2.5s bar."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "Dashboard / PlanTab + plan-badge",
+        "issue": "CRITICAL: after clicking data-testid=select-plan-* the plan-badge and every plan-derived UI (parent-limit-note wording, add-parent vs add-parent-upgrade, tab-circle invite-form vs 'Raksha feature' notice, tab-care recovery lock) do NOT refresh — they render the PREVIOUS plan. Reproduction: start Bandham (badge='AYANA Bandham · trial'). Click select-plan-raksha, wait for networkidle + 2s → badge still says 'AYANA Bandham · trial' and Care circle tab still shows the 'Raksha feature' lock instead of the invite-form. Click select-plan-bandham → badge now says 'AYANA Raksha · trial'. Consistent one-step lag. Root cause is almost certainly that after a successful plan switch the frontend fires a toast but does NOT refetch /api/dashboard/bootstrap (or does not merge the response into bootQuery state). Consequence: (a) founder demo will look broken — customer 'upgrades', badge doesn't move; (b) all plan-dependent asserts in the review request (parent-limit-note='1/1 parents on Nitya' or on Bandham, add-parent-upgrade appearing, invite-form appearing on Raksha, recovery card locked on Nitya/Bandham) cannot be verified without a manual page reload. After reload the state is correct.",
+        "selector": "[data-testid=plan-badge], [data-testid=select-plan-nitya|bandham|raksha]",
+        "priority": "CRITICAL"
+      },
+      {
+        "component": "Dashboard mobile 390px",
+        "issue": "document.scrollWidth=404 vs clientWidth=390 on /dashboard at 390x844 — 14px of page-level horizontal overflow. Tab strip scrolls horizontally which is intended, but something at page level (a wide element inside the header/stats row) is pushing the viewport. Body should be overflow-x-hidden or the offending child needs min-w-0.",
+        "selector": "body / main container on /dashboard",
+        "priority": "MEDIUM"
+      },
+      {
+        "component": "PlanTab currency-select",
+        "issue": "React hydration warning in console: '<span> cannot be a child of <option>'. The native <option> children in the currency <select> contain a <span> (probably a flag/label wrapper). Not user-visible but throws a hydration error on every dashboard load.",
+        "selector": "[data-testid=currency-select] option",
+        "priority": "LOW"
+      },
+      {
+        "component": "Parents tab · parent-limit-note",
+        "issue": "Grammar inconsistency: on Nitya it reads '1/1 parent on Nitya' (singular) but on Bandham '1/2 parents on Bandham' (plural). Should be pluralised on count>1 only, so Nitya=='1/1 parent' is correct — but keep the label 'parent(s)' consistent so screenshots line up. Minor copy nit.",
+        "selector": "[data-testid=parent-limit-note]",
+        "priority": "LOW"
+      }
+    ],
+    "integration_issues": [
+      {
+        "flow": "Plan switch (Nitya/Bandham/Raksha)",
+        "issue": "POST to the plan-switch endpoint appears to succeed server-side (subsequent bootstrap after reload reflects the new plan), but the client-side query cache is not invalidated. Fix: invalidate/refetch the bootQuery (react-query key for /api/dashboard/bootstrap) on onSuccess of the switch mutation, or merge the returned subscription into local state.",
+        "affected_selectors": ["[data-testid=plan-badge]", "[data-testid=parent-limit-note]", "[data-testid=add-parent]", "[data-testid=add-parent-upgrade]", "[data-testid=invite-form]", "[data-testid=recovery-card]"]
+      }
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_dashboard_fixes_iter13.py",
+    "/app/test_reports/pytest/iteration_13_results.xml"
+  ],
+  "action_items": [
+    "CRITICAL: Invalidate the bootQuery (or refetch /api/dashboard/bootstrap) after a successful plan switch so plan-badge and every plan-derived UI updates without a page reload. Right now the whole plan-permission story (parent limits, Raksha invite-form, recovery lock) is invisible to the user until they F5. This is a founder-demo blocker even though the backend is correct.",
+    "MEDIUM: Fix 14px horizontal overflow on /dashboard at 390px width (add overflow-x-hidden to body/main or find the wide child).",
+    "MEDIUM: Bootstrap first-response = 2995 ms from preview pod. Parallelise its queries (asyncio.gather) if not already, or cache plan lookup, to get under the 2.5s target the request called out.",
+    "LOW: Fix currency-select hydration warning ('<span> cannot be a child of <option>').",
+    "Note for future: unable to visually verify select-plan-nitya recovery-card 'locked' and select-plan-raksha invite-form 'unlocked' due to the plan-switch refetch bug above — once fixed, re-run the frontend script to confirm those two branches."
+  ],
+  "critical_code_review_comments": [
+    "Frontend src/pages/Dashboard.js: the plan-switch mutation clearly does not call queryClient.invalidateQueries(['bootstrap']) (or equivalent). Add it — this is the single line that will make the founder's bug (1) actually visible as fixed.",
+    "Meta webhook signature is verified with the app secret in .env (109501be...) — 200 confirmed for both known-parent (phone digits, no '+') and unknown number. Good defensive change (per-message try/except keeps the endpoint at 200) is working as intended.",
+    "Supabase upload path is now returning proper signed URLs (storage/v1/object/sign), GET on that URL returns 200 image/jpeg — bug 3 is fully resolved.",
+    "/api/reports/monthly correctly returns 200 with found=false for a period with no data instead of 404 — bug 4 spec is met."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_dashboard_fixes_iter13.py"
+  ],
+  "success_rate": {"backend": "100% (10/10 tests pass; bootstrap latency is a soft miss, not a failure)", "frontend": "70% — 6 sub-checks fully green, 1 CRITICAL plan-refresh bug blocks 4 downstream visual verifications, plus 14px mobile overflow"},
+  "test_credentials": "Used ravi.e1test@ayanabott.com / Test@12345 per /app/memory/test_credentials.md. No new accounts created. Left plan at Bandham as requested.",
+  "seed_data_creation": "None. 2 webhook replies were POSTed to /api/whatsapp/webhook (parent 919876500012 body='I am good', and unknown 910000000001 body='hi') — both returned 200; the known reply may show up in future check-ins for Amma.",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "The plan-badge and all plan-derived selectors ARE present, wired, and functional; the only reason they look wrong on plan switch is a missing react-query invalidation on the switch mutation in Dashboard.js. Once E1 adds queryClient.invalidateQueries(['bootstrap']) (or refetch) inside the switch mutation onSuccess, re-run tests/test_dashboard_fixes_iter13.py (backend regression) and the frontend playwright block from this iteration — expected new behaviour: after each select-plan-* click the plan-badge should match within 2s, parent-limit-note should show '1/1 parents on Nitya' or '2/2 parents on Raksha' after switching, add-parent-upgrade should appear on Nitya, invite-form should be visible on Raksha's tab-circle, and recovery-card should show a lock treatment on Nitya/Bandham. Also please confirm the 14px mobile overflow at 390px and the bootstrap 2.5s target. Backend suite command: cd /app/backend && DATABASE_URL=postgresql://qa:qa@127.0.0.1:5432/qa ADMIN_PASSWORD=qa-dummy python -m pytest tests/test_dashboard_fixes_iter13.py -o addopts='' -p no:cacheprovider -v -s.",
+  "rca_of_the_issue": "Bug 1 (plan limits + Add parent crash): server correctly enforces limits in create_parent and dashboard/bootstrap surfaces plan info; the founder's 'we hit a snag' crash on Add parent is gone (tab-error-parents never appears, dialog opens). BUT the frontend plan-switch code path is missing a react-query cache invalidation, so all plan-derived UI shows a stale value until the user manually reloads. It's a 1-line fix in Dashboard.js on the switch mutation's onSuccess (queryClient.invalidateQueries(['bootstrap']) or await refetch()). Bug 2 (webhook 500 on phone without '+'): verified fixed — POST with 'from':'919876500012' returns 200, and POST with unknown 910000000001 also returns 200 (per-message try/except is doing its job). Bug 3 (photo upload 501): verified fixed — signed URL under storage/v1/object/sign is returned and fetchable as image/jpeg. Bug 4 (monthly report): verified — 200+found=false for empty periods instead of 404; report layout, title, disclaimer 'AYANA is not an emergency or medical service', watermark img, Download PDF button all render. Bug 5 (perf): bootstrap is now a single request from the dashboard (confirmed no /api/parents /schedules /checkins calls from the dashboard route), but wall-clock 2995 ms slightly exceeds the 2.5 s target from preview. Bug 6 (navbar copy): verified — landing and dashboard both show the six new items with the correct hashes."
+}
