@@ -718,7 +718,7 @@ function ParentDialog({ parent, config, limits, plan, schedules = [], onSaved, t
   ].slice(0, maxCheckins);
 
   const buildFormFromParent = () => {
-    if (!parent) return { ...blankParentForm(), messages: getDefaultMessages() };
+    if (!parent) return { ...blankParentForm(), messages: getDefaultMessages(), activity_window_start: "06:00", activity_window_end: "22:00", auto_activity_detection: false };
     const sched = schedules.find((s) => s.parent_id === parent.id);
     const schedMessages = sched?.messages
       ? sched.messages.filter((m) => m.type !== "reminder" && m.source !== "medicine_sync")
@@ -736,16 +736,16 @@ function ParentDialog({ parent, config, limits, plan, schedules = [], onSaved, t
       other_parent_name: parent.other_parent_name || "",
       birthday: parent.birthday || "",
       stories: parent.stories || [],
-      activity_window_start: parent.activity_window_start || "",
-      activity_window_end: parent.activity_window_end || "",
-      auto_activity_detection: parent.auto_activity_detection ?? true,
+      // FIXED - no more auto-detect, always 06-22
+      activity_window_start: "06:00",
+      activity_window_end: "22:00",
+      auto_activity_detection: false,
       medicine_list: parent.medicine_list || [],
       habits: parent.habits || blankParentForm().habits,
       messages: schedMessages.length ? schedMessages : getDefaultMessages(),
       reengagement_hours: sched?.reengagement_hours ?? 4,
     };
   };
-
   const [form, setForm] = useState(() => buildFormFromParent());
   // If the parent was created but the schedule call failed, remember the id
   // so a retry updates that parent instead of creating a duplicate (which
@@ -777,8 +777,10 @@ function ParentDialog({ parent, config, limits, plan, schedules = [], onSaved, t
         ...parentData,
         habits: cleanHabits(form.habits),
         birthday: cleanOptionalString(form.birthday),
-        activity_window_start: cleanOptionalString(form.activity_window_start),
-        activity_window_end: cleanOptionalString(form.activity_window_end),
+        // FIXED: Always 06-22, no auto-detect
+        activity_window_start: "06:00",
+        activity_window_end: "22:00",
+        auto_activity_detection: false,
       };
       const targetId = parent?.id || createdParentId;
       const { data } = targetId ? await api.put(`/parents/${targetId}`, payload) : await api.post("/parents", payload);
