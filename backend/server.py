@@ -87,6 +87,8 @@ from PIL import Image
 from database import get_pool, init_db, close_db
 from models import (
     RegisterInput, LoginInput, ChildProfileInput, ParentInput,
+    ForgotPasswordInput, ResetPasswordInput, ChangePasswordInput,
+    EmailChangeRequestInput, EmailChangeConfirmInput,
     ScheduleInput, PreferencesInput, ConsentInput,
     EmergencyContactsInput, MomentInput, RecoveryStartInput,
     MEDICINE_SHAPES, MEDICINE_COLORS, MEDICINE_TIMINGS,
@@ -113,6 +115,7 @@ class InviteInput(BaseModel):
     parent_id: str = ""
 
 from auth import (
+    token_still_valid,
     hash_password, verify_password, create_access_token, serialize,
     get_current_user, get_current_admin, seed_admin,
     create_refresh_token, _secret, validate_csrf_token, JWT_ALGORITHM,
@@ -241,6 +244,8 @@ async def _run_startup_migrations():
     """Idempotent, cheap fixes that must hold on every boot."""
     async with get_pool().acquire() as conn:
         await conn.execute("alter table monthly_reports add column if not exists details jsonb")
+        await conn.execute("alter table users add column if not exists password_changed_at timestamptz")
+        await conn.execute("alter table users add column if not exists pending_email text")
         # Images are uploaded before the moment row exists, so moment_id must be nullable.
         await conn.execute("alter table moment_images alter column moment_id drop not null")
         # Link replies that arrived from Meta as '91xxxxxxxxxx' to parents stored as '+91xxxxxxxxxx'.
@@ -653,6 +658,8 @@ async def refresh_token(request: Request, response: Response):
             raise HTTPException(status_code=401, detail="Invalid token type")
         async with get_pool().acquire() as conn:
             user = await conn.fetchrow("select * from users where id = $1::uuid", payload["sub"])
+        if user and not token_still_valid(payload, dict(user)):
+            raise HTTPException(status_code=401, detail="Please log in again.")
         if not user or user["deleted_at"]:
             raise HTTPException(status_code=401, detail="User not found")
     except jwt.ExpiredSignatureError:
@@ -708,6 +715,117 @@ async def auth_otp_verify(payload: OtpVerifyInput, user: dict = Depends(get_curr
     return {"verified": True, "phone": phone}
 
 # ---------------- Child profile ----------------
+# ---------------- Password reset / change (phone OTP) ----------------
+_DIGITS_SQL = "regexp_replace(phone, '\\D', '', 'g') = regexp_replace($1, '\\D', '', 'g')"
+
+
+async def _user_by_phone(phone: str):
+    return await get_pool().fetchrow(
+        f"select * from users where {_DIGITS_SQL} and deleted_at is null order by created_at asc limit 1", phone
+    )
+
+
+@api.post("/auth/forgot-password")
+async def forgot_password(payload: ForgotPasswordInput, request: Request):
+    allowed, retry_after = await check_api_rate_limit(request)
+    if not allowed:
+        raise HTTPException(status_code=429, detail=f"Too many attempts. Try again in {retry_after}s.")
+    user = await _user_by_phone(payload.phone)
+    # Always answer the same way so phone numbers can't be enumerated.
+    out = {"sent": True, "message": "If an account exists for this number, a 6-digit code has been sent on SMS."}
+    if user:
+        result = await create_and_send_otp(user["phone"])
+        if result.get("status") == "rate_limited":
+            raise HTTPException(status_code=429, detail=f"Please wait {result.get('retry_after', 60)}s before requesting another code.")
+        if result.get("dev_code"):
+            out["dev_code"] = result["dev_code"]
+        await audit(user["id"], "password_reset_requested", {})
+    return out
+
+
+@api.post("/auth/reset-password")
+async def reset_password(payload: ResetPasswordInput, response: Response):
+    user = await _user_by_phone(payload.phone)
+    if not user:
+        raise HTTPException(status_code=400, detail="Invalid code or phone number.")
+    result = await verify_otp_code(user["phone"], payload.code)
+    if not result.get("ok"):
+        raise HTTPException(status_code=400, detail=result.get("detail") or "Invalid or expired code.")
+    async with get_pool().acquire() as conn:
+        await conn.execute(
+            "update users set password_hash = $1, password_changed_at = now(), phone_verified = true where id = $2",
+            hash_password(payload.new_password), user["id"],
+        )
+    clear_auth_cookies(response)
+    await audit(user["id"], "password_reset_completed", {})
+    return {"ok": True, "message": "Password updated. Please log in with your new password."}
+
+
+@api.post("/auth/change-password")
+async def change_password(payload: ChangePasswordInput, response: Response, user: dict = Depends(get_current_user), _csrf: None = Depends(validate_csrf_token)):
+    if not verify_password(payload.current_password, user["password_hash"]):
+        raise HTTPException(status_code=400, detail="Current password is incorrect.")
+    if payload.current_password == payload.new_password:
+        raise HTTPException(status_code=400, detail="New password must be different from the current one.")
+    async with get_pool().acquire() as conn:
+        await conn.execute(
+            "update users set password_hash = $1, password_changed_at = now() where id = $2",
+            hash_password(payload.new_password), user["id"],
+        )
+    access = create_access_token(str(user["id"]), user["email"], user["role"])
+    refresh = create_refresh_token(str(user["id"]), user["email"], user["role"])
+    set_auth_cookies(response, access, refresh)
+    await audit(user["id"], "password_changed", {})
+    return {"ok": True}
+
+
+# ---------------- Email change (password + phone OTP) ----------------
+@api.post("/profile/email/request")
+async def request_email_change(payload: EmailChangeRequestInput, user: dict = Depends(get_current_user), _csrf: None = Depends(validate_csrf_token)):
+    new_email = payload.new_email.lower().strip()
+    if new_email == (user.get("email") or "").lower():
+        raise HTTPException(status_code=400, detail="That is already your email.")
+    if not verify_password(payload.password, user["password_hash"]):
+        raise HTTPException(status_code=400, detail="Password is incorrect.")
+    async with get_pool().acquire() as conn:
+        taken = await conn.fetchrow("select 1 from users where lower(email) = $1 and id <> $2", new_email, user["id"])
+        if taken:
+            raise HTTPException(status_code=400, detail="That email is already used by another account.")
+        await conn.execute("update users set pending_email = $1 where id = $2", new_email, user["id"])
+    result = await create_and_send_otp(user["phone"])
+    if result.get("status") == "rate_limited":
+        raise HTTPException(status_code=429, detail=f"Please wait {result.get('retry_after', 60)}s before requesting another code.")
+    out = {"sent": True, "pending_email": new_email, "phone_hint": f"…{(user.get('phone') or '')[-4:]}"}
+    if result.get("dev_code"):
+        out["dev_code"] = result["dev_code"]
+    return out
+
+
+@api.post("/profile/email/confirm")
+async def confirm_email_change(payload: EmailChangeConfirmInput, response: Response, user: dict = Depends(get_current_user), _csrf: None = Depends(validate_csrf_token)):
+    pending = user.get("pending_email")
+    if not pending:
+        raise HTTPException(status_code=400, detail="No email change is pending.")
+    result = await verify_otp_code(user["phone"], payload.code)
+    if not result.get("ok"):
+        raise HTTPException(status_code=400, detail=result.get("detail") or "Invalid or expired code.")
+    old_email = user["email"]
+    async with get_pool().acquire() as conn:
+        taken = await conn.fetchrow("select 1 from users where lower(email) = $1 and id <> $2", pending, user["id"])
+        if taken:
+            raise HTTPException(status_code=400, detail="That email was just taken by another account.")
+        await conn.execute("update users set email = $1, pending_email = null where id = $2", pending, user["id"])
+        # Pending care-circle invites addressed to the old email follow the user.
+        await conn.execute("update circle_invites set email = $1 where email = $2 and status = 'pending'", pending, old_email)
+        updated = await conn.fetchrow("select * from users where id = $1", user["id"])
+    # Tokens embed the email — reissue them.
+    access = create_access_token(str(user["id"]), pending, user["role"])
+    refresh = create_refresh_token(str(user["id"]), pending, user["role"])
+    set_auth_cookies(response, access, refresh)
+    await audit(user["id"], "email_changed", {"from": old_email, "to": pending})
+    return {"ok": True, "user": serialize(updated)}
+
+
 @api.put("/profile/child")
 async def update_child(
     payload: ChildProfileInput,
@@ -2165,11 +2283,17 @@ async def _apply_button_tap_effects(reply: dict) -> None:
     category = _BUTTON_CATEGORY_ALIASES.get(category, category)
 
     async with get_pool().acquire() as conn:
-        p = await conn.fetchrow("select language from parents where id = $1::uuid", parent_id)
+        p = await conn.fetchrow("select language, timezone from parents where id = $1::uuid", parent_id)
         language = (p["language"] if p and p["language"] else "en")
 
         if action in ("done", "pending", "skip") and category:
-            day_key = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            # message_logs.day_key is written in the parent's local day by the
+            # scheduler — match it the same way or evening/early-morning taps miss.
+            try:
+                tz = ZoneInfo((p["timezone"] if p and p["timezone"] else None) or "Asia/Kolkata")
+            except Exception:
+                tz = ZoneInfo("Asia/Kolkata")
+            day_key = datetime.now(tz).strftime("%Y-%m-%d")
             log = await conn.fetchrow(
                 """
                 select id from message_logs

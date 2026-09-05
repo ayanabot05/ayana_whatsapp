@@ -23,6 +23,7 @@ import { CareTab } from "@/components/CareTab";
 import { PricingCards } from "@/components/PricingCards";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { MonthlyReportView } from "@/components/MonthlyReportView";
+import { ChangeEmailCard, ChangePasswordCard } from "@/components/SecurityCards";
 
 function TabBoundary({ tab, onRetry, children }) {
   return (
@@ -366,6 +367,11 @@ export default function Dashboard() {
 
           <TabsContent value="account" className="mt-6 max-w-xl"><TabBoundary tab="account" onRetry={load}>
             <AccountPanel user={user} plan={plan} payment={payment} circle={circle} setActiveTab={setActiveTab} refreshUser={refreshUser} />
+
+            <div className="mt-6 grid gap-4">
+              <ChangeEmailCard user={user} refreshUser={refreshUser} />
+              <ChangePasswordCard />
+            </div>
 
             <div className="mt-6 bg-white rounded-xl border border-ayana-line p-6">
               <h3 className="font-display text-lg font-medium text-ayana-text mb-4 flex items-center gap-2">Activity History</h3>

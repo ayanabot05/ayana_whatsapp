@@ -1,0 +1,47 @@
+{
+  "summary": "Iteration 14 covers the new forgot/reset-password flow, signup phone+password validation, Account-tab Change email / Change password, and a webhook regression for the button-tap → parent-timezone day_key change. Backend: 16/16 pytest against the public preview URL. Frontend: full UI walk-through of /forgot-password (short-phone inline error, dev_code surfacing, weak-password error, redirect to /login on success), /signup validation (phone-error, password-strength label 'Weak', signup-error 'Password needs: one uppercase letter.'), Account tab change-password (wrong current → toast error, correct → 'Password changed.' toast, rolled BACK to Test@12345), and change-email (ravi.e1test2 → ravi.e1test3, session re-issued so /api/auth/me returns 200 with the new email, dashboard keeps working; then rolled BACK to ravi.e1test2). Regression: dashboard bootstrap 200 with all keys, plan-badge visible, Add parent opens dialog, Reports generate produces report-content. Webhook signed text + interactive button_reply both 200. Left the account exactly as required: ravi.e1test2@ayanabott.com / Test@12345 / phone +919876500011.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "PasswordStrength (Signup / ForgotPassword reset)",
+        "issue": "When password is non-empty but score = 0 (e.g. 3-char 'abc'), the strength meter renders but the label span is empty (LABELS[0] === '' in PasswordStrength.jsx line 3). Only visible for very short strings; once ≥8 chars the label shows 'Weak'/'Fair'/... correctly. Cosmetic — the accompanying check-list (○ At least 8 characters, ○ One uppercase letter, ○ One number) is shown so intent is clear.",
+        "selector": "[data-testid=signup-password-strength-label]",
+        "priority": "LOW"
+      },
+      {
+        "component": "Signup password input (native HTML5 minlength)",
+        "issue": "signup-password input has minLength=8, so submitting with a <8-char password triggers the browser's native tooltip 'Please lengthen this text to 8 characters or more…' and BLOCKS the form submit before the client-side handler ever runs. Consequence: data-testid=signup-error is not shown for the 3-char case (it works fine for 8-char lowercase-only, which is the more useful scenario). Not blocking, but the review request phrasing 'submitting with weak password shows signup-error Password needs: ...' implicitly assumes JS-side validation for all weak cases. Either drop the minLength attribute or add novalidate to the form so signup-error is the single source of truth."
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration14_auth_flows.py",
+    "/app/test_reports/pytest/iteration_14_results.xml"
+  ],
+  "action_items": [
+    "LOW: In PasswordStrength.jsx, show 'Weak' (or hide the label span entirely) when score === 0 & password non-empty, so the empty label doesn't flash.",
+    "LOW: Consider removing the native minLength=8 on data-testid=signup-password (or add noValidate on the <form>) so signup-error is the only surface for password weakness. Right now the browser's own tooltip fires first for <8-char inputs."
+  ],
+  "critical_code_review_comments": [
+    "backend/server.py forgot_password: correctly returns the same {sent:true} envelope for known and unknown phones, only attaches dev_code + writes audit for known phones — no enumeration channel (verified 200 for +919000000001 without dev_code).",
+    "backend/server.py reset_password: on success sets password_changed_at = now() AND clears the auth cookies on the response; combined with auth.token_still_valid(iat vs password_changed_at) the OLD access cookie now yields 401 on /api/auth/me — verified end-to-end. Good.",
+    "backend/server.py change_password: same current/new returns 400 'must be different'; success reissues both access + refresh cookies inline so the caller stays logged in (verified in UI: no forced logout).",
+    "backend/server.py request_email_change / confirm_email_change: password + phone-OTP double-gate, pending_email column, and on confirm the tokens are reissued because the JWT embeds the email — verified /api/auth/me returns 200 with the NEW email right after confirm.",
+    "backend/server.py _apply_button_tap_effects: pulls parents.timezone (fallback Asia/Kolkata) and computes day_key with ZoneInfo — verified webhook button_reply {id:'done:medicine'} returns 200 (no crash) even though there is no matching message_logs row (logger.warning path, endpoint stays 200).",
+    "backend/validation.py: +91 rule = exactly 10 digits, password rule = ≥8 + 1 uppercase + 1 digit — mirrored perfectly on the frontend lib/validation.js so the UX message and the 422 detail are identical strings.",
+    "backend/auth.py token_still_valid: compares floor(iat) against password_changed_at (both in seconds since epoch) with a 1-second grace — this is exactly the right invariant, matches what /api/auth/reset-password writes."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration14_auth_flows.py"
+  ],
+  "success_rate": {"backend": "100% (16/16)", "frontend": "100% of required flows verified (2 LOW cosmetic UX findings, no blockers)"},
+  "test_credentials": "Used ravi.e1test2@ayanabott.com / Test@12345 (phone +919876500011) per /app/memory/test_credentials.md. Ended the session with password=Test@12345 and email=ravi.e1test2@ayanabott.com (both round-tripped through their change flows during the test). Admin creds not needed. No new user accounts created (backend register 422 tests hit validation before insert).",
+  "seed_data_creation": "None. Two signed webhook POSTs made from parent 919876500012 (one text 'I am good', one button_reply done:medicine). Two audit log rows: password_reset_requested + password_reset_completed for the test user (same password reissued, so account remains usable). Two email_changed audit rows (e1test2→e1test3 then e1test3→e1test2).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "The OTP dev-mode returns dev_code in JSON for /api/auth/forgot-password and /api/profile/email/request, and the UI surfaces it via data-testid=forgot-dev-code and data-testid=change-email-dev-code. Cooldown is 60s per phone across BOTH endpoints (they share the same underlying otp table), so if you run the full pytest suite AND then the UI change-email flow back-to-back you WILL hit 429 on the second UI request — wait 65-90s or use the /api/profile/email/request endpoint directly via fetch (that worked cleanly for the rollback step this iteration). Backend suite: cd /app/backend && python -m pytest tests/test_iteration14_auth_flows.py -o addopts='' -p no:cacheprovider -v -s (~165s wall clock, dominated by two 65s OTP cooldown waits in the fixture).",
+  "rca_of_the_issue": "No production defects found this round. Only two LOW cosmetic UX nits: (1) PasswordStrength shows an empty label span when score===0 (LABELS[0]=''); (2) signup-password has native minLength=8 which lets the browser tooltip fire before the JS signup-error path for <8-char inputs. Both trivial 1-line frontend changes; not blocking founder demo."
+}

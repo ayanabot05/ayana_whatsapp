@@ -5,6 +5,8 @@ import { Logo } from "@/components/Logo";
 import { api, formatApiError } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { PhoneInput } from "@/components/PhoneInput";
+import { PasswordStrength } from "@/components/PasswordStrength";
+import { phoneError, passwordError } from "@/lib/validation";
 import { toast } from "sonner";
 import { AuthBrandPanel } from "@/components/AuthBrandPanel";
 
@@ -27,8 +29,11 @@ export default function Signup() {
   const submit = async (e) => {
     e.preventDefault();
     setError("");
-    if (form.password.length < 8) {
-      setError("Password must be at least 8 characters.");
+    const phoneMsg = phoneError(form.phone);
+    if (phoneMsg) { setError(phoneMsg); return; }
+    const pwMsg = passwordError(form.password);
+    if (pwMsg) {
+      setError(pwMsg);
       return;
     }
     setLoading(true);
@@ -88,11 +93,13 @@ export default function Signup() {
             <div>
               <label className="text-sm font-medium text-ayana-text">Phone</label>
               <div className="mt-1.5"><PhoneInput value={form.phone} onChange={(v) => setForm({ ...form, phone: v })} testid="signup-phone" /></div>
+              {form.phone.length > 4 && phoneError(form.phone) && <p className="mt-1 text-xs text-red-600" data-testid="signup-phone-error">{phoneError(form.phone)}</p>}
             </div>
             <div>
               <label className="text-sm font-medium text-ayana-text">Password</label>
-              <input type="password" required minLength={8} value={form.password} onChange={upd("password")} data-testid="signup-password" placeholder="At least 8 characters"
+              <input type="password" required minLength={8} value={form.password} onChange={upd("password")} data-testid="signup-password" placeholder="8+ chars, 1 uppercase, 1 number"
                 className="mt-1.5 w-full px-4 py-3 rounded-xl border border-ayana-line bg-white focus:outline-none focus:ring-2 focus:ring-ayana-bright/50 focus:border-ayana-bright transition" />
+              <PasswordStrength password={form.password} testid="signup-password-strength" />
             </div>
             {error && <p className="text-sm text-red-600" data-testid="signup-error">{error}</p>}
             <button type="submit" disabled={loading} data-testid="signup-submit"

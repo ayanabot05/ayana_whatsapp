@@ -75,6 +75,9 @@ export default function Login() {
                 className="mt-1.5 w-full px-4 py-3 rounded-xl border border-ayana-line bg-white text-ayana-text focus:outline-none focus:ring-2 focus:ring-ayana-bright/50 focus:border-ayana-bright transition"
               />
             </div>
+            <div className="flex justify-end -mt-1">
+              <Link to="/forgot-password" className="text-sm text-ayana-bright font-medium hover:underline" data-testid="login-forgot">Forgot password?</Link>
+            </div>
             {error && <p className="text-sm text-red-600" data-testid="login-error">{error}</p>}
             <button
               type="submit" disabled={loading} data-testid="login-submit"

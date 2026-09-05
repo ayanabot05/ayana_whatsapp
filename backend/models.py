@@ -3,6 +3,7 @@ from typing import List, Optional
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from pricing import plan_limits
+from validation import validate_phone, validate_password
 from templates_data import LANGUAGES
 
 _VALID_LANGUAGE_CODES = {l["code"] for l in LANGUAGES}
@@ -22,10 +23,56 @@ class RegisterInput(BaseModel):
     @field_validator("phone")
     @classmethod
     def clean_phone(cls, v: str) -> str:
-        v = v.strip().replace(" ", "")
-        if not v.startswith("+"):
-            raise ValueError("Phone must be in E.164 format, e.g. +919876543210")
-        return v
+        return validate_phone(v)
+
+    @field_validator("password")
+    @classmethod
+    def strong_password(cls, v: str) -> str:
+        return validate_password(v)
+
+
+class ForgotPasswordInput(BaseModel):
+    phone: str = Field(..., min_length=6, max_length=20)
+
+    @field_validator("phone")
+    @classmethod
+    def clean_phone(cls, v: str) -> str:
+        return validate_phone(v)
+
+
+class ResetPasswordInput(BaseModel):
+    phone: str = Field(..., min_length=6, max_length=20)
+    code: str = Field(..., min_length=4, max_length=8)
+    new_password: str = Field(..., min_length=8, max_length=128)
+
+    @field_validator("phone")
+    @classmethod
+    def clean_phone(cls, v: str) -> str:
+        return validate_phone(v)
+
+    @field_validator("new_password")
+    @classmethod
+    def strong_password(cls, v: str) -> str:
+        return validate_password(v)
+
+
+class ChangePasswordInput(BaseModel):
+    current_password: str = Field(..., min_length=1)
+    new_password: str = Field(..., min_length=8, max_length=128)
+
+    @field_validator("new_password")
+    @classmethod
+    def strong_password(cls, v: str) -> str:
+        return validate_password(v)
+
+
+class EmailChangeRequestInput(BaseModel):
+    new_email: EmailStr
+    password: str = Field(..., min_length=1)
+
+
+class EmailChangeConfirmInput(BaseModel):
+    code: str = Field(..., min_length=4, max_length=8)
 
 
 class LoginInput(BaseModel):
@@ -39,6 +86,10 @@ class ChildProfileInput(BaseModel):
     phone: str = Field(..., min_length=6, max_length=20)
     city: Optional[str] = Field(None, max_length=80)
     timezone: str = Field(..., min_length=2, max_length=64)
+    @field_validator("phone")
+    @classmethod
+    def clean_phone(cls, v: str) -> str:
+        return validate_phone(v)
 
 
 # ---------- Medicine ----------
@@ -124,10 +175,7 @@ class ParentInput(BaseModel):
     @field_validator("phone")
     @classmethod
     def clean_phone(cls, v: str) -> str:
-        v = v.strip().replace(" ", "")
-        if not v.startswith("+"):
-            raise ValueError("Phone must be in E.164 format, e.g. +919876543210")
-        return v
+        return validate_phone(v)
 
     @field_validator("language")
     @classmethod
@@ -241,10 +289,7 @@ class EmergencyContact(BaseModel):
     @field_validator("phone")
     @classmethod
     def clean_phone(cls, v: str) -> str:
-        v = v.strip().replace(" ", "")
-        if not v.startswith("+"):
-            raise ValueError("Phone must be in E.164 format, e.g. +919876543210")
-        return v
+        return validate_phone(v)
 
 
 class EmergencyContactsInput(BaseModel):

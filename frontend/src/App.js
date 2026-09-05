@@ -24,6 +24,7 @@ const queryClient = new QueryClient({
 // Login/Signup stay eager since they're the most common first paint after Landing.
 import Login from "@/pages/Login";
 import Signup from "@/pages/Signup";
+import ForgotPassword from "@/pages/ForgotPassword";
 import Landing from "@/pages/Landing";
 
 const Onboarding = lazy(() => import("@/pages/Onboarding"));
@@ -61,6 +62,7 @@ function App() {
               <Route path="/" element={<Landing />} />
               <Route path="/login" element={<Login />} />
               <Route path="/signup" element={<Signup />} />
+              <Route path="/forgot-password" element={<ForgotPassword />} />
               <Route path="/privacy" element={<Privacy />} />
               <Route path="/terms" element={<Terms />} />
               <Route path="/disclaimer" element={<Disclaimer />} />
