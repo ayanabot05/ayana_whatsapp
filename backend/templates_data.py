@@ -210,6 +210,35 @@ SLOT_VARIANTS: dict[str, dict[str, list[str]]] = {
             "{nick1}, खाना अच्छा था?",
         ],
     },
+    "dinner": {
+        "en": [
+            "{nick1}, dinner time! 🌙 Eat well and get some rest after.",
+            "Ratri bhojanam ayindha, {nick2}?",
+            "{nick1}, did {other_parent} have dinner too?",
+            "Dinner done, {nick3}? Don't skip it.",
+            "{nick1}, eating dinner on time today?",
+            "Evening meal, {nick2} — all good? 🌙",
+            "{nick1}, hope dinner was good. Sleep well after.",
+        ],
+        "te": [
+            "{nick1}, రాత్రి భోజనం టైం! 🌙 బాగా తిని కాసేపు రెస్ట్ తీసుకో.",
+            "రాత్రి భోజనం అయ్యిందా, {nick2}?",
+            "{nick1}, {other_parent} కూడా రాత్రి భోజనం చేశారా?",
+            "డిన్నర్ అయ్యిందా, {nick3}? మానకు.",
+            "{nick1}, రాత్రి టైంకి తింటున్నావా ఈరోజు?",
+            "రాత్రి భోజనం, {nick2} — బాగుందా? 🌙",
+            "{nick1}, రాత్రి భోజనం బాగుందా? తిన్నాక బాగా నిద్రపో.",
+        ],
+        "hi": [
+            "{nick1}, रात के खाने का समय! 🌙 अच्छे से खाना, फिर आराम करना।",
+            "रात का खाना खाया, {nick2}?",
+            "{nick1}, {other_parent} ने भी रात का खाना खाया?",
+            "डिनर हो गया, {nick3}? छोड़ना मत।",
+            "{nick1}, आज समय पर रात का खाना खाया?",
+            "शाम का खाना, {nick2} — ठीक रहा? 🌙",
+            "{nick1}, खाना अच्छा था? खाने के बाद अच्छे से सो जाना।",
+        ],
+    },
     "afternoon_checkin": {
         "en": [
             "{nick1}, what are you up to? 🌼 Take rest in the afternoon.",
