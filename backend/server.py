@@ -16,6 +16,7 @@ Original file: server.py (108506 bytes, 2403 lines)
 Fixed file: server_fixed.py
 """
 
+import asyncio
 import hmac
 import json
 import logging
@@ -91,7 +92,7 @@ from models import (
     MEDICINE_SHAPES, MEDICINE_COLORS, MEDICINE_TIMINGS,
 )
 from medicine_sync import sync_medicine_reminders
-from storage import init_storage, put_object, get_object, is_enabled as storage_enabled, APP_NAME as STORAGE_APP_NAME
+from storage import init_storage, put_object, get_object, signed_url as storage_signed_url, is_enabled as storage_enabled, APP_NAME as STORAGE_APP_NAME
 from otp import create_and_send_otp, verify_otp_code, _normalize_phone
 
 class CheckoutInput(BaseModel):
@@ -181,6 +182,10 @@ async def lifespan(app: FastAPI):
         raise RuntimeError("JWT_SECRET environment variable is required but not set")
     await init_db()
     await seed_admin()
+    try:
+        await _run_startup_migrations()
+    except Exception as e:
+        logger.error("Startup migrations failed: %s", e)
     if storage_enabled():
         try:
             init_storage()
@@ -189,7 +194,10 @@ async def lifespan(app: FastAPI):
             logger.error("Object storage init failed (moment images will fail until fixed): %s", e)
     else:
         logger.info("Object storage disabled — /moments photo upload will return 501 until enabled")
-    start_scheduler()
+    if os.environ.get("SCHEDULER_ENABLED", "true").strip().lower() == "true":
+        start_scheduler()
+    else:
+        logger.info("Scheduler disabled on this instance (SCHEDULER_ENABLED=false)")
     logger.info("AYANA-BOT backend ready")
     yield
     # ── Shutdown ──
@@ -203,17 +211,50 @@ app = FastAPI(title="AYANA-BOT API", lifespan=lifespan)
 api = APIRouter(prefix="/api")
 
 
+async def _audit_write(user_id, action, meta):
+    try:
+        async with get_pool().acquire() as conn:
+            await conn.execute(
+                """
+                insert into audit_logs (user_id, action, meta, created_at)
+                values ($1, $2, $3::jsonb, now())
+                """,
+                str(user_id) if user_id else None,
+                action,
+                json.dumps(meta or {}),
+            )
+    except Exception as e:
+        logger.warning("[audit] write failed for %s: %s", action, e)
+
+
+_bg_tasks: set = set()
+
+
 async def audit(user_id, action, meta=None):
+    """Fire-and-forget: the request never waits on the audit round-trip."""
+    task = asyncio.create_task(_audit_write(user_id, action, meta))
+    _bg_tasks.add(task)
+    task.add_done_callback(_bg_tasks.discard)
+
+
+async def _run_startup_migrations():
+    """Idempotent, cheap fixes that must hold on every boot."""
     async with get_pool().acquire() as conn:
-        await conn.execute(
+        await conn.execute("alter table monthly_reports add column if not exists details jsonb")
+        # Images are uploaded before the moment row exists, so moment_id must be nullable.
+        await conn.execute("alter table moment_images alter column moment_id drop not null")
+        # Link replies that arrived from Meta as '91xxxxxxxxxx' to parents stored as '+91xxxxxxxxxx'.
+        linked = await conn.execute(
             """
-            insert into audit_logs (user_id, action, meta, created_at)
-            values ($1, $2, $3::jsonb, now())
-            """,
-            str(user_id) if user_id else None,
-            action,
-            json.dumps(meta or {}),
+            update parent_replies r
+            set parent_id = p.id, user_id = p.user_id
+            from parents p
+            where r.parent_id is null and p.deleted_at is null
+              and regexp_replace(p.phone, '\\D', '', 'g') = regexp_replace(r.from_phone, '\\D', '', 'g')
+            """
         )
+        if linked and not linked.endswith(" 0"):
+            logger.info("[migrate] backfilled orphan parent replies: %s", linked)
 
 def _parse_jsonb_field(value, default=None):
     """Safe parser for jsonb columns that may come back as str, dict/list, or None after Mongo->Postgres migration."""
@@ -281,23 +322,25 @@ async def _sync_medicine_reminders_for_parent(user, parent_id, medicine_list: li
 
 
 async def _plan_usage(owner_id) -> dict:
-    async with get_pool().acquire() as conn:
-        parents = await conn.fetchval(
-            "select count(*) from parents where user_id = $1 and deleted_at is null", owner_id
-        )
-        members = await conn.fetchval(
-            "select count(*) from users where household_owner_id = $1 and deleted_at is null", owner_id
-        )
-        pending_invites = await conn.fetchval(
-            "select count(*) from circle_invites where owner_id = $1 and status = 'pending'", str(owner_id)
-        )
-        recovery_schedules = await conn.fetchval(
-            "select count(*) from schedules where user_id = $1 and deleted_at is null and recovery_mode = true",
-            owner_id,
-        )
-        schedules = await conn.fetch(
-            "select * from schedules where user_id = $1 and deleted_at is null", owner_id
-        )
+    pool = get_pool()
+    counts, schedules = await asyncio.gather(
+        pool.fetchrow(
+            """
+            select
+              (select count(*) from parents where user_id = $1 and deleted_at is null) as parents,
+              (select count(*) from users where household_owner_id = $1 and deleted_at is null) as members,
+              (select count(*) from circle_invites where owner_id = $2 and status = 'pending') as pending_invites,
+              (select count(*) from schedules where user_id = $1 and deleted_at is null and recovery_mode = true) as recovery_schedules
+            """,
+            owner_id, str(owner_id),
+        ),
+        pool.fetch(
+            "select id, messages, recovery_mode from schedules where user_id = $1 and deleted_at is null", owner_id
+        ),
+    )
+    parents, members, pending_invites, recovery_schedules = (
+        counts["parents"], counts["members"], counts["pending_invites"], counts["recovery_schedules"],
+    )
 
     schedule_violations = []
     for sched in schedules:
@@ -397,10 +440,23 @@ async def health():
             problems.append("meta:missing_creds")
 
     status_code = 200 if (pg_ok and meta_ok) else 503
+    webhook_secret_ok = bool((os.environ.get("META_WA_APP_SECRET") or os.environ.get("META_APP_SECRET") or "").strip())
+    if not webhook_secret_ok:
+        problems.append("webhook:app_secret_missing (inbound WhatsApp replies will be rejected)")
+    last_inbound = None
+    if pg_ok:
+        try:
+            async with get_pool().acquire() as conn:
+                last_inbound = await conn.fetchval("select max(created_at) from parent_replies")
+        except Exception:
+            pass
     body = {
         "status": "healthy" if not problems else "unhealthy",
         "postgres": "up" if pg_ok else "down",
         "meta": "configured" if meta_ok else "not_configured",
+        "webhook_secret": "configured" if webhook_secret_ok else "missing",
+        "last_inbound_reply_at": last_inbound.isoformat() if last_inbound else None,
+        "storage": "enabled" if storage_enabled() else "disabled",
         "problems": problems,
         "release": os.environ.get("SENTRY_RELEASE") or os.environ.get("RAILWAY_GIT_COMMIT_SHA") or "local",
     }
@@ -968,7 +1024,11 @@ async def upload_moment_image(file: UploadFile = File(...), user: dict = Depends
             result.get("size", len(contents)), str(scope(user)),
         )
 
-    url = _build_signed_url(filename)
+    try:
+        url = storage_signed_url(result.get("path", storage_path))
+    except Exception as e:
+        logger.warning("[moment] signed url failed, falling back to proxy url: %s", e)
+        url = _build_signed_url(filename)
     return {"url": url, "filename": filename, "content_type": content_type}
 
 
@@ -1280,14 +1340,18 @@ async def update_prefs(payload: PreferencesInput, user: dict = Depends(get_curre
     return serialize(updated)
 
 # ---------------- Payment ----------------
+async def _empty_usage():
+    return {}
+
 @api.get("/payment/state")
 async def payment_state(user: dict = Depends(get_current_user)):
-    async with get_pool().acquire() as conn:
-        state = await conn.fetchrow("select * from payment_state where user_id = $1", scope(user))
+    state, usage = await asyncio.gather(
+        get_pool().fetchrow("select * from payment_state where user_id = $1", scope(user)),
+        _plan_usage(scope(user)) if not is_member(user) else _empty_usage(),
+    )
     plan = resolve_plan_id((state["plan"] if state else "nitya") or "nitya")
     state_out = serialize(state) if state else {"status": "trial", "plan": plan, "billing": "month"}
     state_out["plan"] = plan
-    usage = await _plan_usage(scope(user)) if not is_member(user) else {}
     return {
         "payments_enabled": os.environ.get("PAYMENTS_ENABLED", "false").lower() == "true",
         "state": state_out,
@@ -1549,14 +1613,16 @@ async def get_circle(user: dict = Depends(get_current_user)):
             owner = await conn.fetchrow("select * from users where id = $1::uuid", user["household_owner_id"])
             return {"role": "member", "owner": {"name": owner["name"] if owner else "", "email": owner["email"] if owner else ""}}
         uid = user["id"]
-        plan_id = await _get_plan_id(user)
+        plan_id, members, invites = await asyncio.gather(
+            _get_plan_id(user),
+            get_pool().fetch(
+                "select * from users where household_owner_id = $1 and deleted_at is null limit 20", uid
+            ),
+            get_pool().fetch(
+                "select * from circle_invites where owner_id = $1 and status = 'pending' limit 20", str(uid)
+            ),
+        )
         max_members = plan_limits(plan_id).get("family_members", 1)
-        members = await conn.fetch(
-            "select * from users where household_owner_id = $1 and deleted_at is null limit 20", uid
-        )
-        invites = await conn.fetch(
-            "select * from circle_invites where owner_id = $1 and status = 'pending' limit 20", str(uid)
-        )
     return {
         "role": "owner",
         "plan": plan_id,
@@ -1752,8 +1818,10 @@ async def get_monthly_report(parent_id: str, period: str, user: dict = Depends(g
             scope(user), parent_id, period,
         )
     if not report:
-        raise HTTPException(status_code=404, detail="No report generated for that period yet.")
-    return serialize(report)
+        return {"found": False, "parent_id": parent_id, "period": period}
+    out = serialize(report)
+    out["found"] = True
+    return out
 
 @api.post("/reports/monthly/generate")
 async def generate_monthly_report_now(parent_id: str, period: str, user: dict = Depends(get_current_user), _csrf: None = Depends(validate_csrf_token)):
@@ -1883,7 +1951,7 @@ async def _resolve_generic_button_intent(parent_id, button_payload: str) -> str 
 # ── Interactive button handler callbacks ───────────────────────────────────
 async def _mark_medicine_status(phone: str, taken: bool):
     async with get_pool().acquire() as conn:
-        parent = await conn.fetchrow("select * from parents where phone = $1 and deleted_at is null", phone)
+        parent = await conn.fetchrow(_PARENT_BY_PHONE_SQL, phone)
         if not parent:
             return
         day_key = datetime.now(timezone.utc).strftime("%Y-%m-%d")
@@ -1905,7 +1973,7 @@ async def _mark_medicine_status(phone: str, taken: bool):
 
 async def _mark_meal_status(phone: str, eaten: bool):
     async with get_pool().acquire() as conn:
-        parent = await conn.fetchrow("select * from parents where phone = $1 and deleted_at is null", phone)
+        parent = await conn.fetchrow(_PARENT_BY_PHONE_SQL, phone)
         if not parent:
             return
         day_key = datetime.now(timezone.utc).strftime("%Y-%m-%d")
@@ -1942,10 +2010,20 @@ async def _detect_language(text: str) -> str:
     return "en"
 
 
+# Meta delivers `from` as bare digits ("919xxxxxxxxx"); parents are stored as "+91…".
+# Compare digits-only on both sides so replies always link to the right parent.
+_PARENT_BY_PHONE_SQL = """
+    select * from parents
+    where deleted_at is null
+      and regexp_replace(phone, '\\D', '', 'g') = regexp_replace($1, '\\D', '', 'g')
+    order by created_at desc limit 1
+"""
+
+
 async def _record_reply(from_number: str, body_text: str, num_media: int = 0, parent=None, button_payload: str | None = None, media_url: str | None = None, media_content_type: str | None = None, raw_payload: dict | None = None):
     async with get_pool().acquire() as conn:
         if parent is None:
-            parent = await conn.fetchrow("select * from parents where phone = $1 and deleted_at is null", from_number)
+            parent = await conn.fetchrow(_PARENT_BY_PHONE_SQL, from_number)
         if parent:
             await refresh_session(parent["id"])
             if parent["auto_activity_detection"] if parent["auto_activity_detection"] is not None else True and parent["language"]:
@@ -1963,6 +2041,9 @@ async def _record_reply(from_number: str, body_text: str, num_media: int = 0, pa
     is_voice = False
     transcription = None
     intent = None
+    if parent is None:
+        logger.warning("[webhook] Inbound from unknown number %s — no matching parent, ignoring", from_number)
+        return {"from_phone": from_number, "parent_id": None, "intent": None, "ignored": True}
     lang = parent["language"] if parent and parent["language"] else "en"
     ml_flagged = False
     ml_score = None
@@ -2217,17 +2298,18 @@ async def checkins_summary(
     days: int = Query(7, ge=1, le=30),
 ):
     owner = scope(user)
-    async with get_pool().acquire() as conn:
-        parents = await conn.fetch(
-            "select * from parents where user_id = $1 and deleted_at is null limit 50", owner
-        )
-        if not parents:
-            return {"parents": [], "alerts": []}
+    pool = get_pool()
+    parents = await pool.fetch(
+        "select * from parents where user_id = $1 and deleted_at is null limit 50", owner
+    )
+    if not parents:
+        return {"parents": [], "alerts": []}
 
-        parent_ids = [p["id"] for p in parents]
-        since = datetime.now(timezone.utc) - timedelta(days=days + 1)
+    parent_ids = [p["id"] for p in parents]
+    since = datetime.now(timezone.utc) - timedelta(days=days + 1)
 
-        logs = await conn.fetch(
+    logs, replies, open_events = await asyncio.gather(
+        pool.fetch(
             """
             select * from message_logs
             where parent_id = any($1::uuid[])
@@ -2237,8 +2319,8 @@ async def checkins_summary(
             limit 2000
             """,
             parent_ids, ["checkin", "reminder", "reengagement"], since,
-        )
-        replies = await conn.fetch(
+        ),
+        pool.fetch(
             """
             select * from parent_replies
             where parent_id = any($1::uuid[]) and created_at >= $2
@@ -2246,11 +2328,12 @@ async def checkins_summary(
             limit 2000
             """,
             parent_ids, since,
-        )
-        open_events = await conn.fetch(
+        ),
+        pool.fetch(
             "select * from emergency_events where user_id = $1 and status = 'open' order by created_at desc limit 20",
             owner,
-        )
+        ),
+    )
 
     replies_by_parent: dict[str, list] = {}
     for r in replies:
@@ -2367,6 +2450,7 @@ async def whatsapp_webhook(request: Request):
             logger.warning("[webhook] WEBHOOK_DEV_TOKEN is set but WHATSAPP_ENABLED=true — ignoring dev token, enforcing Meta signature")
         signature = request.headers.get("X-Hub-Signature-256", "")
         if not verify_meta_signature(raw_body, signature):
+            logger.warning("[webhook] Rejected inbound: bad/missing Meta signature (header present=%s, body=%d bytes). Check META_WA_APP_SECRET matches the Meta App Secret.", bool(signature), len(raw_body))
             raise HTTPException(status_code=403, detail="Invalid Meta signature")
 
     try:
@@ -2431,17 +2515,22 @@ async def whatsapp_webhook(request: Request):
                     from_number, msg_type, button_payload or "–", media_content_type or "–", body_text or "–",
                 )
 
-                reply = await _record_reply(
-                    from_number=from_number,
-                    body_text=body_text,
-                    num_media=num_media,
-                    button_payload=button_payload,
-                    media_url=media_url,
-                    media_content_type=media_content_type,
-                    raw_payload=message,
-                )
-                if button_payload:
-                    await _apply_button_tap_effects(reply)
+                try:
+                    reply = await _record_reply(
+                        from_number=from_number,
+                        body_text=body_text,
+                        num_media=num_media,
+                        button_payload=button_payload,
+                        media_url=media_url,
+                        media_content_type=media_content_type,
+                        raw_payload=message,
+                    )
+                    if button_payload and reply.get("parent_id"):
+                        await _apply_button_tap_effects(reply)
+                except Exception as e:
+                    # Always 200 to Meta — a 5xx makes Meta retry the same
+                    # message for hours and never delivers newer replies.
+                    logger.error("[webhook] Failed to process inbound from %s: %s", from_number, e, exc_info=True)
 
     return Response(status_code=200, content="ok")
 
@@ -2484,6 +2573,33 @@ async def get_my_audit(user: dict = Depends(get_current_user)):
         }
         for d in docs
     ]
+
+# ---------------- Dashboard bootstrap (one round-trip for the whole dashboard) ----------------
+@api.get("/dashboard/bootstrap")
+async def dashboard_bootstrap(user: dict = Depends(get_current_user)):
+    parents, schedules, checkins, activation, payment, circle, audit_logs, quota, moments = await asyncio.gather(
+        list_parents(user),
+        list_schedules(user),
+        checkins_summary(user, days=7),
+        get_activation(user),
+        payment_state(user),
+        get_circle(user),
+        get_my_audit(user),
+        moments_quota(user),
+        list_moments(user),
+    )
+    return {
+        "parents": parents,
+        "schedules": schedules,
+        "checkins": checkins,
+        "activation": activation,
+        "payment": payment,
+        "circle": circle,
+        "audit": audit_logs,
+        "moments_quota": quota,
+        "moments": moments,
+        "server_time": datetime.now(timezone.utc).isoformat(),
+    }
 
 # ---------------- Admin ----------------
 @api.get("/admin/stats")

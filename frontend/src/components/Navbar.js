@@ -43,18 +43,25 @@ export function Navbar() {
           </a>
 
           <a
+            href="/#what-they-see"
+            className="hover:text-ayana-text transition-colors duration-200"
+          >
+            What parents see
+          </a>
+
+          <a
+            href="/#safety"
+            className="hover:text-ayana-text transition-colors duration-200"
+          >
+            Safety
+          </a>
+
+          <a
             href="/#trust"
             className="hover:text-ayana-text transition-colors duration-200"
           >
-            Why parents feel supported
+            Our promise
           </a>
-
-          <Link
-            to="/privacy"
-            className="hover:text-ayana-text transition-colors duration-200"
-          >
-            Privacy
-          </Link>
 
           <a
             href="/#pricing"
@@ -148,20 +155,28 @@ export function Navbar() {
           </a>
 
           <a
+            href="/#what-they-see"
+            onClick={closeMenu}
+            className="hover:text-ayana-text transition-colors"
+          >
+            What parents see
+          </a>
+
+          <a
+            href="/#safety"
+            onClick={closeMenu}
+            className="hover:text-ayana-text transition-colors"
+          >
+            Safety
+          </a>
+
+          <a
             href="/#trust"
             onClick={closeMenu}
             className="hover:text-ayana-text transition-colors"
           >
-            Why parents feel supported
+            Our promise
           </a>
-
-          <Link
-            to="/privacy"
-            onClick={closeMenu}
-            className="hover:text-ayana-text transition-colors"
-          >
-            Privacy
-          </Link>
 
           <a
             href="/#pricing"

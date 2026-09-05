@@ -14,7 +14,7 @@ sys.path.insert(0, "/app/backend")
 
 
 def _reload_storage(env: dict):
-    saved = {k: os.environ.get(k) for k in ("OBJECT_STORAGE_ENABLED", "EMERGENT_LLM_KEY")}
+    saved = {k: os.environ.get(k) for k in ("OBJECT_STORAGE_ENABLED", "SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY")}
     for k, v in env.items():
         if v is None:
             os.environ.pop(k, None)
@@ -33,7 +33,7 @@ def _reload_storage(env: dict):
 
 
 def test_disabled_by_default():
-    st = _reload_storage({"OBJECT_STORAGE_ENABLED": None, "EMERGENT_LLM_KEY": None})
+    st = _reload_storage({"OBJECT_STORAGE_ENABLED": None, "SUPABASE_URL": None, "SUPABASE_SERVICE_ROLE_KEY": None})
     assert st.is_enabled() is False
     assert st.init_storage() is None  # no network call, no raise
     with pytest.raises(RuntimeError):
@@ -43,15 +43,15 @@ def test_disabled_by_default():
 
 
 def test_disabled_when_flag_true_but_no_key():
-    st = _reload_storage({"OBJECT_STORAGE_ENABLED": "true", "EMERGENT_LLM_KEY": None})
+    st = _reload_storage({"OBJECT_STORAGE_ENABLED": "true", "SUPABASE_URL": None, "SUPABASE_SERVICE_ROLE_KEY": None})
     assert st.is_enabled() is False
 
 
 def test_enabled_only_with_flag_and_key():
-    st = _reload_storage({"OBJECT_STORAGE_ENABLED": "true", "EMERGENT_LLM_KEY": "sk-test"})
+    st = _reload_storage({"OBJECT_STORAGE_ENABLED": "true", "SUPABASE_URL": "https://x.supabase.co", "SUPABASE_SERVICE_ROLE_KEY": "sk-test"})
     assert st.is_enabled() is True
 
 
 def test_flag_is_case_insensitive_and_ignores_other_values():
-    assert _reload_storage({"OBJECT_STORAGE_ENABLED": "TRUE", "EMERGENT_LLM_KEY": "k"}).is_enabled() is True
-    assert _reload_storage({"OBJECT_STORAGE_ENABLED": "1", "EMERGENT_LLM_KEY": "k"}).is_enabled() is False
+    assert _reload_storage({"OBJECT_STORAGE_ENABLED": "TRUE", "SUPABASE_URL": "https://x.supabase.co", "SUPABASE_SERVICE_ROLE_KEY": "k"}).is_enabled() is True
+    assert _reload_storage({"OBJECT_STORAGE_ENABLED": "1", "SUPABASE_URL": "https://x.supabase.co", "SUPABASE_SERVICE_ROLE_KEY": "k"}).is_enabled() is False

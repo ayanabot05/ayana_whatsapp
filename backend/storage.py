@@ -1,20 +1,12 @@
 """
-Object storage wrapper for AYANA moment-image uploads.
+Object storage for AYANA moment-image uploads — backed by Supabase Storage.
 
-Feature-flagged: init only runs when OBJECT_STORAGE_ENABLED=true AND
-EMERGENT_LLM_KEY is set. In every other case (e.g. production on Railway
-where Emergent's preview-only object store isn't reachable) the module
-is a graceful no-op — is_enabled() returns False and the /moments upload
-endpoint returns a clean 501 instead of crashing with a 500 or spamming
-Sentry.
+Enabled when OBJECT_STORAGE_ENABLED=true AND SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY
+are set. Otherwise every function is a graceful no-op and the upload endpoint
+returns a clean 501.
 
-Note: the flag is evaluated at import time, so changing
-OBJECT_STORAGE_ENABLED on Railway requires a redeploy (or a Railway
-"Restart" click on the service) to take effect.
-
-Post-launch, swap this for Cloudinary / Supabase Storage / S3 by
-implementing the same three functions (is_enabled, put_object,
-get_object).
+Bucket is private; parents receive a time-limited signed URL (Meta fetches the
+image from it when delivering the WhatsApp message).
 """
 
 import logging
@@ -24,20 +16,20 @@ import requests
 
 logger = logging.getLogger("ayana.storage")
 
-STORAGE_BASE = (os.environ.get("INTEGRATION_PROXY_URL") or "").strip() or "https://integrations.emergentagent.com"
-STORAGE_URL = STORAGE_BASE.rstrip("/") + "/objstore/api/v1/storage"
-EMERGENT_KEY = os.environ.get("EMERGENT_LLM_KEY", "").strip()
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "").strip().rstrip("/")
+SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "").strip()
+BUCKET = os.environ.get("SUPABASE_STORAGE_BUCKET", "moments").strip() or "moments"
 APP_NAME = "ayana"
 
-# Explicit opt-in: production must set OBJECT_STORAGE_ENABLED=true AND
-# provide EMERGENT_LLM_KEY to reach the Emergent object store. Anything
-# else -> module is a no-op (no init call, no Sentry error).
 _ENABLED = (
     os.environ.get("OBJECT_STORAGE_ENABLED", "false").strip().lower() == "true"
-    and bool(EMERGENT_KEY)
+    and bool(SUPABASE_URL)
+    and bool(SERVICE_KEY)
 )
 
-_storage_key = None
+_STORAGE_API = f"{SUPABASE_URL}/storage/v1"
+_HEADERS = {"Authorization": f"Bearer {SERVICE_KEY}", "apikey": SERVICE_KEY}
+_bucket_ready = False
 
 
 def is_enabled() -> bool:
@@ -45,63 +37,64 @@ def is_enabled() -> bool:
 
 
 def init_storage(force: bool = False):
-    """Call once at startup. No-op (returns None) when the module is disabled."""
-    global _storage_key
+    """Ensure the private bucket exists. No-op when disabled."""
+    global _bucket_ready
     if not _ENABLED:
-        logger.info("Object storage disabled (set OBJECT_STORAGE_ENABLED=true + EMERGENT_LLM_KEY to enable)")
+        logger.info("Object storage disabled (set OBJECT_STORAGE_ENABLED=true + SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY)")
         return None
-    if _storage_key and not force:
-        return _storage_key
-    resp = requests.post(f"{STORAGE_URL}/init", json={"emergent_key": EMERGENT_KEY}, timeout=30)
-    resp.raise_for_status()
-    _storage_key = resp.json()["storage_key"]
-    return _storage_key
+    if _bucket_ready and not force:
+        return BUCKET
+    resp = requests.get(f"{_STORAGE_API}/bucket/{BUCKET}", headers=_HEADERS, timeout=15)
+    if resp.status_code == 404 or (resp.status_code == 400 and "not found" in resp.text.lower()):
+        create = requests.post(
+            f"{_STORAGE_API}/bucket",
+            headers={**_HEADERS, "Content-Type": "application/json"},
+            json={"id": BUCKET, "name": BUCKET, "public": False, "file_size_limit": 5 * 1024 * 1024},
+            timeout=15,
+        )
+        if create.status_code not in (200, 201) and "already exists" not in create.text.lower():
+            create.raise_for_status()
+        logger.info("[storage] created Supabase bucket '%s'", BUCKET)
+    elif resp.status_code >= 400:
+        resp.raise_for_status()
+    _bucket_ready = True
+    return BUCKET
 
 
 def put_object(path: str, data: bytes, content_type: str) -> dict:
-    """Upload bytes. Raises RuntimeError if storage is disabled — the
-    caller is expected to gate on is_enabled() first and return a 501."""
     if not _ENABLED:
         raise RuntimeError("object storage disabled")
-    key = init_storage()
-    try:
-        resp = requests.put(
-            f"{STORAGE_URL}/objects/{path}",
-            headers={"X-Storage-Key": key, "Content-Type": content_type},
-            data=data,
-            timeout=120,
-        )
-        if resp.status_code == 404:
-            key = init_storage(force=True)
-            resp = requests.put(
-                f"{STORAGE_URL}/objects/{path}",
-                headers={"X-Storage-Key": key, "Content-Type": content_type},
-                data=data,
-                timeout=120,
-            )
+    init_storage()
+    resp = requests.post(
+        f"{_STORAGE_API}/object/{BUCKET}/{path}",
+        headers={**_HEADERS, "Content-Type": content_type, "x-upsert": "true"},
+        data=data,
+        timeout=60,
+    )
+    if resp.status_code >= 400:
+        logger.error("[storage] put failed for %s: %s %s", path, resp.status_code, resp.text[:200])
         resp.raise_for_status()
-        return resp.json()
-    except Exception as e:
-        logger.error("[storage] put failed for %s: %s", path, e)
-        raise
+    return {"path": path, "size": len(data)}
 
 
 def get_object(path: str) -> tuple[bytes, str]:
-    """Download bytes. Raises RuntimeError if storage is disabled."""
     if not _ENABLED:
         raise RuntimeError("object storage disabled")
-    key = init_storage()
-    resp = requests.get(
-        f"{STORAGE_URL}/objects/{path}",
-        headers={"X-Storage-Key": key},
-        timeout=60,
-    )
-    if resp.status_code == 404:
-        key = init_storage(force=True)
-        resp = requests.get(
-            f"{STORAGE_URL}/objects/{path}",
-            headers={"X-Storage-Key": key},
-            timeout=60,
-        )
+    resp = requests.get(f"{_STORAGE_API}/object/{BUCKET}/{path}", headers=_HEADERS, timeout=60)
     resp.raise_for_status()
     return resp.content, resp.headers.get("Content-Type", "application/octet-stream")
+
+
+def signed_url(path: str, expires_sec: int = 7 * 24 * 3600) -> str:
+    """Time-limited public URL Meta can fetch the image from."""
+    if not _ENABLED:
+        raise RuntimeError("object storage disabled")
+    resp = requests.post(
+        f"{_STORAGE_API}/object/sign/{BUCKET}/{path}",
+        headers={**_HEADERS, "Content-Type": "application/json"},
+        json={"expiresIn": expires_sec},
+        timeout=15,
+    )
+    resp.raise_for_status()
+    rel = resp.json()["signedURL"]
+    return f"{_STORAGE_API}{rel}" if rel.startswith("/") else rel

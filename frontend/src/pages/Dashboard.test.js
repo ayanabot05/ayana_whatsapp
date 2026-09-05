@@ -52,14 +52,18 @@ describe("Dashboard Component", () => {
     });
 
     api.get.mockImplementation((url) => {
-      if (url === "/parents") return Promise.resolve({ data: [{ id: "p1", name: "Amma", relationship: "mother", language: "en", phone: "+91" }] });
-      if (url.includes("language-suggestion")) return Promise.resolve({ data: "te" });
-      if (url === "/schedules") return Promise.resolve({ data: [{ id: "s1", parent_id: "p1", active: true, messages: [] }] });
+      if (url === "/dashboard/bootstrap") return Promise.resolve({ data: {
+        parents: [{ id: "p1", name: "Amma", relationship: "mother", language: "en", phone: "+91" }],
+        schedules: [{ id: "s1", parent_id: "p1", active: true, messages: [] }],
+        checkins: { parents: [], alerts: [] },
+        activation: { whatsapp_activated: true },
+        payment: { state: { plan: "nitya", status: "trial" }, plans: [{ id: "nitya", name: "Nitya", limits: { parents: 1, checkins: 2, reminders: 2 } }], usage: {} },
+        circle: { role: "owner", members: [], invites: [] },
+        audit: [],
+        moments_quota: { used: 0, limit: 2, remaining: 2 },
+        moments: [],
+      } });
       if (url.includes("/checkins")) return Promise.resolve({ data: { parents: [], alerts: [] } });
-      if (url === "/activation") return Promise.resolve({ data: { whatsapp_activated: true } });
-      if (url === "/payment/state") return Promise.resolve({ data: { plan: "nitya", plans: [{ id: "nitya", name: "Nitya" }] } });
-      if (url === "/circle") return Promise.resolve({ data: { role: "owner", members: [], invites: [] } });
-      if (url === "/account/audit") return Promise.resolve({ data: [] });
       return Promise.resolve({ data: {} });
     });
   });

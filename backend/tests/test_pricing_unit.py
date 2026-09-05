@@ -52,7 +52,8 @@ def test_invalid_plan_id_keyerror():
     assert plan_limits("invalid_plan_xyz") == plan_limits("nitya")
 
 def test_currency_matrix():
-    assert len(CURRENCIES) == 7
+    assert len(CURRENCIES) == 8
     codes = [c["code"] for c in CURRENCIES]
-    for code in ["USD", "GBP", "EUR", "AED", "SGD", "AUD", "CAD"]:
+    assert codes[0] == "INR"
+    for code in ["INR", "USD", "GBP", "EUR", "AED", "SGD", "AUD", "CAD"]:
         assert code in codes

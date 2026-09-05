@@ -1,13 +1,13 @@
-import { useState, useMemo, useEffect, useCallback } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Users, CalendarHeart, MessageCircle, CheckCircle2, Plus, Pencil, Trash2,
   Loader2, ShieldCheck, Clock, Power, AlertTriangle, Crown, Send, UserPlus, Mail, Activity,
-  BarChart3, RefreshCw, TrendingUp, Check, X,
+  RefreshCw, Check, X,
 } from "lucide-react";
 import { Navbar } from "@/components/Navbar";
-import { api, formatApiError } from "@/lib/api";
+import { api, formatApiError, formatAxiosError } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { LANG_LABELS, TIMEZONES } from "@/lib/constants";
 import { CATEGORY_ICONS, normalizeCategory } from "@/components/ScheduleEditor";
@@ -21,7 +21,23 @@ import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { CareTab } from "@/components/CareTab";
 import { PricingCards } from "@/components/PricingCards";
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { MonthlyReportView } from "@/components/MonthlyReportView";
+
+function TabBoundary({ tab, onRetry, children }) {
+  return (
+    <ErrorBoundary
+      fallback={
+        <div className="rounded-xl border border-ayana-line bg-white p-6 text-center" data-testid={`tab-error-${tab}`}>
+          <p className="text-sm text-ayana-secondary">This section hit a snag. Your data is safe.</p>
+          <button onClick={onRetry} className="mt-3 text-sm font-medium text-ayana-accent underline underline-offset-2">Reload section</button>
+        </div>
+      }
+    >
+      {children}
+    </ErrorBoundary>
+  );
+}
 
 const smInputCls = "w-full px-3 py-2 rounded-lg border border-ayana-line bg-white text-sm focus:outline-none focus:ring-2 focus:ring-ayana-bright/40 focus:border-ayana-bright transition";
 const inputCls = "w-full px-4 py-3 rounded-xl border border-ayana-line bg-white focus:outline-none focus:ring-2 focus:ring-ayana-bright/50 focus:border-ayana-bright transition";
@@ -44,68 +60,32 @@ export default function Dashboard() {
   const [activeTab, setActiveTab] = useState("parents");
   const [revealedReplies, setRevealedReplies] = useState(new Set());
 
-  const parentsQuery = useQuery({
-    queryKey: ["dashboard", "parents"],
-    queryFn: () => api.get("/parents").then((r) => r.data),
+  // One request for the whole dashboard (was ~10 sequential round-trips).
+  // Re-polls every 30s and on window focus so WhatsApp replies show up
+  // without a manual refresh.
+  const bootQuery = useQuery({
+    queryKey: ["dashboard"],
+    queryFn: () => api.get("/dashboard/bootstrap").then((r) => r.data),
+    refetchInterval: 30 * 1000,
+    refetchOnWindowFocus: true,
+    retry: 1,
   });
+  const boot = bootQuery.data;
 
-  const langSuggestionsQuery = useQuery({
-    queryKey: ["dashboard", "lang-suggestions"],
-    queryFn: () => Promise.all(
-      (parentsQuery.data || []).map((p) =>
-        api.get(`/parents/${p.id}/language-suggestion`).then((r) => ({ parentId: p.id, suggestion: r.data })).catch(() => ({ parentId: p.id, suggestion: null }))
-      )
-    ),
-    enabled: !!parentsQuery.data?.length,
-    staleTime: 5 * 60 * 1000,
-  });
+  const parents = useMemo(() => boot?.parents ?? [], [boot]);
+  const langSuggestions = useMemo(() => Object.fromEntries(
+    parents.filter((p) => p.language_suggestion && p.language_suggestion !== p.language)
+      .map((p) => [p.id, { suggested_language: p.language_suggestion }])
+  ), [parents]);
+  const schedules = boot?.schedules ?? [];
+  const activation = boot?.activation ?? {};
+  const payment = boot?.payment ?? { state: { plan: "nitya" } };
+  const circle = boot?.circle ?? { role: "owner", members: [], invites: [] };
+  const auditLogs = useMemo(() => boot?.audit ?? [], [boot]);
+  const checkinsData = boot?.checkins;
 
-  const schedulesQuery = useQuery({
-    queryKey: ["dashboard", "schedules"],
-    queryFn: () => api.get("/schedules").then((r) => r.data),
-  });
-
-  const checkinsQuery = useQuery({
-    queryKey: ["dashboard", "checkins"],
-    queryFn: () => api.get("/checkins", { params: { days: 7 } }).then((r) => r.data),
-  });
-
-  const activationQuery = useQuery({
-    queryKey: ["dashboard", "activation"],
-    queryFn: () => api.get("/activation").then((r) => r.data),
-  });
-
-  const paymentQuery = useQuery({
-    queryKey: ["dashboard", "payment"],
-    queryFn: () => api.get("/payment/state").then((r) => r.data),
-  });
-
-  const circleQuery = useQuery({
-    queryKey: ["dashboard", "circle"],
-    queryFn: () => api.get("/circle").then((r) => r.data),
-  });
-
-  const auditQuery = useQuery({
-    queryKey: ["dashboard", "audit"],
-    queryFn: () => api.get("/account/audit").then((r) => r.data),
-  });
-
-  const parents = parentsQuery.data ?? [];
-  const langSuggestions = (langSuggestionsQuery.data || []).reduce((acc, item) => {
-    if (item.suggestion) acc[item.parentId] = item.suggestion;
-    return acc;
-  }, {});
-  const schedules = schedulesQuery.data ?? [];
-  const activation = activationQuery.data ?? {};
-  const payment = paymentQuery.data ?? { plan: "nitya" };
-  const circle = circleQuery.data ?? { role: "owner", members: [], invites: [] };
-  const auditLogs = useMemo(() => auditQuery.data ?? [], [auditQuery.data]);
-
-  const loading = [parentsQuery, schedulesQuery, checkinsQuery, activationQuery, paymentQuery, circleQuery, auditQuery]
-    .some((q) => q.isLoading);
-
-  const anyError = [parentsQuery, schedulesQuery, checkinsQuery, activationQuery, paymentQuery, circleQuery, auditQuery]
-    .some((q) => q.isError);
+  const loading = bootQuery.isLoading;
+  const anyError = bootQuery.isError;
 
   useEffect(() => {
     if (anyError) toast.error("Could not load your data.");
@@ -119,10 +99,13 @@ export default function Dashboard() {
   const plans = payment?.plans?.length ? payment.plans : (config?.plans || []);
   const currencies = payment?.currencies?.length ? payment.currencies : (config?.currencies || []);
   const catByKey = useMemo(() => Object.fromEntries(categories.map(normalizeCategory).map((c) => [c.key, c])), [categories]);
-  const planId = payment?.state?.plan || payment?.plan || "nitya";
-  const plan = plans.find((p) => p.id === planId) || plans[0];
-  const limits = plan?.limits || { checkins: 3, reminders: 2 };
+  const planId = payment?.state?.plan || "nitya";
+  const plan = plans.find((p) => p.id === planId) || plans[0] || { id: planId, name: "AYANA Nitya", limits: {} };
+  const limits = { parents: 1, checkins: 2, reminders: 2, family_members: 0, recovery_mode: false, ...(plan?.limits || {}) };
   const usage = payment?.usage || {};
+  const planStatus = payment?.state?.status || "trial";
+  const isMember = circle?.role === "member";
+  const canAddParent = !isMember && parents.length < limits.parents;
 
   const relevantLogs = useMemo(() => {
     return auditLogs.filter((log) => {
@@ -134,17 +117,18 @@ export default function Dashboard() {
         action.includes("plan") ||
         action.includes("subscription") ||
         action.includes("upgrade") ||
-        action.includes("downgrade")
+        action.includes("downgrade") ||
+        action.includes("payment")
       );
     });
   }, [auditLogs]);
 
   const totalMessagesSent = useMemo(() => {
-    return (checkinsQuery.data?.parents || []).reduce(
-      (sum, p) => sum + p.days.reduce((s, d) => s + d.total, 0),
+    return (checkinsData?.parents || []).reduce(
+      (sum, p) => sum + (p.days || []).reduce((s, d) => s + (d.total || 0), 0),
       0
     );
-  }, [checkinsQuery.data]);
+  }, [checkinsData]);
 
   const stats = [
     { icon: Users, label: "Parents", value: parents.length, color: "text-ayana-bright", bg: "rgba(255,107,53,0.12)" },
@@ -200,9 +184,10 @@ export default function Dashboard() {
           <div>
             <h1 className="font-display text-3xl font-semibold text-ayana-text">Hello, {user?.name?.split(" ")[0]} 👋</h1>
             <p className="mt-1 text-ayana-secondary flex items-center gap-2">Here's how your care circle is doing.
-              <span className={`inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-0.5 rounded-full ${planId !== "nitya" ? "bg-ayana-sun/20 text-[#B8860B]" : "bg-ayana-mint/20 text-[#0D9668]"}`} data-testid="plan-badge">
-                {planId !== "nitya" && <Crown className="w-3 h-3" />}{plan?.name || "AYANA Nitya"} · Trial
+              <span className={`inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-0.5 rounded-full capitalize ${planId !== "nitya" ? "bg-ayana-sun/20 text-[#B8860B]" : "bg-ayana-mint/20 text-[#0D9668]"}`} data-testid="plan-badge">
+                {planId !== "nitya" && <Crown className="w-3 h-3" />}{plan?.name || "AYANA Nitya"} · {isMember ? "Shared" : planStatus.replace(/_/g, " ")}
               </span>
+              {bootQuery.isFetching && !bootQuery.isLoading && <RefreshCw className="w-3 h-3 animate-spin text-ayana-muted" data-testid="dashboard-syncing" />}
             </p>
           </div>
           {!activation.whatsapp_activated && !user?.household_owner_id && (
@@ -230,11 +215,11 @@ export default function Dashboard() {
         </div>
 
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="bg-ayana-alt">
+          <TabsList className="bg-ayana-alt flex w-full sm:w-auto justify-start overflow-x-auto no-scrollbar h-auto py-1">
             <TabsTrigger value="parents" data-testid="tab-parents">Parents</TabsTrigger>
             <TabsTrigger value="checkins" data-testid="tab-checkins">
               Check-ins
-              {(checkinsQuery.data?.alerts?.length ?? 0) > 0 && (
+              {(checkinsData?.alerts?.length ?? 0) > 0 && (
                 <span className="ml-1.5 inline-block w-1.5 h-1.5 rounded-full bg-red-500" title="Needs attention" />
               )}
             </TabsTrigger>
@@ -245,11 +230,20 @@ export default function Dashboard() {
             <TabsTrigger value="account" data-testid="tab-account">Account</TabsTrigger>
           </TabsList>
 
-          <TabsContent value="parents" className="mt-6">
+          <TabsContent value="parents" className="mt-6"><TabBoundary tab="parents" onRetry={load}>
             <div className="flex justify-between items-center mb-4">
-              <h2 className="font-display text-xl font-medium text-ayana-text">Your parents</h2>
-              <ParentDialog relationships={relationships} languages={languages} config={config} limits={limits} plan={plan} onSaved={load}
-                trigger={<button data-testid="add-parent" className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-ayana-primary text-white text-sm font-medium hover:bg-ayana-primary-hover transition-colors"><Plus className="w-4 h-4" /> Add parent</button>} />
+              <div>
+                <h2 className="font-display text-xl font-medium text-ayana-text">Your parents</h2>
+                <p className="text-xs text-ayana-muted mt-0.5" data-testid="parent-limit-note">{parents.length}/{limits.parents} parent{limits.parents > 1 ? "s" : ""} on {plan?.name?.replace("AYANA ", "") || "your plan"}</p>
+              </div>
+              {canAddParent ? (
+                <ParentDialog relationships={relationships} languages={languages} config={config} limits={limits} plan={plan} schedules={schedules} onSaved={load}
+                  trigger={<button data-testid="add-parent" className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-ayana-primary text-white text-sm font-medium hover:bg-ayana-primary-hover transition-colors"><Plus className="w-4 h-4" /> Add parent</button>} />
+              ) : !isMember && (
+                <button onClick={() => setActiveTab("plan")} data-testid="add-parent-upgrade" className="inline-flex items-center gap-2 px-4 py-2 rounded-full border border-ayana-line bg-white text-ayana-secondary text-sm font-medium hover:bg-ayana-alt transition-colors">
+                  <Crown className="w-4 h-4 text-ayana-accent" /> {limits.parents >= 2 ? "Parent limit reached" : "Upgrade to add Nanna too"}
+                </button>
+              )}
             </div>
             {parents.length === 0 ? <EmptyState text="No parents added yet." /> : (
               <div className="grid sm:grid-cols-2 gap-4" data-testid="parents-list">
@@ -265,13 +259,13 @@ export default function Dashboard() {
                           {langSuggestions[p.id]?.suggested_language && (
                             <div className="mt-1 flex items-center gap-1.5">
                               <span className="text-xs px-2 py-0.5 rounded-full bg-ayana-accent/10 text-ayana-accent">
-                                💡 Detected {langSuggestions[p.id].suggested_language === "te" ? "Telugu" : langSuggestions[p.id].suggested_language === "hi" ? "Hindi" : langSuggestions[p.id].suggested_language}
+                                💡 Detected {(LANG_LABELS[langSuggestions[p.id].suggested_language] || langSuggestions[p.id].suggested_language)}
                               </span>
                               <button
                                 onClick={async () => {
                                   try {
                                     await api.put(`/parents/${p.id}/language`, null, { params: { language: langSuggestions[p.id].suggested_language } });
-                                    toast.success(`Language updated to ${langSuggestions[p.id].suggested_language === "te" ? "Telugu" : langSuggestions[p.id].suggested_language === "hi" ? "Hindi" : langSuggestions[p.id].suggested_language}.`);
+                                    toast.success(`Language updated to ${(LANG_LABELS[langSuggestions[p.id].suggested_language] || langSuggestions[p.id].suggested_language)}.`);
                                     load();
                                   } catch (e) { toast.error(formatApiError(e.response?.data?.detail)); }
                                 }}
@@ -341,36 +335,36 @@ export default function Dashboard() {
                 })}
               </div>
             )}
-          </TabsContent>
+          </TabBoundary></TabsContent>
 
-          <TabsContent value="checkins" className="mt-6">
+          <TabsContent value="checkins" className="mt-6"><TabBoundary tab="checkins" onRetry={load}>
             <CheckinsTab
               parents={parents}
-              data={checkinsQuery.data}
+              data={checkinsData}
               catByKey={catByKey}
               revealedReplies={revealedReplies}
               setRevealedReplies={setRevealedReplies}
               onAcknowledged={load}
             />
-          </TabsContent>
+          </TabBoundary></TabsContent>
 
-          <TabsContent value="reports" className="mt-6">
+          <TabsContent value="reports" className="mt-6"><TabBoundary tab="reports" onRetry={load}>
             <ReportsTab parents={parents} plan={plan} user={user} />
-          </TabsContent>
+          </TabBoundary></TabsContent>
 
-          <TabsContent value="circle" className="mt-6">
+          <TabsContent value="circle" className="mt-6"><TabBoundary tab="circle" onRetry={load}>
             <CircleTab circle={circle} planId={planId} plan={plan} parents={parents} reload={load} />
-          </TabsContent>
+          </TabBoundary></TabsContent>
 
-          <TabsContent value="care" className="mt-6">
-            <CareTab parents={parents} schedules={schedules} planId={planId} />
-          </TabsContent>
+          <TabsContent value="care" className="mt-6"><TabBoundary tab="care" onRetry={load}>
+            <CareTab parents={parents} schedules={schedules} planId={planId} limits={limits} moments={boot?.moments} quota={boot?.moments_quota} />
+          </TabBoundary></TabsContent>
 
-          <TabsContent value="plan" className="mt-6">
-            <PlanTab plans={plans} currencies={currencies} planId={planId} plan={plan} usage={usage} circle={circle} reload={load} currentBilling={payment?.state?.billing || "month"} />
-          </TabsContent>
+          <TabsContent value="plan" className="mt-6"><TabBoundary tab="plan" onRetry={load}>
+            <PlanTab plans={plans} currencies={currencies} planId={planId} plan={plan} usage={usage} circle={circle} reload={load} currentBilling={payment?.state?.billing || "month"} paymentsEnabled={!!payment?.payments_enabled} />
+          </TabBoundary></TabsContent>
 
-          <TabsContent value="account" className="mt-6 max-w-xl">
+          <TabsContent value="account" className="mt-6 max-w-xl"><TabBoundary tab="account" onRetry={load}>
             <AccountPanel user={user} plan={plan} payment={payment} circle={circle} setActiveTab={setActiveTab} refreshUser={refreshUser} />
 
             <div className="mt-6 bg-white rounded-xl border border-ayana-line p-6">
@@ -411,7 +405,7 @@ export default function Dashboard() {
                 onConfirm={async () => { await api.delete("/account"); toast.success("Account deleted."); logout(); navigate("/"); }}
                 trigger={<button data-testid="delete-account" className="mt-4 inline-flex items-center gap-2 px-5 py-2.5 rounded-full border border-red-300 text-red-600 text-sm font-medium hover:bg-red-50 transition-colors"><Trash2 className="w-4 h-4" /> Delete my account</button>} />
             </div>
-          </TabsContent>
+          </TabBoundary></TabsContent>
         </Tabs>
       </main>
     </div>
@@ -747,24 +741,31 @@ function ParentDialog({ parent, config, limits, plan, schedules = [], onSaved, t
   };
 
   const [form, setForm] = useState(() => buildFormFromParent());
+  // If the parent was created but the schedule call failed, remember the id
+  // so a retry updates that parent instead of creating a duplicate (which
+  // would trip the plan's parent limit).
+  const [createdParentId, setCreatedParentId] = useState(null);
 
   useEffect(() => {
     if (open) {
       setForm(buildFormFromParent());
       setNewMed(blankMedicine());
+      setCreatedParentId(null);
     }
+  // Only re-seed the form when the dialog opens. `schedules` defaults to a
+  // fresh [] on every render, so depending on it caused an infinite
+  // setState loop ("Maximum update depth exceeded" → "We hit a snag").
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, parent, schedules]);
+  }, [open]);
 
   const save = async () => {
-    if (form.messages.length > maxCheckins) {
+    const checkinCount = form.messages.filter((m) => m.type !== "reminder").length;
+    if (checkinCount > maxCheckins) {
       toast.error(`Your plan allows up to ${maxCheckins} check-ins. Remove some or upgrade.`);
       return;
     }
     setBusy(true);
     try {
-      // messages and reengagement_hours are schedule-level, not part of
-      // ParentInput — pull both out before sending the parent payload.
       const { messages, reengagement_hours, ...parentData } = form;
       const payload = {
         ...parentData,
@@ -773,10 +774,13 @@ function ParentDialog({ parent, config, limits, plan, schedules = [], onSaved, t
         activity_window_start: cleanOptionalString(form.activity_window_start),
         activity_window_end: cleanOptionalString(form.activity_window_end),
       };
-      const { data } = parent ? await api.put(`/parents/${parent.id}`, payload) : await api.post("/parents", payload);
+      const targetId = parent?.id || createdParentId;
+      const { data } = targetId ? await api.put(`/parents/${targetId}`, payload) : await api.post("/parents", payload);
+      const parentId = data?.id || targetId;
+      if (!parent) setCreatedParentId(parentId);
 
       const schedPayload = {
-        parent_id: data.id || parent?.id,
+        parent_id: parentId,
         mode: plan?.id || "nitya",
         messages: messages,
         active: existingSchedule?.active ?? true,
@@ -793,7 +797,7 @@ function ParentDialog({ parent, config, limits, plan, schedules = [], onSaved, t
         toast.warning(`Your plan couldn't fit all medicine reminder times — dropped: ${data.medicine_reminders_dropped.join(", ")}. Upgrade for more, or adjust times.`, { duration: 8000 });
       }
       setOpen(false); onSaved();
-    } catch (e) { toast.error(formatApiError(e.response?.data?.detail)); } finally { setBusy(false); }
+    } catch (e) { toast.error(formatAxiosError(e)); } finally { setBusy(false); }
   };
 
   return (
@@ -949,8 +953,9 @@ function CircleTab({ circle, planId, plan, parents, reload }) {
   );
 }
 
-function PlanTab({ plans, currencies, planId, plan, usage, circle, reload, currentBilling }) {
+function PlanTab({ plans, currencies, planId, plan, usage, circle, reload, currentBilling, paymentsEnabled }) {
   const [busy, setBusy] = useState(false);
+  const queryClient = useQueryClient();
 
   if (circle?.role === "member") {
     return (
@@ -967,9 +972,15 @@ function PlanTab({ plans, currencies, planId, plan, usage, circle, reload, curre
     try {
       const { data } = await api.post("/payment/checkout", { plan: id, billing, origin_url: window.location.origin });
       if (data?.checkout_url) { window.location.href = data.checkout_url; return; }
-      toast.success(`Switched to ${plans.find((p) => p.id === id)?.name || id}.`);
-      reload();
-    } catch (e) { toast.error(formatApiError(e.response?.data?.detail), { duration: 8000 }); } finally { setBusy(false); }
+      // Optimistically reflect the new plan everywhere, then refetch for truth.
+      queryClient.setQueryData(["dashboard"], (old) => old ? {
+        ...old,
+        payment: { ...old.payment, state: { ...(old.payment?.state || {}), plan: data?.plan || id, billing: data?.billing || billing } },
+        circle: old.circle ? { ...old.circle, plan: data?.plan || id } : old.circle,
+      } : old);
+      toast.success(`Switched to ${plans.find((p) => p.id === id)?.name || id}. Limits updated everywhere.`);
+      await reload();
+    } catch (e) { toast.error(formatAxiosError(e), { duration: 8000 }); } finally { setBusy(false); }
   };
 
   return (
@@ -979,9 +990,11 @@ function PlanTab({ plans, currencies, planId, plan, usage, circle, reload, curre
         <div className="flex flex-wrap gap-2 text-sm">
           <span className="px-3 py-1.5 rounded-full bg-ayana-alt text-ayana-secondary">{usage.parents ?? 0}/{plan?.limits?.parents ?? "–"} parents</span>
           <span className="px-3 py-1.5 rounded-full bg-ayana-alt text-ayana-secondary">{usage.family_members_used ?? 0}/{plan?.limits?.family_members ?? 0} care-circle members</span>
+          <span className="px-3 py-1.5 rounded-full bg-ayana-alt text-ayana-secondary">{plan?.limits?.checkins ?? "–"} check-ins · {plan?.limits?.reminders ?? "–"} medicine reminders / day</span>
+          <span className={`px-3 py-1.5 rounded-full ${plan?.limits?.recovery_mode ? "bg-ayana-accent/10 text-ayana-accent" : "bg-ayana-alt text-ayana-muted"}`}>Recovery mode {plan?.limits?.recovery_mode ? "included" : "not included"}</span>
           {usage.recovery_schedules > 0 && <span className="px-3 py-1.5 rounded-full bg-ayana-accent/10 text-ayana-accent">Recovery mode active on {usage.recovery_schedules} schedule(s)</span>}
         </div>
-        <p className="mt-3 text-xs text-ayana-muted">Downgrading below your current usage will be blocked until you free up the difference — we'll tell you exactly what to remove.</p>
+        <p className="mt-3 text-xs text-ayana-muted">Downgrading below your current usage will be blocked until you free up the difference — we'll tell you exactly what to remove.{!paymentsEnabled && " Payments are in test mode: plan changes apply instantly."}</p>
       </div>
 
       <div className="bg-white rounded-xl border border-ayana-line p-6">
@@ -1003,147 +1016,5 @@ function PlanTab({ plans, currencies, planId, plan, usage, circle, reload, curre
 }
 
 function ReportsTab({ parents, plan, user }) {
-  const monthOptions = useMemo(() => {
-    const opts = [];
-    const now = new Date();
-    const signupDate = user?.created_at ? new Date(user.created_at) : null;
-    const signupYear = signupDate?.getFullYear();
-    const signupMonth = signupDate ? signupDate.getMonth() : null;
-
-    let d = new Date(now.getFullYear(), now.getMonth(), 1);
-    while (true) {
-      const value = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-      const label = d.toLocaleDateString(undefined, { month: "long", year: "numeric" });
-      opts.push({ value, label });
-      if (signupMonth != null && d.getFullYear() === signupYear && d.getMonth() === signupMonth) break;
-      if (opts.length >= 12) break;
-      d.setMonth(d.getMonth() - 1);
-    }
-    return opts;
-  }, [user?.created_at]);
-
-  const [parentId, setParentId] = useState(parents[0]?.id || "");
-  const [period, setPeriod] = useState(monthOptions[0]?.value || "");
-  const [report, setReport] = useState(null);
-  const [status, setStatus] = useState("idle");
-  const [busy, setBusy] = useState(false);
-
-  const supportsMoodGraph = (plan?.limits?.variants_per_slot || 0) >= 7;
-
-  const fetchReport = useCallback(async () => {
-    if (!parentId || !period) return;
-    setStatus("loading");
-    setReport(null);
-    try {
-      const { data } = await api.get("/reports/monthly", { params: { parent_id: parentId, period } });
-      setReport(data);
-      setStatus("idle");
-    } catch (e) {
-      if (e.response?.status === 404) {
-        setStatus("not_found");
-      } else {
-        setStatus("error");
-        toast.error(formatApiError(e.response?.data?.detail));
-      }
-    }
-  }, [parentId, period]);
-
-  useEffect(() => {
-    fetchReport();
-  }, [fetchReport]);
-
-  const generate = async () => {
-    if (!parentId || !period) return;
-    setBusy(true);
-    try {
-      const { data } = await api.post("/reports/monthly/generate", null, { params: { parent_id: parentId, period } });
-      setReport(data);
-      setStatus("idle");
-      toast.success("Report generated.");
-    } catch (e) {
-      toast.error(formatApiError(e.response?.data?.detail));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  if (parents.length === 0) {
-    return <EmptyState text="Add a parent first — monthly reports appear here once check-ins start going out." />;
-  }
-
-  const chartData = (report?.mood_graph || []).map((p) => ({ day: p.day?.slice(5), score: p.score, feeling: p.feeling }));
-
-  return (
-    <div className="space-y-5">
-      <div className="flex flex-wrap items-center gap-3">
-        <select value={parentId} onChange={(e) => setParentId(e.target.value)} data-testid="report-parent" className={`${smInputCls} w-auto`}>
-          {parents.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-        </select>
-        <select value={period} onChange={(e) => setPeriod(e.target.value)} data-testid="report-period" className={`${smInputCls} w-auto`}>
-          {monthOptions.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
-        </select>
-        <button onClick={generate} disabled={busy} data-testid="report-generate" className="inline-flex items-center gap-2 px-4 py-2 rounded-full border border-ayana-line text-ayana-text text-sm font-medium hover:bg-ayana-alt transition-colors disabled:opacity-50">
-          {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />} {report ? "Regenerate" : "Generate report"}
-        </button>
-      </div>
-      <p className="text-xs text-ayana-muted flex items-center gap-1">
-        <span className="w-1.5 h-1.5 rounded-full bg-ayana-primary" /> Reports are generated automatically on the 1st of each month for the previous month's activity.
-      </p>
-
-      {status === "loading" && <div className="flex justify-center py-16"><Loader2 className="w-6 h-6 animate-spin text-ayana-primary" /></div>}
-
-      {status === "not_found" && (
-        <EmptyState text="No report generated for this month yet. Click 'Generate report' to build one from this month's activity so far." />
-      )}
-
-      {status === "idle" && report && (
-        <div className="space-y-5" data-testid="report-content">
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-            {[
-              { label: "Total touches", value: report.total_touches, icon: BarChart3 },
-              { label: "Delivered", value: report.delivered, icon: CheckCircle2 },
-              { label: "Skipped", value: report.skipped, icon: Clock },
-              { label: "Voice replies", value: report.voice_replies, icon: MessageCircle },
-            ].map((s) => (
-              <div key={s.label} className="bg-white rounded-xl border border-ayana-line p-4">
-                <s.icon className="w-4 h-4 text-ayana-primary mb-2" strokeWidth={1.75} />
-                <p className="font-display text-2xl font-semibold text-ayana-text">{s.value ?? 0}</p>
-                <p className="text-xs text-ayana-muted">{s.label}</p>
-              </div>
-            ))}
-          </div>
-
-          {supportsMoodGraph ? (
-            report.mood_graph?.length > 0 ? (
-              <div className="bg-white rounded-xl border border-ayana-line p-5">
-                <h3 className="font-display text-base font-medium text-ayana-text mb-1 flex items-center gap-2"><TrendingUp className="w-4 h-4 text-ayana-primary" /> Mood this month</h3>
-                {report.trend_note && <p className="text-sm text-ayana-secondary mb-4">{report.trend_note}</p>}
-                <ResponsiveContainer width="100%" height={220}>
-                  <LineChart data={chartData}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#E5DFD3" />
-                    <XAxis dataKey="day" tick={{ fontSize: 12 }} />
-                    <YAxis domain={[0, 1]} ticks={[0, 0.5, 1]} tickFormatter={(v) => ({ 0: "Not well", 0.5: "Okay", 1: "Good" }[v] ?? v)} width={70} tick={{ fontSize: 11 }} />
-                    <Tooltip formatter={(v, n, p) => [p.payload.feeling?.replace("_", " ") || "—", "Feeling"]} />
-                    <Line type="monotone" dataKey="score" stroke="#C05A46" strokeWidth={2} dot={{ r: 3 }} connectNulls />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-            ) : (
-              <div className="bg-white rounded-xl border border-ayana-line p-5 text-sm text-ayana-secondary">Not enough "how are you feeling" replies yet this month for a mood graph.</div>
-            )
-          ) : (
-            <div className="rounded-xl bg-ayana-alt p-4 flex items-start gap-3">
-              <Crown className="w-5 h-5 text-ayana-accent shrink-0 mt-0.5" />
-              <div>
-                <p className="text-sm font-medium text-ayana-text">Mood graph is a Bandham+ feature</p>
-                <p className="text-sm text-ayana-secondary">Upgrade for a monthly mood trend graph alongside the touch counts.</p>
-              </div>
-            </div>
-          )}
-
-          {report.shared_with_care_circle && <p className="text-xs text-ayana-muted">Shared with your Care Circle members too.</p>}
-        </div>
-      )}
-    </div>
-  );
+  return <MonthlyReportView parents={parents} plan={plan} user={user} />;
 }

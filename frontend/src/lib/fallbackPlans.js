@@ -1,4 +1,5 @@
 export const FALLBACK_CURRENCIES = [
+    {"code": "INR", "symbol": "₹", "label": "India (INR)"},
     {"code": "USD", "symbol": "$", "label": "USD"},
     {"code": "GBP", "symbol": "£", "label": "UK (GBP)"},
     {"code": "EUR", "symbol": "€", "label": "Europe (EUR)"},

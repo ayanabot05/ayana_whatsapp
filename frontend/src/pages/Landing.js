@@ -178,7 +178,7 @@ export default function Landing() {
                 : "text-[15px] tracking-normal"
             }`}
           >
-            {[["#how", t("nav.how")], ["#trust", t("nav.trust")], ["#pricing", t("nav.pricing")], ["#faq", t("nav.faq")]].map(([href, label]) => (
+            {[["#how", t("nav.how")], ["#what-they-see", t("nav.see")], ["#safety", t("nav.safety")], ["#trust", t("nav.trust")], ["#pricing", t("nav.pricing")], ["#faq", t("nav.faq")]].map(([href, label]) => (
               <a key={href} href={href} className="hover:text-ayana-gold transition-colors">{label}</a>
             ))}
           </nav>

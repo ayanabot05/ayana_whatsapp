@@ -569,7 +569,7 @@ def verify_meta_signature(raw_body: bytes, signature: str) -> bool:
     format 'sha256=<hex>'), computed as HMAC-SHA256 of the raw request
     body using the Meta app's secret (META_WA_APP_SECRET).
     """
-    app_secret = os.environ.get("META_WA_APP_SECRET", "").strip()
+    app_secret = (os.environ.get("META_WA_APP_SECRET") or os.environ.get("META_APP_SECRET") or "").strip()
     if not app_secret:
         logger.warning("[wa] META_WA_APP_SECRET not set — cannot verify webhook signature")
         return False

@@ -59,6 +59,14 @@ if not SUPABASE_DB_URL:
 pool: asyncpg.Pool | None = None
 
 
+async def _noop_reset(conn: asyncpg.Connection) -> None:
+    # asyncpg's default release() runs a RESET/CLOSE/UNLISTEN query on every
+    # pool release — a full extra round-trip to Supabase per acquire() block
+    # (~0.3s cross-region). Supavisor in transaction mode already resets
+    # session state, so skip it. Open transactions are still rolled back.
+    return None
+
+
 async def init_db():
     """
     Call this once at startup (server.py's FastAPI startup event / lifespan),
@@ -69,8 +77,11 @@ async def init_db():
     global pool
     pool = await asyncpg.create_pool(
         SUPABASE_DB_URL,
-        min_size=int(os.environ.get("DB_MIN_POOL_SIZE", "5")),
+        min_size=int(os.environ.get("DB_MIN_POOL_SIZE", "10")),
         max_size=int(os.environ.get("DB_MAX_POOL_SIZE", "20")),
+        reset=_noop_reset,
+        # Keep connections warm: opening a new one costs ~1s cross-region.
+        max_inactive_connection_lifetime=float(os.environ.get("DB_MAX_INACTIVE_SEC", "1800")),
         # Supavisor (Supabase's pooler) is already pooling connections on its
         # side in transaction mode — it does not support prepared statements
         # across requests, so this must stay disabled.
