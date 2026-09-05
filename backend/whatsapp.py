@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import asyncio
+import uuid
 from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -24,35 +25,25 @@ logger = logging.getLogger("ayana.whatsapp")
 _GRAPH_VERSION = os.environ.get("META_WA_GRAPH_VERSION", "v22.0").strip()
 _SEND_TIMEOUT = 30.0
 
-# ── Tunables (env-overridable, sensible defaults) ───────────────────────
-# MAX_BUTTONS and SESSION_WINDOW_HOURS are real WhatsApp/Meta platform
-# limits, not preferences — don't change these, Meta will reject sends
-# that violate them regardless of what's set here.
 MAX_SEND_RETRIES = int(os.environ.get("WA_MAX_SEND_RETRIES", "3"))
 RETRY_BACKOFF_SECONDS = float(os.environ.get("WA_RETRY_BACKOFF_SECONDS", "2"))
-MAX_BUTTONS = int(os.environ.get("WA_MAX_BUTTONS", "3"))                     # WhatsApp quick-reply cap
-MAX_BUTTON_TITLE_LEN = int(os.environ.get("WA_MAX_BUTTON_TITLE_LEN", "20"))  # WhatsApp button label cap
-SESSION_WINDOW_HOURS = int(os.environ.get("WA_SESSION_WINDOW_HOURS", "24")) # Meta's 24h customer-service window
+MAX_BUTTONS = int(os.environ.get("WA_MAX_BUTTONS", "3"))
+MAX_BUTTON_TITLE_LEN = int(os.environ.get("WA_MAX_BUTTON_TITLE_LEN", "20"))
+SESSION_WINDOW_HOURS = int(os.environ.get("WA_SESSION_WINDOW_HOURS", "24"))
 
-# ── Delivery fallback & recheck ───────────────────────────────────────────
 DELIVERY_RECHECK_MIN = int(os.environ.get("WA_DELIVERY_RECHECK_MIN", "5"))
 DELIVERY_FALLBACK_ENABLED = os.environ.get("WA_DELIVERY_FALLBACK", "true").strip().lower() == "true"
 
-# ── Map each template category → the approved Meta template's BASE name ──
-# Meta has these approved as 18 separate template resources, one per
-# language — ayana_opener_en / ayana_opener_te / ayana_opener_hi, etc.
-# (see /meta_approved_templates.txt and /ayana_whatsapp_meta_templates.md
-# at repo root — naming convention is literally ayana_<category>_<lang>).
-# The base names below get the language suffix appended in
-# _get_template_name(); don't put a language suffix here.
 _CATEGORY_TEMPLATE_NAME = {
     "opener": "ayana_opener",
     "medicine": "ayana_medicine",
     "meal": "ayana_meal",
     "mood": "ayana_mood",
-    "reengagement": "ayana_reengagement",  # was "ayana_reengager" — didn't match Meta or the repo's own template doc
+    "reengagement": "ayana_reengagement",
     "report_ready": "ayana_report_ready",
 }
+
+TEMPLATE_LANG_CODE_MAP = {"en": "en_US", "te": "te", "hi": "hi"}
 
 
 def whatsapp_enabled() -> bool:
@@ -60,7 +51,6 @@ def whatsapp_enabled() -> bool:
 
 
 def _creds() -> Tuple[str, str]:
-    """Returns (access_token, phone_number_id)."""
     return (
         os.environ.get("META_WA_ACCESS_TOKEN", "").strip(),
         os.environ.get("META_WA_PHONE_NUMBER_ID", "").strip(),
@@ -68,28 +58,11 @@ def _creds() -> Tuple[str, str]:
 
 
 def meta_auth_header() -> Dict[str, str]:
-    """Bearer header for authenticated GETs against Meta's API (e.g. media download)."""
     token, _ = _creds()
     return {"Authorization": f"Bearer {token}"} if token else {}
 
 
 def _get_template_name(template_key: str, language: str = "en") -> str:
-    """
-    Resolve a category's approved Meta template name, INCLUDING the
-    language suffix — Meta has these approved as separate resources
-    per language (ayana_opener_en / _te / _hi), not one name with 3
-    language variants. Without this suffix every send 404s against
-    Meta, which silently falls back to plain text (see the "Ammmmmaaa"
-    bug — that's the raw {{1}} variable going out alone once the real
-    template call fails and the retry loop gives up).
-
-    Only en/te/hi are actually approved right now. A parent set to
-    any other language (dynamically AI-translated via
-    translation_engine.py) has no matching Meta template yet, so we
-    fall back to the English template name rather than guessing a
-    name Meta doesn't have. Revisit this once more languages are
-    submitted for approval.
-    """
     base = _CATEGORY_TEMPLATE_NAME.get(template_key, "")
     if not base:
         return ""
@@ -136,7 +109,6 @@ def send_whatsapp(to_phone: str, body: str) -> Dict[str, Any]:
 
 
 def _build_body_params(content_variables: Dict[str, str]) -> List[Dict[str, str]]:
-    """Meta template body params are positional — sort by the {{n}} index."""
     ordered_keys = sorted(content_variables.keys(), key=lambda k: int(k))
     return [{"type": "text", "text": content_variables[k]} for k in ordered_keys]
 
@@ -146,8 +118,8 @@ def _send_content_template_once(
 ) -> Optional[Dict[str, Any]]:
     token, phone_id = _creds()
     if not whatsapp_enabled() or not token or not phone_id:
-        logger.info("[wa] Template %s skipped (test mode) for %s", template_key, to_phone)
-        return None
+        logger.info("[wa] Template %s SIMULATED (test mode) for %s -> %s vars=%s", template_key, to_phone, template_name, content_variables)
+        return {"status": "simulated", "template_type": template_key, "template_name": template_name, "to": to_phone, "vars": content_variables}
     if not template_name:
         logger.warning("[wa] No template name for %s, to=%s", template_key, to_phone)
         return None
@@ -175,7 +147,6 @@ def _send_content_template_once(
 async def _send_content_template_with_retry(
     to_phone: str, template_name: str, language: str, content_variables: Dict[str, str], template_key: str
 ) -> Optional[Dict[str, Any]]:
-    """Retry on failure with fallback to plain text if template fails."""
     token, phone_id = _creds()
     if not whatsapp_enabled() or not token or not phone_id:
         return _send_content_template_once(to_phone, template_name, language, content_variables, template_key)
@@ -185,6 +156,8 @@ async def _send_content_template_with_retry(
         try:
             res = _send_content_template_once(to_phone, template_name, language, content_variables, template_key)
             if res and res.get("sid"):
+                return res
+            if res and res.get("status") == "simulated":
                 return res
         except Exception as e:
             last_error = e
@@ -203,7 +176,7 @@ async def _send_content_template_with_retry(
 
 MIC_HINT = {
     "en": "💛 Want to talk? Press & hold the 🎤 mic below and speak — anytime.",
-    "te": "💛 మాట్లాడాలనుకుంటున్నారా? కింద ఉన్న 🎤 మైక్‌ను నొక్కి పట్టుకుని మాట్లాడండి — ఎప్పుడైనా.",
+    "te": "💛 మాట్లాడాలనుకుంటున్నారా? కింద ఉన్న 🎤 మైక్ను నొక్కి పట్టుకుని మాట్లాడండి — ఎప్పుడైనా.",
     "hi": "💛 बात करनी है? नीचे 🎤 माइक दबाकर बोलें — कभी भी।",
 }
 
@@ -217,10 +190,6 @@ MOMENT_INTRO = {
 async def _send_quick_reply(
     to_phone: str, body: str, buttons: List[Tuple[str, str]], context: str = "dynamic", language: str = "en",
 ) -> Dict[str, Any]:
-    """
-    Meta interactive button messages are sent inline every time — no
-    pre-registered Content resource needed.
-    """
     token, phone_id = _creds()
     buttons = buttons[:MAX_BUTTONS]
     hint = MIC_HINT.get(language, MIC_HINT["en"])
@@ -262,12 +231,6 @@ async def _send_quick_reply(
         btn_text = " ".join(f"{i+1}) {label}" for i, (label, _) in enumerate(safe_buttons))
         return send_whatsapp(to_phone, f"{body}\n\n👉 {btn_text}")
 
-
-# ── Session state ────────────────────────────────────────────────────────
-# MIGRATION NOTE: dropped the `db` parameter from every function in this
-# section (get_session, is_session_open, refresh_session, mark_opener_sent,
-# mark_reengagement_sent) — same "import get_pool directly" pattern used
-# throughout this migration. Update any call sites accordingly.
 
 async def get_session(parent_id) -> Optional[Dict[str, Any]]:
     async with get_pool().acquire() as conn:
@@ -340,7 +303,6 @@ async def mark_reengagement_sent(parent_id) -> None:
         )
 
 
-# ── Approved-template variable resolver ─────────────────────────────────
 _NON_MEDICINE_REMINDER_LABELS = {
     "water": "water",
     "bp_check": "BP check",
@@ -350,9 +312,6 @@ _NON_MEDICINE_REMINDER_LABELS = {
 
 
 def _language_native_medicine_placeholder(language: str) -> str:
-    """When medicine_name is empty (no meds set on parent), fall back
-    to a placeholder in the parent's language so the Meta template
-    doesn't stuff English 'your medicine' into a Telugu/Hindi sentence."""
     lang = (language or "en").lower()
     return {"en": "your medicine", "te": "మందు", "hi": "दवाई"}.get(lang, "your medicine")
 
@@ -364,27 +323,14 @@ def _build_approved_template_vars(
         return {"1": preferred, "2": parent_relation_label(parent, language)}
     if template_key == "medicine":
         if category == "medicine":
-            name = medicine_name or _language_native_medicine_placeholder(language)
-            label = f"{name} tablet" if not name.lower().endswith("tablet") else name
+            label = medicine_name or _language_native_medicine_placeholder(language)
         else:
             label = _NON_MEDICINE_REMINDER_LABELS.get(category, medicine_name or _language_native_medicine_placeholder(language))
         return {"1": preferred, "2": label}
-    return {"1": preferred}  # mood, meal, reengagement
+    return {"1": preferred}
 
-
-# ── Public sending API ───────────────────────────────────────────────────
-# MIGRATION NOTE: dropped `db` from every function below too — parent
-# records now come in as plain dicts keyed by "id" (Postgres uuid),
-# not Mongo's "_id". render_slot_body_async's signature also needs to
-# drop `db` when templates_data.py is converted next — that file is
-# the one remaining piece these functions depend on.
 
 async def send_template_for_category(parent: Dict[str, Any], category: str, day_index: int, variants_per_slot: int, medicine_name: str = "") -> Dict[str, Any]:
-    """
-    Unified entry point: resolves category -> one of the approved
-    templates, renders the {{2}} body via render_slot_body (nicknames,
-    season, habits, stories all applied), sends with retry.
-    """
     parent_id = parent["id"]
     phone = parent.get("phone", "")
     language = parent.get("language", "en")
@@ -408,7 +354,6 @@ async def send_template_for_category(parent: Dict[str, Any], category: str, day_
     return result or {"status": "failed", "detail": "No result from template send"}
 
 
-# Back-compat named wrappers (used by scheduler / API for explicit sends)
 async def send_whatsapp_opener(parent, day_index: int = 0, variants_per_slot: int = 7):
     if await is_session_open(parent["id"]):
         return {"skipped": True, "reason": "session_open"}
@@ -428,7 +373,6 @@ async def send_mood_template(parent, category: str = "goodnight", day_index: int
 
 
 async def send_dynamic_checkin(parent: Dict[str, Any], category: str, day_index: int, variants_per_slot: int, medicine_name: str = "") -> Dict[str, Any]:
-    """FREE in-session quick-reply — no approval needed while session is open."""
     parent_id = parent["id"]
     phone = parent.get("phone", "")
     language = parent.get("language", "en")
@@ -442,7 +386,6 @@ async def send_dynamic_checkin(parent: Dict[str, Any], category: str, day_index:
 
 
 async def send_reengagement(parent: Dict[str, Any], reengagement_hours: int = 4) -> Dict[str, Any]:
-    """Fires after `reengagement_hours` (user-configurable per schedule, not a static tier constant)."""
     parent_id = parent["id"]
     phone = parent.get("phone", "")
     language = parent.get("language", "en")
@@ -484,11 +427,6 @@ async def send_reengagement(parent: Dict[str, Any], reengagement_hours: int = 4)
 
 
 async def send_moment(parent: Dict[str, Any], text: str, sender_name: str, image_url: str = "", image_urls: List[str] = None) -> Dict[str, Any]:
-    """Two-way moment: a child pushes a warm message/photo, delivered to the
-    parent on WhatsApp with a gentle intro. Available on all plans.
-
-    Supports up to 2 images via image_urls. If image_url (single) is provided, it is
-    appended to image_urls for backward compatibility."""
     language = parent.get("language", "en")
     phone = parent.get("phone", "")
     intro = MOMENT_INTRO.get(language, MOMENT_INTRO["en"]).format(sender=sender_name or "Your family")
@@ -537,17 +475,71 @@ async def send_moment(parent: Dict[str, Any], text: str, sender_name: str, image
 
 
 async def send_report_ready(to_phone: str, language: str, parent_display: str) -> Dict[str, Any]:
-    """Notify a child/family member that a monthly report is ready."""
     template_name = _get_template_name("report_ready", language)
     content_vars = {"1": parent_display or "your parent"}
     return await _send_content_template_with_retry(to_phone, template_name, language, content_vars, "report_ready")
 
 
-# ── Media resolution ─────────────────────────────────────────────────────
+# ── NEW: Voice note forwarding (Issue #2) ─────────────────────────────────
+async def send_audio_link(to_phone: str, audio_link: str) -> Dict[str, Any]:
+    """Send a voice note as audio by link (S3 signed URL)"""
+    token, phone_id = _creds()
+    if not whatsapp_enabled() or not token or not phone_id:
+        logger.info("[wa] Simulated audio to %s link=%.80s", to_phone, audio_link)
+        return {"status": "simulated", "to": to_phone, "type": "audio", "link": audio_link}
+
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to_phone,
+        "type": "audio",
+        "audio": {"link": audio_link}
+    }
+    try:
+        resp = httpx.post(
+            _messages_url(phone_id),
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            json=payload,
+            timeout=_SEND_TIMEOUT,
+        )
+        resp.raise_for_status()
+        msg_id = _extract_message_id(resp.json())
+        logger.info("[wa] Audio sent to %s id=%s", to_phone, msg_id)
+        return {"status": "sent", "sid": msg_id, "type": "audio"}
+    except Exception as e:
+        logger.error("[wa] Audio send failed to %s: %s", to_phone, e)
+        return {"status": "failed", "detail": str(e), "to": to_phone}
+
+
+async def download_and_host_voice_note(meta_cdn_url: str, parent_id: str) -> Optional[str]:
+    """Download Meta's temporary voice URL and re-host on S3 for forwarding to child"""
+    if not meta_cdn_url:
+        return None
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(meta_cdn_url, headers=meta_auth_header(), follow_redirects=True)
+            resp.raise_for_status()
+            audio_bytes = resp.content
+            if len(audio_bytes) < 1000:
+                logger.warning("[wa] Voice note too small: %d bytes", len(audio_bytes))
+                return None
+
+        from storage import put_object, signed_url as storage_signed_url, is_enabled as storage_enabled, APP_NAME as STORAGE_APP_NAME
+        if not storage_enabled():
+            logger.warning("[wa] Storage disabled, cannot host voice note - will try direct link")
+            return meta_cdn_url  # Fallback: try direct Meta link
+
+        filename = f"voice_{parent_id}_{uuid.uuid4().hex}.ogg"
+        storage_path = f"{STORAGE_APP_NAME}/voice_notes/{filename}"
+        put_object(storage_path, audio_bytes, "audio/ogg")
+        url = storage_signed_url(storage_path)
+        logger.info("[wa] Voice note hosted: %s -> %.80s", parent_id, url)
+        return url
+    except Exception as e:
+        logger.error("[wa] Failed to host voice note for %s: %s", parent_id, e, exc_info=True)
+        return None
+
+
 async def resolve_meta_media_url(media_id: str) -> Optional[str]:
-    """Meta only gives you a media ID in the webhook payload — you have to
-    look up the actual (temporary, ~5min-lived) CDN URL separately, then
-    download it with the same Bearer auth header."""
     token, _ = _creds()
     if not token or not media_id:
         return None
@@ -562,13 +554,7 @@ async def resolve_meta_media_url(media_id: str) -> Optional[str]:
         return None
 
 
-# ── Signature validation ─────────────────────────────────────────────────
 def verify_meta_signature(raw_body: bytes, signature: str) -> bool:
-    """
-    Verify inbound Meta webhook signature (X-Hub-Signature-256 header,
-    format 'sha256=<hex>'), computed as HMAC-SHA256 of the raw request
-    body using the Meta app's secret (META_WA_APP_SECRET).
-    """
     app_secret = (os.environ.get("META_WA_APP_SECRET") or os.environ.get("META_APP_SECRET") or "").strip()
     if not app_secret:
         logger.warning("[wa] META_WA_APP_SECRET not set — cannot verify webhook signature")
@@ -579,7 +565,6 @@ def verify_meta_signature(raw_body: bytes, signature: str) -> bool:
     return hmac.compare_digest(expected, signature)
 
 
-# ── Emergency keyword layer (fast-path fail-safe; see distress_detection.py for layer 2) ──
 def detect_emergency(text: str, extra_keywords: Optional[List[str]] = None) -> List[str]:
     if not text:
         return []
@@ -591,7 +576,6 @@ def detect_emergency(text: str, extra_keywords: Optional[List[str]] = None) -> L
     return matched
 
 
-# ── Intent routing ───────────────────────────────────────────────────────
 NUMERIC_CHECKIN_MAP = {"1": "feeling:good", "2": "feeling:okay", "3": "feeling:not_well"}
 NUMERIC_REMINDER_MAP = {"1": "done:generic", "2": "pending:generic", "3": "skip:generic"}
 
@@ -612,7 +596,6 @@ FEELING_PATTERNS = {
 
 
 def _match_feeling(text: str) -> Optional[str]:
-    """Return a feeling state if *text* contains a known local-language phrase."""
     if not text:
         return None
     t = text.strip().lower()
@@ -637,3 +620,50 @@ def parse_intent(button_payload: Optional[str], body: Optional[str], last_msg_ty
         if feeling:
             return f"feeling:{feeling}"
     return "text"
+
+
+# ── Care Circle Activation Welcome (Issue #1) ──────────────────────────────
+async def send_opener_welcome(
+    to_phone: str,
+    recipient_name: str,
+    checking_for_name: str,
+    language: str = "en",
+) -> Dict[str, Any]:
+    template_name = _get_template_name("opener", language)
+    lang_code = TEMPLATE_LANG_CODE_MAP.get(language, "en_US")
+    content_vars = {"1": recipient_name[:20], "2": checking_for_name[:20]}
+    logger.info(f"[welcome] {template_name} -> {to_phone} : {recipient_name} for {checking_for_name}")
+    return await _send_content_template_with_retry(
+        to_phone, template_name, lang_code, content_vars, "opener"
+    )
+
+
+async def send_care_circle_activation_welcome(
+    child_user: Dict[str, Any],
+    parents: List[Dict[str, Any]],
+) -> Dict[str, List]:
+    child_name = (child_user.get("name") or child_user.get("full_name") or child_user.get("fullName") or child_user.get("email") or "there").split()[0]
+    child_phone = child_user.get("phone") or child_user.get("whatsapp_number") or child_user.get("phone_number") or child_user.get("whatsappNumber")
+    child_lang = child_user.get("language") or child_user.get("preferred_language") or "en"
+    results = {"child": [], "parents": []}
+    if child_phone and parents:
+        for p in parents:
+            parent_display = p.get("preferred_name") or p.get("name") or "your parent"
+            res = await send_opener_welcome(child_phone, child_name, parent_display, child_lang)
+            results["child"].append(res)
+    for p in parents:
+        p_phone = p.get("phone")
+        if not p_phone:
+            continue
+        p_name = p.get("preferred_name") or p.get("name") or "there"
+        p_lang = p.get("language") or child_lang
+        res = await send_opener_welcome(p_phone, p_name, child_name, p_lang)
+        results["parents"].append(res)
+    return results
+
+
+async def send_welcome_for_new_parent(
+    child_user: Dict[str, Any],
+    new_parent: Dict[str, Any],
+) -> Dict[str, Any]:
+    return await send_care_circle_activation_welcome(child_user, [new_parent])

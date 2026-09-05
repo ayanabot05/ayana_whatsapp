@@ -1,24 +1,33 @@
 """
-otp.py — SMS OTP verification for AYANA family members.
+otp.py — SMS OTP verification for AYANA family members, plus email OTP
+for login-email change confirmation.
 
-Verifies the FAMILY MEMBER'S OWN phone number (sons, daughters, primary
-carers) — NOT the elderly parent's WhatsApp. Called during signup or from
-Profile to badge the account with phone_verified=true.
+PHONE OTP verifies the FAMILY MEMBER'S OWN phone number (sons, daughters,
+primary carers) — NOT the elderly parent's WhatsApp. Called during signup
+or from Profile to badge the account with phone_verified=true.
+Delivery channel: Twilio SMS API.
 
-Delivery channel: Twilio SMS API — sends a plain-text SMS with the 6-digit
-code. WhatsApp (Meta Cloud API) is used only for care check-ins / openers,
-NOT for OTP.
+EMAIL OTP verifies a NEW login email address when the user changes it from
+Account settings — the code is sent to the new address itself, so
+completing the flow proves the user controls that inbox. Delivery
+channel: Resend (via email_sender.py).
+
+WhatsApp (Meta Cloud API) is used only for care check-ins / openers,
+NOT for OTP of either kind.
 
 Required env vars (when SMS_ENABLED=true):
   TWILIO_ACCOUNT_SID   Twilio Account SID
   TWILIO_AUTH_TOKEN     Twilio Auth Token
   TWILIO_SMS_FROM       Twilio phone number to send from (E.164 format)
 
-Security properties:
+Required env vars (when EMAIL_ENABLED=true) — see email_sender.py:
+  RESEND_API_KEY, EMAIL_FROM
+
+Security properties (both OTP kinds):
   - 6-digit code hashed with bcrypt (rounds=12) — plaintext NEVER stored
   - 5-minute expiry
   - Max 3 wrong guesses before invalidation + re-send required
-  - Max 3 sends per 10-minute window per number (resend rate-limit)
+  - Max 3 sends per 10-minute window per number/email (resend rate-limit)
   - OTP codes and verification outcomes NEVER appear in log lines
 """
 
@@ -44,7 +53,7 @@ OTP_EXPIRY_MINUTES  = 5
 MAX_ATTEMPTS        = 3  # Reduced from 5 — with 3 sends per 10 min, 5 attempts = 15 total tries
 MAX_SENDS_PER_WINDOW = 3
 SEND_WINDOW_MINUTES  = 10
-# Global rate limit on OTP verification attempts (Redis-backed, per phone)
+# Global rate limit on OTP verification attempts (Redis-backed, per phone/email)
 MAX_VERIFY_ATTEMPTS_PER_WINDOW = 10  # Max verify attempts in 15-min window
 VERIFY_WINDOW_MINUTES = 15  # Window in minutes for verify rate limit
 BCRYPT_ROUNDS        = 12
@@ -79,16 +88,17 @@ async def get_redis():
     return _redis_client
 
 
-def _verify_rate_limit_key(phone: str) -> str:
-    return f"rl:otp_verify:{phone}"
+def _verify_rate_limit_key(identifier: str) -> str:
+    """`identifier` is a phone number for phone OTP, or "email:<addr>" for email OTP."""
+    return f"rl:otp_verify:{identifier}"
 
 
-async def _check_verify_rate_limit(phone: str) -> Tuple[bool, Optional[int]]:
-    """Check if OTP verify is allowed for this phone. Returns (allowed, retry_after)."""
+async def _check_verify_rate_limit(identifier: str) -> Tuple[bool, Optional[int]]:
+    """Check if OTP verify is allowed for this identifier. Returns (allowed, retry_after)."""
     r = await get_redis()
     if r is None:
         return True, None  # Allow if Redis unavailable
-    key = _verify_rate_limit_key(phone)
+    key = _verify_rate_limit_key(identifier)
     now = datetime.now(timezone.utc).timestamp()
     window_sec = VERIFY_WINDOW_MINUTES * 60
 
@@ -106,12 +116,12 @@ async def _check_verify_rate_limit(phone: str) -> Tuple[bool, Optional[int]]:
     return True, None
 
 
-async def _record_verify_attempt(phone: str):
+async def _record_verify_attempt(identifier: str):
     """Record an OTP verification attempt for rate limiting."""
     r = await get_redis()
     if r is None:
         return  # No-op if Redis unavailable
-    key = _verify_rate_limit_key(phone)
+    key = _verify_rate_limit_key(identifier)
     now = datetime.now(timezone.utc).timestamp()
     await r.zadd(key, {str(now): now})
     await r.expire(key, VERIFY_WINDOW_MINUTES * 60 + 60)
@@ -127,6 +137,12 @@ def sms_enabled() -> bool:
 def otp_delivery_enabled() -> bool:
     """True only when SMS is enabled and Twilio credentials are configured."""
     return sms_enabled() and bool(os.environ.get("TWILIO_ACCOUNT_SID", "").strip())
+
+
+def email_otp_delivery_enabled() -> bool:
+    """True only when transactional email is enabled (EMAIL_ENABLED=true + Resend key)."""
+    from email_sender import email_enabled
+    return email_enabled() and bool(os.environ.get("RESEND_API_KEY", "").strip())
 
 
 # ── Code generation + hashing ────────────────────────────────────────────────
@@ -221,7 +237,7 @@ async def send_otp_sms(phone: str, code: str) -> dict:
         return {"status": "failed", "detail": "SMS delivery failed — try again shortly."}
 
 
-# ── Database helpers ─────────────────────────────────────────────────────────
+# ── Database helpers (phone) ─────────────────────────────────────────────────
 
 def _normalize_phone(phone: str) -> str:
     """Strip spaces/dashes, ensure leading +."""
@@ -394,3 +410,173 @@ async def verify_otp_code(phone: str, code: str) -> dict:
 
     logger.info("[otp] Phone %s verified successfully", phone)
     return {"ok": True, "phone": phone}
+
+
+# ── Email OTP (login-email change confirmation) ─────────────────────────────
+# Same mechanics as the phone OTP above (bcrypt-hashed, 5-min expiry, 3
+# attempts, 3 sends/10-min window) but keyed by email and delivered via
+# Resend (email_sender.py) instead of Twilio SMS. Used only by
+# /profile/email/request + /profile/email/confirm — the code is sent to
+# the NEW email address itself, so completing this flow proves the user
+# controls that inbox (standard "confirm new email" pattern).
+
+def _normalize_email(email: str) -> str:
+    return (email or "").strip().lower()
+
+
+async def _get_email_otp_row(conn, email: str):
+    return await conn.fetchrow("select * from email_otps where email = $1", email)
+
+
+async def create_and_send_email_otp(email: str) -> dict:
+    """
+    Full send flow for confirming a new login email:
+      1. Check resend rate-limit (max 3/10-min window).
+      2. Generate + hash a fresh OTP.
+      3. Upsert the email_otps row (resets attempts + expiry).
+      4. Deliver via Resend to `email` itself.
+
+    Returns send result dict + {email, expires_at}.
+    Never returns the plaintext OTP (except dev_code when email delivery is disabled).
+    """
+    email = _normalize_email(email)
+    now = datetime.now(timezone.utc)
+
+    async with get_pool().acquire() as conn:
+        existing = await _get_email_otp_row(conn, email)
+        if existing:
+            window_start = existing["send_window_start"] or now
+            send_count = existing["send_count"] or 0
+            if window_start.tzinfo is None:
+                window_start = window_start.replace(tzinfo=timezone.utc)
+            if (now - window_start).total_seconds() > SEND_WINDOW_MINUTES * 60:
+                send_count = 0
+                window_start = now
+            if send_count >= MAX_SENDS_PER_WINDOW:
+                secs_left = int(SEND_WINDOW_MINUTES * 60 - (now - window_start).total_seconds())
+                logger.warning("[otp] Email resend rate-limit hit for %s", email)
+                return {
+                    "status": "rate_limited",
+                    "detail": f"Too many code requests. Try again in {max(secs_left, 1)} seconds.",
+                    "retry_after_seconds": max(secs_left, 1),
+                }
+        else:
+            window_start = now
+            send_count = 0
+
+        code = generate_otp()
+        code_hash = hash_otp(code)
+        expires_at = now + timedelta(minutes=OTP_EXPIRY_MINUTES)
+
+        await conn.execute(
+            """
+            insert into email_otps
+                (email, code_hash, expires_at, attempts, verified, created_at,
+                 send_count, send_window_start)
+            values ($1, $2, $3, 0, false, $4, $5, $6)
+            on conflict (email) do update
+                set code_hash = excluded.code_hash,
+                    expires_at = excluded.expires_at,
+                    attempts = 0,
+                    verified = false,
+                    created_at = excluded.created_at,
+                    send_count = excluded.send_count,
+                    send_window_start = excluded.send_window_start
+            """,
+            email, code_hash, expires_at, now, send_count + 1, window_start,
+        )
+
+    from email_sender import send_otp_email
+    result = await send_otp_email(email, code)
+    result["email"] = email
+    result["expires_at"] = expires_at.isoformat()
+    # In simulated mode (email delivery disabled) the code is never
+    # actually sent, so surface it for local/preview testing — same
+    # convention as create_and_send_otp's dev_code.
+    if not email_otp_delivery_enabled():
+        result["dev_code"] = code
+    return result
+
+
+async def verify_email_otp_code(email: str, code: str) -> dict:
+    """
+    Verify submitted code against the stored hash for `email`.
+
+    Returns:
+      {"ok": True,  "email": ...}                    — success
+      {"ok": False, "detail": "...", "code": "..."}    — failure
+
+    Machine-readable failure codes: expired | too_many_attempts | invalid | rate_limited | not_found
+    """
+    email = _normalize_email(email)
+
+    allowed, retry_after = await _check_verify_rate_limit(f"email:{email}")
+    if not allowed:
+        logger.warning("[otp] Email verify rate limit hit for %s", email)
+        return {
+            "ok": False,
+            "detail": f"Too many verification attempts. Try again in {retry_after} seconds.",
+            "code": "rate_limited",
+            "retry_after_seconds": retry_after,
+        }
+
+    now = datetime.now(timezone.utc)
+
+    async with get_pool().acquire() as conn:
+        doc = await _get_email_otp_row(conn, email)
+
+        if not doc:
+            return {"ok": False, "detail": "No code found for this email. Please request a new one.", "code": "not_found"}
+
+        if doc["verified"]:
+            return {"ok": True, "email": email, "already_verified": True}
+
+        expires_at = doc["expires_at"]
+        if expires_at:
+            if expires_at.tzinfo is None:
+                expires_at = expires_at.replace(tzinfo=timezone.utc)
+            if now > expires_at:
+                logger.info("[otp] Expired email OTP attempt for %s", email)
+                return {"ok": False, "detail": "This code has expired. Please request a new one.", "code": "expired"}
+
+        updated_doc = await conn.fetchrow(
+            """
+            update email_otps
+            set attempts = attempts + 1
+            where email = $1 and attempts < $2
+            returning *
+            """,
+            email, MAX_ATTEMPTS,
+        )
+
+        if not updated_doc:
+            doc = await _get_email_otp_row(conn, email)
+            if not doc:
+                return {"ok": False, "detail": "No code found for this email. Please request a new one.", "code": "not_found"}
+            if doc["verified"]:
+                return {"ok": True, "email": email, "already_verified": True}
+            logger.warning("[otp] Too many email OTP attempts for %s", email)
+            return {"ok": False, "detail": "Too many incorrect attempts. Please request a new code.", "code": "too_many_attempts"}
+
+        await _record_verify_attempt(f"email:{email}")
+
+        attempts = updated_doc["attempts"]
+        code_hash = updated_doc["code_hash"]
+
+        if not verify_otp_hash(code, code_hash):
+            remaining = MAX_ATTEMPTS - attempts
+            logger.info("[otp] Wrong email OTP for %s (%d attempts left)", email, remaining)
+            return {
+                "ok": False,
+                "detail": f"Incorrect code. {remaining} attempt{'s' if remaining != 1 else ''} remaining.",
+                "code": "invalid",
+                "attempts_remaining": remaining,
+            }
+
+        await conn.execute(
+            "update email_otps set verified = true, verified_at = $1 where email = $2",
+            now, email,
+        )
+
+    logger.info("[otp] Email %s verified successfully", email)
+    return {"ok": True, "email": email}

@@ -11,7 +11,7 @@ import { api, formatApiError, formatAxiosError } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { LANG_LABELS, TIMEZONES } from "@/lib/constants";
 import { CATEGORY_ICONS, normalizeCategory } from "@/components/ScheduleEditor";
-import { ParentCareForm, blankParentForm, blankMedicine } from "@/components/ParentCareForm";
+import { ParentCareForm, blankParentForm, blankMedicine, SHAPE_ICON, COLOR_HEX } from "@/components/ParentCareForm";
 import { cleanHabits, cleanOptionalString } from "@/lib/formHelpers";
 import { toast } from "sonner";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -323,11 +323,29 @@ export default function Dashboard() {
                         )}
                         {(p.medicine_list || []).length > 0 && (
                           <div className="flex flex-wrap gap-1 pt-1">
-                            {(p.medicine_list || []).map((m, i) => (
-                              <span key={i} className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-ayana-alt border border-ayana-line text-ayana-secondary">
-                                💊 {m.name}{m.dose ? ` ${m.dose}` : ""}
-                              </span>
-                            ))}
+                            {/* Fix: show the actual shape/color picked for each
+                                medicine (same glyph as the in-dialog list) instead
+                                of a generic 💊 for everything — this is the whole
+                                reason shape/color exist on the form. Light colors
+                                (white/cream/beige) get a thin outline so the glyph
+                                doesn't disappear against the chip's own light
+                                background. */}
+                            {(p.medicine_list || []).map((m, i) => {
+                              const isLight = ["white", "cream", "beige", "yellow"].includes(m.color);
+                              return (
+                                <span key={i} className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-ayana-alt border border-ayana-line text-ayana-secondary">
+                                  <span
+                                    style={{
+                                      color: COLOR_HEX[m.color] || COLOR_HEX.white,
+                                      ...(isLight ? { WebkitTextStroke: "1px #B8AFA0" } : {}),
+                                    }}
+                                  >
+                                    {SHAPE_ICON[m.shape] || "💊"}
+                                  </span>
+                                  {m.name}{m.dose ? ` ${m.dose}` : ""}
+                                </span>
+                              );
+                            })}
                           </div>
                         )}
                       </div>
@@ -358,7 +376,7 @@ export default function Dashboard() {
           </TabBoundary></TabsContent>
 
           <TabsContent value="care" className="mt-6"><TabBoundary tab="care" onRetry={load}>
-            <CareTab parents={parents} schedules={schedules} planId={planId} limits={limits} moments={boot?.moments} quota={boot?.moments_quota} />
+            <CareTab parents={parents} schedules={schedules} planId={planId} limits={limits} moments={boot?.moments} quota={boot?.moments_quota} onMomentSent={load} />
           </TabBoundary></TabsContent>
 
           <TabsContent value="plan" className="mt-6"><TabBoundary tab="plan" onRetry={load}>
@@ -709,6 +727,7 @@ function ParentDialog({ parent, config, limits, plan, schedules = [], onSaved, t
   const [busy, setBusy] = useState(false);
   const [newMed, setNewMed] = useState(blankMedicine());
   const maxCheckins = limits?.checkins || 2;
+  const maxReminders = limits?.reminders || 2;
 
   const existingSchedule = parent ? schedules.find((s) => s.parent_id === parent.id) : null;
   const getDefaultMessages = () => [
@@ -718,7 +737,7 @@ function ParentDialog({ parent, config, limits, plan, schedules = [], onSaved, t
   ].slice(0, maxCheckins);
 
   const buildFormFromParent = () => {
-    if (!parent) return { ...blankParentForm(), messages: getDefaultMessages(), activity_window_start: "06:00", activity_window_end: "22:00", auto_activity_detection: false };
+    if (!parent) return { ...blankParentForm(), messages: getDefaultMessages() };
     const sched = schedules.find((s) => s.parent_id === parent.id);
     const schedMessages = sched?.messages
       ? sched.messages.filter((m) => m.type !== "reminder" && m.source !== "medicine_sync")
@@ -736,9 +755,13 @@ function ParentDialog({ parent, config, limits, plan, schedules = [], onSaved, t
       other_parent_name: parent.other_parent_name || "",
       birthday: parent.birthday || "",
       stories: parent.stories || [],
-      // FIXED - no more auto-detect, always 06-22
-      activity_window_start: "06:00",
-      activity_window_end: "22:00",
+      // ── Fix: auto-detect removed ──────────────────────────────────
+      // activity_window is now always a fixed, manually set range —
+      // default 06:00-22:00 for parents that don't have one yet.
+      // auto_activity_detection is hardcoded off; the UI no longer
+      // exposes a toggle for it (see ParentCareForm.jsx).
+      activity_window_start: parent.activity_window_start || "06:00",
+      activity_window_end: parent.activity_window_end || "22:00",
       auto_activity_detection: false,
       medicine_list: parent.medicine_list || [],
       habits: parent.habits || blankParentForm().habits,
@@ -746,6 +769,7 @@ function ParentDialog({ parent, config, limits, plan, schedules = [], onSaved, t
       reengagement_hours: sched?.reengagement_hours ?? 4,
     };
   };
+
   const [form, setForm] = useState(() => buildFormFromParent());
   // If the parent was created but the schedule call failed, remember the id
   // so a retry updates that parent instead of creating a duplicate (which
@@ -770,17 +794,39 @@ function ParentDialog({ parent, config, limits, plan, schedules = [], onSaved, t
       toast.error(`Your plan allows up to ${maxCheckins} check-ins. Remove some or upgrade.`);
       return;
     }
+
+    // ── Fix: unsaved medicine draft ─────────────────────────────────────
+    // If the person typed a medicine into the "add medicine" row but never
+    // clicked "+ Add medicine" before hitting Save, that draft was silently
+    // discarded — save() only ever submitted form.medicine_list, which never
+    // included it. Fold any non-empty draft in here so Save always includes
+    // whatever's visibly filled in, matching what ParentCareForm's own
+    // addMedicine() would have done with the same entry.
+    let medicineListToSave = form.medicine_list || [];
+    const draftName = (newMed?.name || "").trim();
+    if (draftName) {
+      const reminderMsgCount = form.messages.filter((m) => (m.type || "checkin") === "reminder").length;
+      const currentReminderTotal = medicineListToSave.length + reminderMsgCount;
+      if (currentReminderTotal >= maxReminders) {
+        toast.error(
+          `You typed a medicine ("${draftName}") but didn't add it, and your plan's ${maxReminders}-reminder limit is already full — remove one first, then add it.`,
+          { duration: 8000 }
+        );
+        return;
+      }
+      medicineListToSave = [...medicineListToSave, { ...newMed, name: draftName }];
+    }
+
     setBusy(true);
     try {
-      const { messages, reengagement_hours, ...parentData } = form;
+      const { messages, reengagement_hours, medicine_list: _ignoredMedicineList, ...parentData } = form;
       const payload = {
         ...parentData,
+        medicine_list: medicineListToSave,
         habits: cleanHabits(form.habits),
         birthday: cleanOptionalString(form.birthday),
-        // FIXED: Always 06-22, no auto-detect
-        activity_window_start: "06:00",
-        activity_window_end: "22:00",
-        auto_activity_detection: false,
+        activity_window_start: cleanOptionalString(form.activity_window_start),
+        activity_window_end: cleanOptionalString(form.activity_window_end),
       };
       const targetId = parent?.id || createdParentId;
       const { data } = targetId ? await api.put(`/parents/${targetId}`, payload) : await api.post("/parents", payload);
@@ -897,12 +943,18 @@ function CircleTab({ circle, planId, plan, parents, reload }) {
 
   const planLimits = plan?.limits;
   const isCarePlus = (planLimits?.family_members || 0) > 0;
-  const invite = async () => {
+    const invite = async () => {
     setBusy(true);
     try {
       const { data } = await api.post("/circle/invite", { email, parent_id: parentId });
       setLastLink(data.invite_link || "");
-      toast.success(`Invite created for ${data.email}`);
+      if (data.email_status === "sent") {
+        toast.success(`Invite emailed to ${data.email}`);
+      } else if (data.email_status === "failed") {
+        toast.warning("Invite created, but the email couldn't be sent — share the link below manually.", { duration: 8000 });
+      } else {
+        toast.success(`Invite created for ${data.email}`);
+      }
       setEmail(""); setParentId(""); reload();
     } catch (e) { toast.error(formatApiError(e.response?.data?.detail)); } finally { setBusy(false); }
   };
@@ -925,9 +977,9 @@ function CircleTab({ circle, planId, plan, parents, reload }) {
           <>
             <div className="mt-4 flex flex-col sm:flex-row gap-2" data-testid="invite-form">
               <div className="relative flex-1">
-                <Mail className="w-4 h-4 text-ayana-muted absolute left-3 top-1/2 -translate-y-1/2" />
-                <input value={email} onChange={(e) => setEmail(e.target.value)} data-testid="invite-email" placeholder="sibling@email.com" type="email"
-                  className="w-full pl-9 pr-3 py-2.5 rounded-lg border border-ayana-line bg-white text-sm focus:outline-none focus:ring-2 focus:ring-ayana-accent/50" />
+                <Mail className="w-4 h-4 text-ayana-muted absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <input value={email} onChange={(e) => setEmail(e.target.value)} data-testid="invite-email" placeholder="sibling@email.com" type="email" autoComplete="off"
+  className="w-full pl-9 pr-3 py-2.5 rounded-lg border border-ayana-line bg-white text-sm focus:outline-none focus:ring-2 focus:ring-ayana-accent/50" />
               </div>
               <select value={parentId} onChange={(e) => setParentId(e.target.value)} className="w-full px-3.5 py-2.5 rounded-lg border border-ayana-line bg-white text-sm focus:outline-none focus:ring-2 focus:ring-ayana-bright/50 focus:border-ayana-bright transition" data-testid="invite-parent-select">
                 <option value="">All parents</option>

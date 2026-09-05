@@ -1,3 +1,4 @@
+
 """
 translation_engine.py — Dynamic, AI-assisted template variants (NEW).
 
@@ -157,3 +158,56 @@ async def get_variants(category: str, language: str) -> list[str] | None:
 def supported_dynamic_languages() -> list[str]:
     """Languages eligible for on-demand AI translation, for /config to expose to the frontend."""
     return sorted(_SARVAM_LANG_CODES.keys()) if dynamic_translation_enabled() else []
+
+
+# ── NEW: Voice transcript translation for child ──────────────────────────
+_VOICE_LANG_MAP = {
+    "en": "en-IN",
+    "te": "te-IN", 
+    "hi": "hi-IN",
+    **_SARVAM_LANG_CODES  # kn, ml, ta, etc from above
+}
+
+async def translate_text(text: str, target_language: str, source_language: str = "en") -> str:
+    """Translate free-form voice transcript to child's language - Issue #2"""
+    if not text or not text.strip():
+        return text
+    
+    # Same language = no translation needed
+    if source_language == target_language:
+        return text
+
+    api_key = os.environ.get("SARVAM_API_KEY", "").strip()
+    if not api_key:
+        logger.warning("[translate] SARVAM_API_KEY missing, returning original")
+        return text
+
+    src_code = _VOICE_LANG_MAP.get(source_language, "en-IN")
+    tgt_code = _VOICE_LANG_MAP.get(target_language, "en-IN")
+    
+    if src_code == tgt_code:
+        return text
+
+    try:
+        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+            resp = await client.post(
+                _SARVAM_TRANSLATE_URL,
+                headers={"api-subscription-key": api_key, "Content-Type": "application/json"},
+                json={
+                    "input": text,
+                    "source_language_code": src_code,
+                    "target_language_code": tgt_code,
+                },
+            )
+            if resp.status_code in (200, 201):
+                data = resp.json()
+                translated = data.get("translated_text", "").strip()
+                if translated:
+                    logger.info(f"[translate] Voice {source_language}->{target_language}: {len(text)} chars -> {len(translated)} chars")
+                    return translated
+            logger.warning(f"[translate] Failed {resp.status_code}: {resp.text[:100]}")
+            return text
+    except Exception as e:
+        logger.warning(f"[translate] Voice translate error: {e}")
+        return text
+

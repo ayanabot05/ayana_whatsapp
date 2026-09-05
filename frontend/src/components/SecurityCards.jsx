@@ -1,12 +1,43 @@
+/**
+ * SecurityCards.jsx — Account tab security widgets:
+ *  • ChangeEmailCard — email-based OTP flow (profile/email/request + confirm)
+ *  • ChangePasswordCard — current/new password with strength meter
+ */
 import { useState } from "react";
-import { Loader2, Mail, KeyRound } from "lucide-react";
-import { toast } from "sonner";
+import { Mail, KeyRound, Loader2 } from "lucide-react";
 import { api, formatAxiosError } from "@/lib/api";
-import { PasswordStrength } from "@/components/PasswordStrength";
-import { passwordError } from "@/lib/validation";
+import { toast } from "sonner";
 
-const inputCls = "w-full px-3 py-2 rounded-lg border border-ayana-line bg-white text-sm focus:outline-none focus:ring-2 focus:ring-ayana-bright/40 focus:border-ayana-bright transition";
-const btnCls = "inline-flex items-center gap-2 px-4 py-2 rounded-full bg-ayana-primary text-white text-sm font-medium hover:bg-ayana-primary-hover transition-colors disabled:opacity-50";
+const inputCls = "w-full px-3.5 py-2.5 rounded-lg border border-ayana-line bg-white text-sm focus:outline-none focus:ring-2 focus:ring-ayana-accent/50 focus:border-ayana-accent transition";
+const btnCls = "inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-ayana-primary text-white text-sm font-medium hover:bg-ayana-primary-hover disabled:opacity-50";
+
+function passwordError(pw) {
+  if (!pw || pw.length < 8) return "Password must be at least 8 characters.";
+  if (!/[A-Z]/.test(pw)) return "Password must contain at least one uppercase letter.";
+  if (!/[0-9]/.test(pw)) return "Password must contain at least one number.";
+  return null;
+}
+
+function PasswordStrength({ password, testid }) {
+  if (!password) return null;
+  const checks = [
+    { label: "8+ characters", ok: password.length >= 8 },
+    { label: "1 uppercase letter", ok: /[A-Z]/.test(password) },
+    { label: "1 number", ok: /[0-9]/.test(password) },
+  ];
+  return (
+    <div className="mt-1.5 flex flex-wrap gap-2" data-testid={testid}>
+      {checks.map((c) => (
+        <span
+          key={c.label}
+          className={`text-xs px-2 py-0.5 rounded-full ${c.ok ? "bg-green-100 text-green-700" : "bg-ayana-alt text-ayana-muted"}`}
+        >
+          {c.ok ? "✓" : "○"} {c.label}
+        </span>
+      ))}
+    </div>
+  );
+}
 
 export function ChangeEmailCard({ user, refreshUser }) {
   const [open, setOpen] = useState(false);
@@ -22,7 +53,7 @@ export function ChangeEmailCard({ user, refreshUser }) {
     try {
       const { data } = await api.post("/profile/email/request", { new_email: email.trim(), password });
       setPending(data);
-      toast.success(`Code sent to your phone ${data.phone_hint}`);
+      toast.success(`Code sent to ${email.trim()}`);
     } catch (err) { toast.error(formatAxiosError(err)); } finally { setBusy(false); }
   };
 
@@ -48,7 +79,7 @@ export function ChangeEmailCard({ user, refreshUser }) {
         <form onSubmit={request} className="mt-4 space-y-3" data-testid="change-email-form">
           <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="new@email.com" data-testid="change-email-new" className={inputCls} />
           <input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Current password" data-testid="change-email-password" className={inputCls} />
-          <p className="text-xs text-ayana-muted">We'll SMS a code to your phone to confirm. Your old email becomes free for a new account.</p>
+          <p className="text-xs text-ayana-muted">We'll email a code to your new address to confirm. Your old email becomes free for a new account.</p>
           <div className="flex gap-2">
             <button type="submit" disabled={busy} data-testid="change-email-submit" className={btnCls}>{busy && <Loader2 className="w-4 h-4 animate-spin" />} Send code</button>
             <button type="button" onClick={() => setOpen(false)} className="text-sm text-ayana-secondary px-3">Cancel</button>
@@ -57,8 +88,8 @@ export function ChangeEmailCard({ user, refreshUser }) {
       )}
       {open && pending && (
         <form onSubmit={confirm} className="mt-4 space-y-3" data-testid="change-email-confirm-form">
-          <p className="text-sm text-ayana-secondary">Changing to <b className="text-ayana-text">{pending.pending_email}</b>. Enter the code sent to {pending.phone_hint}.</p>
-          {pending.dev_code && <p className="text-xs rounded-lg bg-amber-50 border border-amber-200 text-amber-800 px-3 py-2" data-testid="change-email-dev-code">SMS test mode — code: <b>{pending.dev_code}</b></p>}
+          <p className="text-sm text-ayana-secondary">Changing to <b className="text-ayana-text">{pending.pending_email}</b>. Enter the code we emailed there.</p>
+          {pending.dev_code && <p className="text-xs rounded-lg bg-amber-50 border border-amber-200 text-amber-800 px-3 py-2" data-testid="change-email-dev-code">Email test mode — code: <b>{pending.dev_code}</b></p>}
           <input inputMode="numeric" maxLength={6} required value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))} placeholder="6-digit code" data-testid="change-email-code" className={inputCls} />
           <div className="flex gap-2">
             <button type="submit" disabled={busy} data-testid="change-email-confirm" className={btnCls}>{busy && <Loader2 className="w-4 h-4 animate-spin" />} Confirm</button>

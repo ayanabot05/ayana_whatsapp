@@ -144,7 +144,6 @@ function EmergencyContacts({ parent }) {
   );
 }
 
-// Client-side image optimizer: resize + compress using canvas, returns a base64 JPEG string
 const optimizeImage = (file) => {
   return new Promise((resolve) => {
     const img = new Image();
@@ -164,7 +163,7 @@ const optimizeImage = (file) => {
       canvas.height = height;
       const ctx = canvas.getContext("2d");
       ctx.drawImage(img, 0, 0, width, height);
-      const optimized = canvas.toDataURL("image/jpeg", 0.8); // 80% quality JPEG
+      const optimized = canvas.toDataURL("image/jpeg", 0.8);
       URL.revokeObjectURL(url);
       resolve(optimized);
     };
@@ -176,25 +175,14 @@ const optimizeImage = (file) => {
   });
 };
 
-// A Moment with up to 2 photos. Ayana delivers the note + images to the parent on WhatsApp.
-function MomentComposer({ parents }) {
-  const qc = useQueryClient();
+function MomentComposer({ parents, moments, quota, onMomentSent }) {
   const [parentId, setParentId] = useState(parents[0]?.id || "");
   const [text, setText] = useState("");
-  const [imageUrls, setImageUrls] = useState([]); // optimized base64 strings, max 2
+  const [imageUrls, setImageUrls] = useState([]);
   const [sending, setSending] = useState(false);
 
   const MAX_IMAGES = 2;
 
-  const { data: moments } = useQuery({
-    queryKey: ["moments"],
-    queryFn: () => api.get("/moments").then((r) => r.data),
-  });
-
-  const { data: quota } = useQuery({
-    queryKey: ["moments-quota"],
-    queryFn: () => api.get("/moments/quota").then((r) => r.data),
-  });
   const remaining = quota?.remaining;
   const limit = quota?.limit ?? 2;
   const outOfMoments = remaining === 0;
@@ -230,11 +218,9 @@ function MomentComposer({ parents }) {
     if (!parentId || !text.trim()) { toast.error("Pick a parent and write a message."); return; }
     setSending(true);
     try {
-      // Upload base64 images to the upload endpoint to get public URLs
       const uploadedUrls = [];
       for (const base64 of imageUrls) {
         const form = new FormData();
-        // Convert base64 to blob for FormData upload
         const response = await fetch(base64);
         const blob = await response.blob();
         form.append("file", blob, "image.jpg");
@@ -246,13 +232,12 @@ function MomentComposer({ parents }) {
       await api.post("/moments", {
         parent_id: parentId,
         text: text.trim(),
-        image_urls: uploadedUrls, // public URLs from upload endpoint
+        image_urls: uploadedUrls,
       });
       toast.success("Sent 💛 Ayana is delivering it now.");
       setText("");
       setImageUrls([]);
-      qc.invalidateQueries({ queryKey: ["moments"] });
-      qc.invalidateQueries({ queryKey: ["moments-quota"] });
+      onMomentSent?.();
     } catch (e) {
       if (e.response?.status === 501) {
         toast.error("Photo sharing isn't switched on yet — your text moment can still be sent without the photo.", { duration: 8000 });
@@ -309,7 +294,6 @@ function MomentComposer({ parents }) {
             )}
           </div>
         </div>
-        {/* Image previews */}
         {imageUrls.length > 0 && (
           <div className="flex flex-wrap gap-2" data-testid="moment-image-previews">
             {imageUrls.map((url, idx) => (
@@ -466,13 +450,13 @@ function RecoveryCard({ parents, schedules, planId, limits }) {
   );
 }
 
-export function CareTab({ parents, schedules = [], planId, limits }) {
+export function CareTab({ parents, schedules = [], planId, limits, moments, quota, onMomentSent }) {
   if (!parents || parents.length === 0) {
     return <EmptyState text="Add a parent first to manage moments and emergency contacts." />;
   }
   return (
     <div className="space-y-6" data-testid="care-tab">
-      <MomentComposer parents={parents} />
+      <MomentComposer parents={parents} moments={moments} quota={quota} onMomentSent={onMomentSent} />
       <RecoveryCard parents={parents} schedules={schedules} planId={planId} limits={limits} />
       {parents.map((p) => (
         <div key={p.id} className="space-y-4">
