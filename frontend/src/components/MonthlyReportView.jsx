@@ -48,10 +48,17 @@ export function MonthlyReportView({ parents, plan, user }) {
   }, [user?.created_at]);
 
   const [parentId, setParentId] = useState(parents[0]?.id || "");
-  const [period, setPeriod] = useState(monthOptions[0]?.value || "");
+  // Default to the previous month, not the current one — the backend only
+  // auto-generates a report for the previous month on the 1st, so the
+  // current month usually has nothing yet. This means the page opens on
+  // real data instead of an empty "generate a report" state.
+  const [period, setPeriod] = useState(monthOptions[1]?.value || monthOptions[0]?.value || "");
   const [report, setReport] = useState(null);
   const [status, setStatus] = useState("idle");
   const [busy, setBusy] = useState(false);
+  // Tracks whether the one-time previous→current fallback has already run,
+  // so it never overrides a month the user picks manually afterward.
+  const [triedFallback, setTriedFallback] = useState(false);
 
   useEffect(() => {
     if (!parentId && parents[0]?.id) setParentId(parents[0].id);
@@ -74,7 +81,20 @@ export function MonthlyReportView({ parents, plan, user }) {
     }
   }, [parentId, period]);
 
+  // Fetches automatically whenever the selected parent or period changes —
+  // this is what lets the user browse month by month via the dropdown
+  // below and always see existing data without clicking anything.
   useEffect(() => { fetchReport(); }, [fetchReport]);
+
+  // If the default (previous month) had nothing, try the current month
+  // once automatically — covers brand-new accounts, or a report someone
+  // already generated manually for the current month.
+  useEffect(() => {
+    if (status === "not_found" && !triedFallback && period === monthOptions[1]?.value && monthOptions[0]) {
+      setTriedFallback(true);
+      setPeriod(monthOptions[0].value);
+    }
+  }, [status, triedFallback, period, monthOptions]);
 
   const generate = async () => {
     if (!parentId || !period) return;
@@ -104,6 +124,9 @@ export function MonthlyReportView({ parents, plan, user }) {
         <select value={parentId} onChange={(e) => setParentId(e.target.value)} data-testid="report-parent" className={smInputCls}>
           {parents.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
         </select>
+        {/* Month-by-month navigation: picking any month here re-triggers
+            fetchReport() via the useEffect above, so switching months
+            always shows that month's existing report if one exists. */}
         <select value={period} onChange={(e) => setPeriod(e.target.value)} data-testid="report-period" className={smInputCls}>
           {monthOptions.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
         </select>
