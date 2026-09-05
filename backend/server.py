@@ -146,11 +146,6 @@ from whatsapp import (
     meta_auth_header,
     whatsapp_enabled,
 )
-from interactive_button_handler import (
-    handle_interactive_reply,
-    is_interactive_button_reply,
-    extract_button_payload,
-)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger("ayana")
@@ -2041,6 +2036,83 @@ async def _record_reply(from_number: str, body_text: str, num_media: int = 0, pa
     return dict(reply_row)
 
 
+# ── Button-tap effects (replaces the old interactive_button_handler.py wiring) ──
+# _resolve_generic_button_intent() (and the pass-through above for specific
+# in-session payloads) already leaves `intent` on the recorded reply in a
+# uniform "<action>:<category>" shape — e.g. "done:medicine", "pending:lunch",
+# "skip:dinner", "feeling:good". This reads that back instead of re-matching
+# raw payload ids against interactive_button_handler.BUTTON_ACTION_MAP, whose
+# 4 hardcoded ids (medicine_done/medicine_skip/meal_yes/meal_not_yet) don't
+# match ANY currently-approved template button or in-session button, so every
+# real tap fell through to its "Sorry, I didn't recognize that" reply — and
+# message_logs.reply_status was never updated for a real tap, since
+# mark_medicine_status/mark_meal_status were only ever called from inside
+# that handler's unreachable matched branches.
+_BUTTON_ACK_TEXT = {
+    "done":    {"en": "Marked as done. 💛",                      "te": "పూర్తయినట్టు నమోదు చేశాను. 💛",              "hi": "पूरा हो गया, दर्ज कर दिया। 💛"},
+    "pending": {"en": "Got it — I'll check again a bit later.",  "te": "సరే, కాసేపు తర్వాత మళ్ళీ అడుగుతాను.",        "hi": "ठीक है, थोड़ी देर बाद फिर पूछूंगी।"},
+    "skip":    {"en": "Okay, noted as skipped for now.",         "te": "సరే, ఇప్పటికి స్కిప్ చేసినట్టు నమోదు చేశాను.", "hi": "ठीक है, अभी के लिए छोड़ा हुआ दर्ज कर दिया।"},
+    "feeling": {"en": "Thanks for letting me know 💛",           "te": "చెప్పినందుకు ధన్యవాదాలు 💛",                  "hi": "बताने के लिए धन्यवाद 💛"},
+}
+
+# Some in-session BUTTONS payloads (templates_data.py) use a shortened
+# category name that doesn't match the real category string stored in
+# message_logs.category — e.g. "done:tea" for the "tea_check" category.
+# Without this alias, the reply_status update below would silently find
+# no matching row for these 3 categories.
+_BUTTON_CATEGORY_ALIASES = {
+    "bp": "bp_check",
+    "sugar": "sugar_check",
+    "tea": "tea_check",
+    "walk": "walk_check",
+    "rest": "afternoon_checkin",
+}
+
+
+async def _apply_button_tap_effects(reply: dict) -> None:
+    """Runs once after _record_reply() for any tap that carried a button_payload."""
+    intent = reply.get("intent") or ""
+    action, _, category = intent.partition(":")
+    if action not in ("done", "pending", "skip", "feeling"):
+        return  # emergency:*, or an unresolved payload — leave to the existing emergency/family-notify flow
+
+    parent_id = reply.get("parent_id")
+    from_number = reply.get("from_phone")
+    if not parent_id or not from_number:
+        return
+
+    category = _BUTTON_CATEGORY_ALIASES.get(category, category)
+
+    async with get_pool().acquire() as conn:
+        p = await conn.fetchrow("select language from parents where id = $1::uuid", parent_id)
+        language = (p["language"] if p and p["language"] else "en")
+
+        if action in ("done", "pending", "skip") and category:
+            day_key = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            log = await conn.fetchrow(
+                """
+                select id from message_logs
+                where parent_id = $1::uuid and day_key = $2 and category = $3
+                order by created_at desc limit 1
+                """,
+                parent_id, day_key, category,
+            )
+            if log:
+                await conn.execute(
+                    "update message_logs set reply_status = $1 where id = $2",
+                    action, log["id"],
+                )
+            else:
+                logger.warning(
+                    "[webhook] No message_logs row found for parent %s category %s (day %s) — reply_status not updated",
+                    parent_id, category, day_key,
+                )
+
+    ack_text = _BUTTON_ACK_TEXT.get(action, {}).get(language) or _BUTTON_ACK_TEXT.get(action, {}).get("en")
+    if ack_text:
+        send_whatsapp(from_number, ack_text)
+
+
 @api.get("/parents/{parent_id}/language-suggestion")
 async def get_language_suggestion(parent_id: str, user: dict = Depends(get_current_user)):
     async with get_pool().acquire() as conn:
@@ -2359,37 +2431,17 @@ async def whatsapp_webhook(request: Request):
                     from_number, msg_type, button_payload or "–", media_content_type or "–", body_text or "–",
                 )
 
-                if is_interactive_button_reply(message) or (msg_type == "button" and button_payload):
-                    handled = False
-                    if msg_type == "interactive":
-                        handled = await handle_interactive_reply(
-                            message,
-                            from_number=from_number,
-                            mark_medicine_status=_mark_medicine_status,
-                            mark_meal_status=_mark_meal_status,
-                            send_whatsapp_text=_send_whatsapp_text,
-                        )
-                    await _record_reply(
-                        from_number=from_number,
-                        body_text=body_text,
-                        num_media=num_media,
-                        button_payload=button_payload,
-                        media_url=media_url,
-                        media_content_type=media_content_type,
-                        raw_payload=message,
-                    )
-                    if handled:
-                        continue
-                else:
-                    await _record_reply(
-                        from_number=from_number,
-                        body_text=body_text,
-                        num_media=num_media,
-                        button_payload=button_payload,
-                        media_url=media_url,
-                        media_content_type=media_content_type,
-                        raw_payload=message,
-                    )
+                reply = await _record_reply(
+                    from_number=from_number,
+                    body_text=body_text,
+                    num_media=num_media,
+                    button_payload=button_payload,
+                    media_url=media_url,
+                    media_content_type=media_content_type,
+                    raw_payload=message,
+                )
+                if button_payload:
+                    await _apply_button_tap_effects(reply)
 
     return Response(status_code=200, content="ok")
 

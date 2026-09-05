@@ -79,11 +79,16 @@ def check_phone_number_metadata():
         return False
 
 
-def send_test_template(to_phone: str, template_name: str = "ayana_opener", language: str = "en"):
+def send_test_template(to_phone: str, template_name: str = "ayana_opener_en", language: str = "en"):
     print(f"\n── Step 2: Sending real template '{template_name}' ({language}) to {to_phone} ──")
     url = f"https://graph.facebook.com/{GRAPH_VERSION}/{PHONE_ID}/messages"
-    # NOTE: adjust these body params to match however many {{n}} variables
-    # your approved template actually has. ayana_opener needs 2: {{1}}=name, {{2}}=relation label.
+    # NOTE: Meta has these approved as separate resources per language —
+    # ayana_opener_en / ayana_opener_te / ayana_opener_hi — NOT one
+    # "ayana_opener" name with 3 language variants. The name you pass here
+    # must include the _en/_te/_hi suffix or Meta returns "template not
+    # found" (see /meta_approved_templates.txt at repo root for the full list).
+    # Adjust body params below to match however many {{n}} variables your
+    # approved template actually has. ayana_opener_en needs 2: {{1}}=name, {{2}}=relation label.
     payload = {
         "messaging_product": "whatsapp",
         "to": to_phone,

@@ -12,6 +12,7 @@ import httpx
 from database import get_pool
 from templates_data import (
     DEFAULT_EMERGENCY_KEYWORDS,
+    STATIC_LANGUAGES,
     get_template_sid_key,
     parent_relation_label,
     render_slot_body_async,
@@ -37,13 +38,19 @@ SESSION_WINDOW_HOURS = int(os.environ.get("WA_SESSION_WINDOW_HOURS", "24")) # Me
 DELIVERY_RECHECK_MIN = int(os.environ.get("WA_DELIVERY_RECHECK_MIN", "5"))
 DELIVERY_FALLBACK_ENABLED = os.environ.get("WA_DELIVERY_FALLBACK", "true").strip().lower() == "true"
 
-# ── Map each template category → the approved Meta template's literal name ──
+# ── Map each template category → the approved Meta template's BASE name ──
+# Meta has these approved as 18 separate template resources, one per
+# language — ayana_opener_en / ayana_opener_te / ayana_opener_hi, etc.
+# (see /meta_approved_templates.txt and /ayana_whatsapp_meta_templates.md
+# at repo root — naming convention is literally ayana_<category>_<lang>).
+# The base names below get the language suffix appended in
+# _get_template_name(); don't put a language suffix here.
 _CATEGORY_TEMPLATE_NAME = {
     "opener": "ayana_opener",
     "medicine": "ayana_medicine",
     "meal": "ayana_meal",
     "mood": "ayana_mood",
-    "reengagement": "ayana_reengager",
+    "reengagement": "ayana_reengagement",  # was "ayana_reengager" — didn't match Meta or the repo's own template doc
     "report_ready": "ayana_report_ready",
 }
 
@@ -66,8 +73,28 @@ def meta_auth_header() -> Dict[str, str]:
     return {"Authorization": f"Bearer {token}"} if token else {}
 
 
-def _get_template_name(template_key: str) -> str:
-    return _CATEGORY_TEMPLATE_NAME.get(template_key, "")
+def _get_template_name(template_key: str, language: str = "en") -> str:
+    """
+    Resolve a category's approved Meta template name, INCLUDING the
+    language suffix — Meta has these approved as separate resources
+    per language (ayana_opener_en / _te / _hi), not one name with 3
+    language variants. Without this suffix every send 404s against
+    Meta, which silently falls back to plain text (see the "Ammmmmaaa"
+    bug — that's the raw {{1}} variable going out alone once the real
+    template call fails and the retry loop gives up).
+
+    Only en/te/hi are actually approved right now. A parent set to
+    any other language (dynamically AI-translated via
+    translation_engine.py) has no matching Meta template yet, so we
+    fall back to the English template name rather than guessing a
+    name Meta doesn't have. Revisit this once more languages are
+    submitted for approval.
+    """
+    base = _CATEGORY_TEMPLATE_NAME.get(template_key, "")
+    if not base:
+        return ""
+    lang = language if language in STATIC_LANGUAGES else "en"
+    return f"{base}_{lang}"
 
 
 def _messages_url(phone_id: str) -> str:
@@ -367,7 +394,7 @@ async def send_template_for_category(parent: Dict[str, Any], category: str, day_
         return await send_dynamic_checkin(parent, category, day_index, variants_per_slot, medicine_name)
 
     template_key = get_template_sid_key(category)
-    template_name = _get_template_name(template_key)
+    template_name = _get_template_name(template_key, language)
     body = await render_slot_body_async(category, language, parent, day_index, medicine_name or _language_native_medicine_placeholder(language), variants_per_slot)
 
     if template_name and whatsapp_enabled():
@@ -444,7 +471,7 @@ async def send_reengagement(parent: Dict[str, Any], reengagement_hours: int = 4)
         if last_inbound > opener_sent_at:
             return {"skipped": True, "reason": "parent_replied"}
 
-    template_name = _get_template_name("reengagement")
+    template_name = _get_template_name("reengagement", language)
     if template_name and whatsapp_enabled():
         result = await _send_content_template_with_retry(phone, template_name, language, {"1": preferred}, "reengagement")
     else:
@@ -511,7 +538,7 @@ async def send_moment(parent: Dict[str, Any], text: str, sender_name: str, image
 
 async def send_report_ready(to_phone: str, language: str, parent_display: str) -> Dict[str, Any]:
     """Notify a child/family member that a monthly report is ready."""
-    template_name = _get_template_name("report_ready")
+    template_name = _get_template_name("report_ready", language)
     content_vars = {"1": parent_display or "your parent"}
     return await _send_content_template_with_retry(to_phone, template_name, language, content_vars, "report_ready")
 
