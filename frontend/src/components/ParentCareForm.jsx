@@ -36,6 +36,15 @@ function daysInMonth(monthStr) {
 // (ParentDialog). Keeping this one function is what keeps a parent added
 // during onboarding and a parent added from the dashboard structurally
 // identical — no field either screen forgets to send.
+//
+// ── Fix: auto-detect removed ─────────────────────────────────────────
+// activity_window_start/end is the ACTIVE window (when AYANA is allowed
+// to send check-ins/reminders) — outside it, sends are skipped. It used
+// to be auto-learned from reply-time clustering (auto_activity_detection),
+// which broke on sparse data (e.g. a handful of test replies all landing
+// around 17:00 collapsed the window to 17:00-17:00, silently skipping
+// every send outside that single minute). Auto-detection is gone; the
+// window is now always a fixed, user-set range defaulting to 06:00-22:00.
 export const blankParentForm = () => ({
   name: "",
   relationship: "mother",
@@ -49,9 +58,9 @@ export const blankParentForm = () => ({
   other_parent_name: "",
   birthday: "",
   stories: [],
-  activity_window_start: "",
-  activity_window_end: "",
-  auto_activity_detection: true,
+  activity_window_start: "06:00",
+  activity_window_end: "22:00",
+  auto_activity_detection: false,
   medicine_list: [],
   habits: {
     wake_time: "", tea_time: "", tea_type: "tea", walk_time: "",
@@ -70,12 +79,15 @@ export const blankMedicine = () => ({
   name: "", dose: "", reminder_time: "09:00", shape: "round", color: "white", timing: "after_food", notes: "",
 });
 
-const COLOR_HEX = {
+// Exported so Dashboard.js's parent-card medicine chips can render the
+// same shape+color glyph as the in-dialog medicine list below, instead of
+// a generic pill emoji for every medicine regardless of what was picked.
+export const COLOR_HEX = {
   white: "#FFFFFF", cream: "#FFFDD0", yellow: "#FDE68A", orange: "#FCA347",
   pink: "#FBBFD0", red: "#F87171", purple: "#C084FC", blue: "#7DD3FC",
   green: "#86EFAC", brown: "#A07850", beige: "#D4C5A9",
 };
-const SHAPE_ICON = { round: "⬤", oval: "⬭", capsule: "💊", oblong: "▬", diamond: "◆", square: "■" };
+export const SHAPE_ICON = { round: "⬤", oval: "⬭", capsule: "💊", oblong: "▬", diamond: "◆", square: "■" };
 
 const inputCls = "w-full px-4 py-3 rounded-xl border border-ayana-line bg-white focus:outline-none focus:ring-2 focus:ring-ayana-bright/50 focus:border-ayana-bright transition";
 const smInputCls = "w-full px-3 py-2 rounded-lg border border-ayana-line bg-white text-sm focus:outline-none focus:ring-2 focus:ring-ayana-bright/40 focus:border-ayana-bright transition";
@@ -393,38 +405,42 @@ export function ParentCareForm({ form, setForm, newMed, setNewMed, config, limit
           <p className="text-xs text-ayana-muted mt-1 text-right">{(form.notes || "").length}/300</p>
         </div>
 
-        {/* Quiet hours / DND guard */}
+        {/* Active hours — check-ins and reminders only fire inside this
+            window. This used to be auto-learned from reply-time
+            clustering (auto_activity_detection); that's removed now — a
+            handful of test replies clustering around one time could
+            collapse the window to a single minute and silently skip
+            every send outside it. The window is always a fixed, manually
+            set range now, defaulting to 06:00-22:00. */}
         <div className="pt-4 border-t border-ayana-line/50">
           <label className="text-sm font-medium text-ayana-text flex items-center gap-1.5">
-            <VolumeX className="w-3.5 h-3.5 text-ayana-primary" /> Quiet hours (no messages sent)
+            <VolumeX className="w-3.5 h-3.5 text-ayana-primary" /> Active hours
           </label>
-          <p className="text-xs text-ayana-muted mt-1">Prevents check-ins from firing during sleep, prayer, etc. Leave off to let AYANA learn this automatically from reply patterns.</p>
-          <div className="flex items-center gap-2 mt-3">
-            <button
-              type="button"
-              onClick={() => setForm({ ...form, auto_activity_detection: !form.auto_activity_detection })}
-              data-testid={t("auto-activity-toggle")}
-              className={`px-3.5 py-1.5 rounded-full text-xs font-medium border transition-colors ${
-                form.auto_activity_detection
-                  ? "bg-ayana-primary text-white border-ayana-primary"
-                  : "bg-white text-ayana-secondary border-ayana-line hover:bg-ayana-alt"
-              }`}
-            >
-              {form.auto_activity_detection ? "Auto-detect: On" : "Auto-detect: Off"}
-            </button>
-          </div>
-          {!form.auto_activity_detection && (
-            <div className="grid grid-cols-2 gap-3 mt-3 max-w-sm">
-              <div>
-                <label className="text-[10px] uppercase font-bold text-ayana-muted ml-1">Quiet from</label>
-                <input type="time" value={form.activity_window_start || ""} onChange={(e) => setForm({ ...form, activity_window_start: e.target.value })} data-testid={t("dnd-start")} className={smInputCls} />
-              </div>
-              <div>
-                <label className="text-[10px] uppercase font-bold text-ayana-muted ml-1">Quiet until</label>
-                <input type="time" value={form.activity_window_end || ""} onChange={(e) => setForm({ ...form, activity_window_end: e.target.value })} data-testid={t("dnd-end")} className={smInputCls} />
-              </div>
+          <p className="text-xs text-ayana-muted mt-1">
+            Check-ins and reminders are only sent inside this window — nothing goes out outside it (sleep, prayer, etc.). Defaults to 6 AM–10 PM.
+          </p>
+          <div className="grid grid-cols-2 gap-3 mt-3 max-w-sm">
+            <div>
+              <label className="text-[10px] uppercase font-bold text-ayana-muted ml-1">From</label>
+              <input
+                type="time"
+                value={form.activity_window_start || "06:00"}
+                onChange={(e) => setForm({ ...form, activity_window_start: e.target.value })}
+                data-testid={t("active-start")}
+                className={smInputCls}
+              />
             </div>
-          )}
+            <div>
+              <label className="text-[10px] uppercase font-bold text-ayana-muted ml-1">To</label>
+              <input
+                type="time"
+                value={form.activity_window_end || "22:00"}
+                onChange={(e) => setForm({ ...form, activity_window_end: e.target.value })}
+                data-testid={t("active-end")}
+                className={smInputCls}
+              />
+            </div>
+          </div>
         </div>
       </section>
 
@@ -442,10 +458,23 @@ export function ParentCareForm({ form, setForm, newMed, setNewMed, config, limit
 
         {(form.medicine_list || []).length > 0 && (
           <div className="space-y-2">
-            {form.medicine_list.map((m, idx) => (
+            {form.medicine_list.map((m, idx) => {
+              // Light colors (white/cream/beige/yellow) get a thin outline so
+              // the glyph doesn't disappear against this card's own light
+              // (bg-warm-cream/20) background — same fix as the dashboard chip.
+              const isLight = ["white", "cream", "beige", "yellow"].includes(m.color);
+              return (
               <div key={idx} className="flex items-center justify-between rounded-xl border border-ayana-line px-4 py-3 bg-warm-cream/20">
                 <div className="flex items-center gap-3">
-                  <span className="text-xl" style={{ color: COLOR_HEX[m.color] || COLOR_HEX.white }}>{SHAPE_ICON[m.shape] || "💊"}</span>
+                  <span
+                    className="text-xl"
+                    style={{
+                      color: COLOR_HEX[m.color] || COLOR_HEX.white,
+                      ...(isLight ? { WebkitTextStroke: "1px #B8AFA0" } : {}),
+                    }}
+                  >
+                    {SHAPE_ICON[m.shape] || "💊"}
+                  </span>
                   <div>
                     <p className="text-sm font-medium text-ayana-text">{m.name} {m.dose && `· ${m.dose}`}</p>
                     <p className="text-xs text-ayana-secondary">{m.reminder_time || "—"} · {(m.timing || "").replace("_", " ")}</p>
@@ -454,7 +483,8 @@ export function ParentCareForm({ form, setForm, newMed, setNewMed, config, limit
                 </div>
                 <button onClick={() => removeMedicine(idx)} data-testid={t(`med-remove-${idx}`)} className="text-ayana-muted hover:text-red-500"><Trash2 className="w-4 h-4" /></button>
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
 

@@ -66,7 +66,7 @@ if _SENTRY_DSN:
         before_send=_sentry_before_send,
     )
 
-from fastapi import Depends, FastAPI, APIRouter, HTTPException, Query, Request, Response, File, UploadFile, Form
+from fastapi import Depends, FastAPI, APIRouter, HTTPException, Query, Request, Response, File, UploadFile, Form, BackgroundTasks
 from pydantic import BaseModel, Field
 from typing import Optional, List, Any, Tuple
 from rate_limit import (
@@ -95,7 +95,7 @@ from models import (
 )
 from medicine_sync import sync_medicine_reminders
 from storage import init_storage, put_object, get_object, signed_url as storage_signed_url, is_enabled as storage_enabled, APP_NAME as STORAGE_APP_NAME
-from otp import create_and_send_otp, verify_otp_code, _normalize_phone
+from otp import create_and_send_otp, verify_otp_code, create_and_send_email_otp, verify_email_otp_code, _normalize_phone
 
 class CheckoutInput(BaseModel):
     plan: str = Field("nitya", pattern="^(nitya|bandham|raksha|basic|care_plus)$")
@@ -149,6 +149,8 @@ from whatsapp import (
     resolve_meta_media_url,
     meta_auth_header,
     whatsapp_enabled,
+    send_care_circle_activation_welcome,  # NEW
+    send_welcome_for_new_parent,          # NEW
 )
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -239,10 +241,22 @@ async def audit(user_id, action, meta=None):
     _bg_tasks.add(task)
     task.add_done_callback(_bg_tasks.discard)
 
-
 async def _run_startup_migrations():
     """Idempotent, cheap fixes that must hold on every boot."""
     async with get_pool().acquire() as conn:
+        await conn.execute("""
+            create table if not exists email_otps (
+                email text primary key,
+                code_hash text not null,
+                expires_at timestamptz not null,
+                attempts int not null default 0,
+                verified boolean not null default false,
+                created_at timestamptz not null default now(),
+                verified_at timestamptz,
+                send_count int not null default 0,
+                send_window_start timestamptz
+            )
+        """)
         await conn.execute("alter table monthly_reports add column if not exists details jsonb")
         await conn.execute("alter table users add column if not exists password_changed_at timestamptz")
         await conn.execute("alter table users add column if not exists pending_email text")
@@ -792,10 +806,14 @@ async def request_email_change(payload: EmailChangeRequestInput, user: dict = De
         if taken:
             raise HTTPException(status_code=400, detail="That email is already used by another account.")
         await conn.execute("update users set pending_email = $1 where id = $2", new_email, user["id"])
-    result = await create_and_send_otp(user["phone"])
+    # Code goes to the NEW email itself — completing this proves the user
+    # controls that inbox, which is the actual thing being changed.
+    result = await create_and_send_email_otp(new_email)
     if result.get("status") == "rate_limited":
-        raise HTTPException(status_code=429, detail=f"Please wait {result.get('retry_after', 60)}s before requesting another code.")
-    out = {"sent": True, "pending_email": new_email, "phone_hint": f"…{(user.get('phone') or '')[-4:]}"}
+        raise HTTPException(status_code=429, detail=result.get("detail", "Too many requests. Please wait before trying again."))
+    if result.get("status") == "failed":
+        raise HTTPException(status_code=502, detail=result.get("detail", "Could not send the code. Please try again."))
+    out = {"sent": True, "pending_email": new_email}
     if result.get("dev_code"):
         out["dev_code"] = result["dev_code"]
     return out
@@ -806,7 +824,7 @@ async def confirm_email_change(payload: EmailChangeConfirmInput, response: Respo
     pending = user.get("pending_email")
     if not pending:
         raise HTTPException(status_code=400, detail="No email change is pending.")
-    result = await verify_otp_code(user["phone"], payload.code)
+    result = await verify_email_otp_code(pending, payload.code)
     if not result.get("ok"):
         raise HTTPException(status_code=400, detail=result.get("detail") or "Invalid or expired code.")
     old_email = user["email"]
@@ -815,10 +833,8 @@ async def confirm_email_change(payload: EmailChangeConfirmInput, response: Respo
         if taken:
             raise HTTPException(status_code=400, detail="That email was just taken by another account.")
         await conn.execute("update users set email = $1, pending_email = null where id = $2", pending, user["id"])
-        # Pending care-circle invites addressed to the old email follow the user.
         await conn.execute("update circle_invites set email = $1 where email = $2 and status = 'pending'", pending, old_email)
         updated = await conn.fetchrow("select * from users where id = $1", user["id"])
-    # Tokens embed the email — reissue them.
     access = create_access_token(str(user["id"]), pending, user["role"])
     refresh = create_refresh_token(str(user["id"]), pending, user["role"])
     set_auth_cookies(response, access, refresh)
@@ -891,7 +907,7 @@ async def list_parents(user: dict = Depends(get_current_user)):
     return [serialize(d) for d in docs]
 
 @api.post("/parents")
-async def create_parent(payload: ParentInput, user: dict = Depends(get_current_user), _csrf: None = Depends(validate_csrf_token)):
+async def create_parent(payload: ParentInput, background_tasks: BackgroundTasks, user: dict = Depends(get_current_user), _csrf: None = Depends(validate_csrf_token)):
     uid = scope(user)
     async with get_pool().acquire() as conn:
         ps = await conn.fetchrow("select * from payment_state where user_id = $1", uid)
@@ -922,7 +938,15 @@ async def create_parent(payload: ParentInput, user: dict = Depends(get_current_u
         await conn.execute(
             "update users set onboarding_step = greatest(onboarding_step, 3) where id = $1", user["id"]
         )
+        # Check if already activated -> this is upgrade flow
+        activation = await conn.fetchrow("select whatsapp_activated from activation_state where user_id = $1", uid)
+
     await audit(user["id"], "create_parent", {"parent_id": str(row["id"])})
+
+    # NEW: If care circle already active, welcome new parent + child again
+    if activation and activation["whatsapp_activated"]:
+        background_tasks.add_task(send_welcome_for_new_parent, dict(user), dict(row))
+
     return serialize(row)
 
 @api.put("/parents/{parent_id}")
@@ -1521,7 +1545,7 @@ async def get_activation(user: dict = Depends(get_current_user)):
     return serialize(state) if state else {"whatsapp_activated": False}
 
 @api.post("/activation/activate")
-async def activate(user: dict = Depends(get_current_user), _csrf: None = Depends(validate_csrf_token)):
+async def activate(background_tasks: BackgroundTasks, user: dict = Depends(get_current_user), _csrf: None = Depends(validate_csrf_token)):
     async with get_pool().acquire() as conn:
         parents = await conn.fetch(
             "select * from parents where user_id = $1 and deleted_at is null limit 50", scope(user)
@@ -1532,16 +1556,25 @@ async def activate(user: dict = Depends(get_current_user), _csrf: None = Depends
     if not parents or not schedules:
         raise HTTPException(status_code=400, detail="Please add a parent and a schedule before activating.")
 
+    # --- NEW: Welcome flow for child + all parents ---
+    child_dict = dict(user)
+    parents_dicts = [dict(p) for p in parents]
+    background_tasks.add_task(send_care_circle_activation_welcome, child_dict, parents_dicts)
+
+    # Keep existing opener logic for activated flag
     plan_id = await _get_plan_id(user)
     variants_per_slot = plan_limits(plan_id)["variants_per_slot"]
     day_index = datetime.now(timezone.utc).timetuple().tm_yday
 
     results = []
-    for p in parents:
-        r = await send_whatsapp_opener(dict(p), day_index, variants_per_slot)
-        results.append({"parent": p["name"], "status": r.get("status"), "skipped": r.get("skipped", False)})
+    for p in parents_dicts:
+        try:
+            r = await send_whatsapp_opener(p, day_index, variants_per_slot)
+            results.append({"parent": p.get("name"), "status": r.get("status"), "skipped": r.get("skipped", False)})
+        except Exception as e:
+            results.append({"parent": p.get("name"), "status": "failed", "detail": str(e)})
 
-    activated = any((not r["skipped"]) and r["status"] not in ("failed", None) for r in results)
+    activated = True  # welcome sent = activated
 
     async with get_pool().acquire() as conn:
         await conn.execute(
@@ -1556,8 +1589,8 @@ async def activate(user: dict = Depends(get_current_user), _csrf: None = Depends
         await conn.execute(
             "update users set onboarding_complete = true, onboarding_step = 5 where id = $1", user["id"]
         )
-    await audit(user["id"], "activate_whatsapp", {"results": results, "activated": activated})
-    return {"activated": activated, "whatsapp_enabled": whatsapp_enabled(), "results": results}
+    await audit(user["id"], "activate_whatsapp", {"results": results, "activated": activated, "welcome_flow": True})
+    return {"activated": activated, "whatsapp_enabled": whatsapp_enabled(), "results": results, "welcome_sent": True}
 
 # ---------------- Message logs / dashboard ----------------
 @api.get("/messages/logs")
@@ -1583,37 +1616,63 @@ _MEDICINE_FALLBACK = {
     "hi": "दवाई",
 }
 
+_SHAPE_LABELS = {
+    "en": {"round": "round", "oval": "oval", "capsule": "capsule", "oblong": "oblong", "diamond": "diamond", "square": "square"},
+    "te": {"round": "గుండ్రటి", "oval": "ఓవల్", "capsule": "క్యాప్సూల్", "oblong": "పొడవాటి", "diamond": "డైమండ్", "square": "చతురస్రపు"},
+    "hi": {"round": "गोल", "oval": "अंडाकार", "capsule": "कैप्सूल", "oblong": "लंबी", "diamond": "हीरा-आकार", "square": "चौकोर"},
+}
+
+_COLOR_LABELS = {
+    "en": {"white": "white", "cream": "cream", "yellow": "yellow", "orange": "orange", "pink": "pink", "red": "red", "purple": "purple", "blue": "blue", "green": "green", "brown": "brown", "beige": "beige"},
+    "te": {"white": "తెల్ల", "cream": "క్రీమ్ రంగు", "yellow": "పసుపు", "orange": "నారింజ", "pink": "గులాబీ", "red": "ఎర్ర", "purple": "ఊదా", "blue": "నీలం", "green": "ఆకుపచ్చ", "brown": "గోధుమ", "beige": "బేజ్"},
+    "hi": {"white": "सफ़ेद", "cream": "क्रीम रंग की", "yellow": "पीली", "orange": "नारंगी", "pink": "गुलाबी", "red": "लाल", "purple": "बैंगनी", "blue": "नीली", "green": "हरी", "brown": "भूरी", "beige": "बेज"},
+}
+
+_TABLET_WORD = {"en": "tablet", "te": "మాత్ర", "hi": "गोली"}
+
 
 def _resolve_medicine_name(parent: dict, target_time: str = "") -> str:
-    """Pick a real medicine name from parent.medicine_list.
+    """Pick a real medicine from parent.medicine_list and describe it as
+    "<color> <shape> <name> <tablet-word>" in the parent's language
+    (e.g. "white round sugar tablet"), so the WhatsApp message helps them
+    identify the right pill, not just its name.
 
     Mirrors scheduler.py: if target_time is provided, look for the med
-    whose reminder_time matches (HH:MM); else return the first med's
-    name. Falls back to a language-native placeholder if the list is
-    empty.
+    whose reminder_time matches (HH:MM); else use the first med. Falls
+    back to a language-native placeholder if the list is empty or the
+    matched med has no name.
     """
     meds = parent.get("medicine_list") or []
-    # JSONB codec should decode to list-of-dicts; guard for pre-codec strings.
     if isinstance(meds, str):
         try:
             meds = json.loads(meds) or []
         except Exception:
             meds = []
+
+    lang = (parent.get("language") or "en").lower()
+    if lang not in _SHAPE_LABELS:
+        lang = "en"
+
+    chosen = None
     if isinstance(meds, list) and meds:
         if target_time:
             for m in meds:
                 if isinstance(m, dict) and m.get("reminder_time") == target_time:
-                    name = (m.get("name") or "").strip()
-                    if name:
-                        return name
-        first = meds[0]
-        if isinstance(first, dict):
-            name = (first.get("name") or "").strip()
-            if name:
-                return name
-    lang = (parent.get("language") or "en").lower()
-    return _MEDICINE_FALLBACK.get(lang, _MEDICINE_FALLBACK["en"])
+                    chosen = m
+                    break
+        if chosen is None and isinstance(meds[0], dict):
+            chosen = meds[0]
 
+    if chosen:
+        name = (chosen.get("name") or "").strip()
+        if name:
+            shape = _SHAPE_LABELS[lang].get(chosen.get("shape"), "")
+            color = _COLOR_LABELS[lang].get(chosen.get("color"), "")
+            descriptors = " ".join(d for d in (color, shape) if d)
+            tablet_word = _TABLET_WORD[lang]
+            return f"{descriptors} {name} {tablet_word}" if descriptors else f"{name} {tablet_word}"
+
+    return _MEDICINE_FALLBACK.get(lang, _MEDICINE_FALLBACK["en"])
 
 @api.post("/whatsapp/send-test")
 @api.post("/messages/send-test")
@@ -1809,15 +1868,18 @@ async def invite_member(payload: InviteInput, user: dict = Depends(get_current_u
     )
     frontend = os.environ.get("FRONTEND_URL", "").rstrip("/")
     link = f"{frontend}/invite/{invite_token}" if frontend else f"/invite/{invite_token}"
-    email_result = await send_invite_email(
-        to_email=email,
-        owner_name=user.get("name", "Someone"),
-        invite_link=link,
-        parent_display_name=parent_display_name,
-    )
+    try:
+        email_result = await send_invite_email(
+            to_email=email,
+            owner_name=user.get("name", "Someone"),
+            invite_link=link,
+            parent_display_name=parent_display_name,
+        )
+    except Exception as e:
+        logger.error("[circle] send_invite_email raised for %s: %s", email, e, exc_info=True)
+        email_result = {"status": "failed", "detail": str(e)[:200]}
     logger.info("Care circle invite for %s → email_status=%s", email, email_result.get("status"))
     return {"ok": True, "email": email, "invite_link": link, "email_status": email_result.get("status")}
-
 
 @api.post("/circle/accept")
 async def accept_invite(user: dict = Depends(get_current_user)):
@@ -1999,7 +2061,7 @@ def parse_reply(text: str) -> str | None:
     return None
 
 
-async def _notify_family(owner_id, parent, feeling: str | None, is_voice: bool, body: str, keywords: list, ml_flagged: bool = False):
+async def _notify_family(owner_id, parent, feeling: str | None, is_voice: bool, body: str, keywords: list, ml_flagged: bool = False, media_url: str = None, transcription: str | None = None):
     async with get_pool().acquire() as conn:
         owner = await conn.fetchrow("select * from users where id = $1::uuid", owner_id)
         members = await conn.fetch(
@@ -2007,6 +2069,39 @@ async def _notify_family(owner_id, parent, feeling: str | None, is_voice: bool, 
         )
     recipients = ([owner] if owner else []) + list(members)
     pname = parent["name"] if parent else "Your parent"
+
+    # --- NEW VOICE FORWARD LOGIC (Issue #2) ---
+    if is_voice and media_url:
+        from whatsapp import send_audio_link, download_and_host_voice_note
+        hosted_audio_url = await download_and_host_voice_note(media_url, str(parent["id"]) if parent else "unknown")
+
+        is_clear = bool(transcription and transcription.strip() and transcription.strip()!= "[voice note]" and len(transcription.strip()) > 2)
+        translated_text = transcription
+
+        # Translate if clear
+        if is_clear and owner:
+            child_lang = (owner.get("language") or "en").lower()[:2]
+            parent_lang = (parent.get("language") if parent else "en").lower()[:2]
+            if child_lang!= parent_lang:
+                try:
+                    from translation_engine import translate_text
+                    translated_text = await translate_text(transcription, target_language=child_lang, source_language=parent_lang)
+                except Exception as e:
+                    logger.warning(f"[voice] Translation failed: {e}")
+
+        for r in recipients:
+            if not r or not r["phone"]:
+                continue
+            if hosted_audio_url:
+                await send_audio_link(r["phone"], hosted_audio_url)
+            if is_clear:
+                text = f"🎤 {pname} sent you a voice note: {translated_text}"
+            else:
+                text = f"🎤 {pname} sent you a voice note - audio not clear to transcribe, please listen 💛"
+            send_whatsapp(r["phone"], text)
+        return
+
+    # --- Existing logic for text/button ---
     if keywords:
         head = f"🚨 {pname} may need attention. They sent: \"{body}\""
     elif ml_flagged:
@@ -2021,14 +2116,6 @@ async def _notify_family(owner_id, parent, feeling: str | None, is_voice: bool, 
     for r in recipients:
         if r and r["phone"]:
             send_whatsapp(r["phone"], head)
-    if keywords and parent:
-        member_phones = {r["phone"] for r in recipients if r}
-        contacts = parent["emergency_contacts"]
-        contacts = json.loads(contacts) if isinstance(contacts, str) else (contacts or [])
-        for c in contacts:
-            cph = c.get("phone")
-            if cph and cph not in member_phones:
-                send_whatsapp(cph, head)
 
 # ── Generic-payload disambiguation ──────────────────────────────────────
 _GENERIC_REMINDER_PAYLOADS = {
@@ -2231,7 +2318,7 @@ async def _record_reply(from_number: str, body_text: str, num_media: int = 0, pa
                 owner_id, parent["id"], from_number, body_text, json.dumps(keywords), intent, is_voice,
             )
     if parent and owner_id:
-        await _notify_family(owner_id, parent, feeling, is_voice, body_text, keywords, ml_flagged)
+        await _notify_family(owner_id, parent, feeling, is_voice, body_text, keywords, ml_flagged, media_url=media_url, transcription=transcription or body_text)
     return dict(reply_row)
 
 
