@@ -224,19 +224,32 @@ async def _deliver_due_messages_impl():
                         continue
 
                     msg_type = category_type(msg.get("category"))
-                    if sent_counts[msg_type] >= limits.get(f"{msg_type}s", 0):
+                    _limit_key = {"checkin": "checkins", "reminder": "reminders", "activity": "activities"}[msg_type]
+                    if sent_counts[msg_type] >= limits.get(_limit_key, 0):
                         continue
 
                     medicine_name = ""
                     if msg.get("category") == "medicine":
                         medicines = parent["medicine_list"] or []
+                        chosen = None
                         if medicines:
                             for med in medicines:
                                 if isinstance(med, dict) and med.get("reminder_time") == hhmm:
-                                    medicine_name = med.get("name", "")
+                                    chosen = med
                                     break
-                            if not medicine_name and isinstance(medicines[0], dict):
-                                medicine_name = medicines[0].get("name", "")
+                            if chosen is None and isinstance(medicines[0], dict):
+                                chosen = medicines[0]
+                        if chosen:
+                            # Describe the pill by colour + shape so the parent can
+                            # recognise it visually — not just a generic 💊.
+                            name = chosen.get("name", "")
+                            descr = " ".join(x for x in [chosen.get("color"), chosen.get("shape")] if x).strip()
+                            dose = chosen.get("dose")
+                            medicine_name = name
+                            if descr:
+                                medicine_name = f"{name} ({descr})" if name else descr
+                            if dose:
+                                medicine_name = f"{medicine_name} — {dose}"
 
                     result = await send_dynamic_checkin(
                         dict(parent),

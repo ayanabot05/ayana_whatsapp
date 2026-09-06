@@ -976,18 +976,18 @@ function CircleTab({ circle, planId, plan, parents, reload }) {
         ) : (
           <>
             <div className="mt-4 flex flex-col sm:flex-row gap-2" data-testid="invite-form">
-              <div className="relative flex-1">
+              <div className="relative flex-1 min-w-0">
                 <Mail className="w-4 h-4 text-ayana-muted absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
                 <input value={email} onChange={(e) => setEmail(e.target.value)} data-testid="invite-email" placeholder="sibling@email.com" type="email" autoComplete="off"
   className="w-full pl-9 pr-3 py-2.5 rounded-lg border border-ayana-line bg-white text-sm focus:outline-none focus:ring-2 focus:ring-ayana-accent/50" />
               </div>
-              <select value={parentId} onChange={(e) => setParentId(e.target.value)} className="w-full px-3.5 py-2.5 rounded-lg border border-ayana-line bg-white text-sm focus:outline-none focus:ring-2 focus:ring-ayana-bright/50 focus:border-ayana-bright transition" data-testid="invite-parent-select">
+              <select value={parentId} onChange={(e) => setParentId(e.target.value)} className="w-full sm:w-44 shrink-0 px-3.5 py-2.5 rounded-lg border border-ayana-line bg-white text-sm focus:outline-none focus:ring-2 focus:ring-ayana-bright/50 focus:border-ayana-bright transition" data-testid="invite-parent-select">
                 <option value="">All parents</option>
                 {parents.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
               </select>
               <button onClick={invite} disabled={busy || !email} data-testid="invite-send" className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-full bg-ayana-primary text-white text-sm font-medium hover:bg-ayana-primary-hover disabled:opacity-50">{busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserPlus className="w-4 h-4" />} Invite</button>
             </div>
-            {lastLink && <p className="mt-2 text-xs text-ayana-muted break-all">Invite link (email sending coming soon): <span className="text-ayana-primary">{lastLink}</span></p>}
+            {lastLink && <p className="mt-2 text-xs text-ayana-muted break-all">Invite link (share manually if the email doesn't arrive): <span className="text-ayana-primary">{lastLink}</span></p>}
             <p className="mt-2 text-xs text-ayana-muted">{(circle.members?.length || 0) + (circle.invites?.length || 0)} / {circle.max_members} members used</p>
           </>
         )}

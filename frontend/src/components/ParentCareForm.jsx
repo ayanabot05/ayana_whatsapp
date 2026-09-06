@@ -1,11 +1,11 @@
 import {
   Users, Sunrise, Clock, Pill, Coffee, Heart, Utensils, Moon, Plus, Trash2,
-  CalendarDays, BookOpen, VolumeX, Timer, HeartPulse,
+  CalendarDays, BookOpen, VolumeX, Timer, HeartPulse, Activity,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import { PhoneInput } from "@/components/PhoneInput";
-import { ScheduleEditor, ReminderEditor } from "@/components/ScheduleEditor";
+import { ScheduleEditor, ReminderEditor, ActivityEditor } from "@/components/ScheduleEditor";
 import { TIMEZONES } from "@/lib/constants";
 import {
   FALLBACK_LANGUAGES, FALLBACK_RELATIONSHIPS, FALLBACK_CATEGORIES,
@@ -121,6 +121,7 @@ export function ParentCareForm({ form, setForm, newMed, setNewMed, config, limit
 
   const maxCheckins = limits?.checkins || 2;
   const maxReminders = limits?.reminders || 2;
+  const maxActivities = limits?.activities || 1;
 
   const t = (suffix) => `${idPrefix}-${suffix}`;
 
@@ -350,6 +351,26 @@ export function ParentCareForm({ form, setForm, newMed, setNewMed, config, limit
             categories={rawCategories}
             maxReminders={maxReminders}
             medicineCount={(form.medicine_list || []).length}
+          />
+        </div>
+
+        {/* Daily activities — walk / tea-coffee / water / how-feeling nudges.
+            A separate plan bucket from medical reminders and check-ins. */}
+        <div className="pt-4 border-t border-ayana-line/50">
+          <div className="flex items-center justify-between mb-2">
+            <label className="text-sm font-medium text-ayana-text flex items-center gap-1.5">
+              <Activity className="w-3.5 h-3.5 text-ayana-mint" /> Daily activities (optional)
+            </label>
+            <span className="text-xs text-ayana-muted">
+              {(form.messages || []).filter((m) => (m.type || "checkin") === "activity").length}/{maxActivities} activities used
+            </span>
+          </div>
+          <p className="text-xs text-ayana-secondary mb-2">Gentle lifestyle nudges — a walk, tea/coffee, water, or a quick "how are you feeling?"</p>
+          <ActivityEditor
+            messages={form.messages || []}
+            setMessages={(msgs) => setForm({ ...form, messages: msgs })}
+            categories={rawCategories}
+            maxActivities={maxActivities}
           />
         </div>
       </section>

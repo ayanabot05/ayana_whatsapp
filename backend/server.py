@@ -151,6 +151,7 @@ from whatsapp import (
     whatsapp_enabled,
     send_care_circle_activation_welcome,  # NEW
     send_welcome_for_new_parent,          # NEW
+    send_parent_goodbye,                  # NEW: farewell on removal/downgrade
 )
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -303,6 +304,10 @@ def is_member(user) -> bool:
 
 
 async def _get_plan_id(user) -> str:
+    # Admins always get top-tier access, independent of any payment state —
+    # so the owner's admin login keeps working even after payments go live.
+    if (user or {}).get("role") == "admin":
+        return "raksha"
     async with get_pool().acquire() as conn:
         ps = await conn.fetchrow("select * from payment_state where user_id = $1", scope(user))
     return resolve_plan_id((ps or {}).get("plan", "nitya") if ps else "nitya")
@@ -858,6 +863,14 @@ async def update_child(
             detail="Please verify your phone number with the SMS code before continuing.",
         )
     async with get_pool().acquire() as conn:
+        clash_parent = await conn.fetchrow(
+            "select 1 from parents where phone = $1 and deleted_at is null", normalized
+        )
+        if clash_parent:
+            raise HTTPException(
+                status_code=400,
+                detail="This number is already set up as a parent receiving check-ins. Your own login number must be different from your parent's.",
+            )
         await conn.execute(
             """
             update users
@@ -898,6 +911,46 @@ def _parent_insert_values(doc: dict) -> tuple[list, str, str]:
     return values, ", ".join(cols), ", ".join(placeholders)
 
 
+async def _assert_phone_role_available(conn, acting_user: dict, phone: str, exclude_parent_id: str | None = None):
+    """
+    Enforce a single role per phone number so the same person can't be
+    registered as both a child (account) and a parent, and so a parent's
+    WhatsApp number can't be reused across households.
+
+      1. A parent's number must differ from the account owner's own number.
+      2. A parent's number must not belong to any registered account (child).
+      3. A parent's number must not already be an active parent elsewhere.
+    """
+    norm = _normalize_phone(phone)
+
+    owner_phone = acting_user.get("phone")
+    if owner_phone and _normalize_phone(owner_phone) == norm:
+        raise HTTPException(
+            status_code=400,
+            detail="This is your own number. A parent must be a different person — please enter your parent's WhatsApp number.",
+        )
+
+    clash_user = await conn.fetchrow(
+        "select 1 from users where phone = $1 and id <> $2::uuid and deleted_at is null",
+        norm, acting_user["id"],
+    )
+    if clash_user:
+        raise HTTPException(
+            status_code=400,
+            detail="This number already belongs to an AYANA account holder. A parent's number can't be someone's login number.",
+        )
+
+    clash_parent = await conn.fetchrow(
+        "select 1 from parents where phone = $1 and deleted_at is null and ($2::uuid is null or id <> $2::uuid)",
+        norm, exclude_parent_id,
+    )
+    if clash_parent:
+        raise HTTPException(
+            status_code=400,
+            detail="This number is already set up as a parent receiving check-ins. Each parent's WhatsApp number can only be used once.",
+        )
+
+
 @api.get("/parents")
 async def list_parents(user: dict = Depends(get_current_user)):
     async with get_pool().acquire() as conn:
@@ -924,6 +977,7 @@ async def create_parent(payload: ParentInput, background_tasks: BackgroundTasks,
                     "Upgrade to Bandham or Raksha to add more."
                 ),
             )
+        await _assert_phone_role_available(conn, user, payload.phone)
         doc = payload.model_dump()
         values, cols, placeholders = _parent_insert_values(doc)
         values.append(uid)
@@ -960,6 +1014,8 @@ async def update_parent(parent_id: str, payload: ParentInput, user: dict = Depen
             raise HTTPException(status_code=404, detail="Parent not found")
 
         update_data = payload.model_dump(exclude_unset=True)
+        if "phone" in update_data:
+            await _assert_phone_role_available(conn, user, update_data["phone"], exclude_parent_id=parent_id)
         if update_data:
             set_clauses, values = [], []
             for field, val in update_data.items():
@@ -989,8 +1045,13 @@ async def update_parent(parent_id: str, payload: ParentInput, user: dict = Depen
     return out
 
 @api.delete("/parents/{parent_id}")
-async def delete_parent(parent_id: str, user: dict = Depends(get_current_user), _csrf: None = Depends(validate_csrf_token)):
+async def delete_parent(parent_id: str, background_tasks: BackgroundTasks, user: dict = Depends(get_current_user), _csrf: None = Depends(validate_csrf_token)):
     async with get_pool().acquire() as conn:
+        parent = await conn.fetchrow(
+            "select * from parents where id = $1::uuid and user_id = $2 and deleted_at is null",
+            parent_id, scope(user),
+        )
+        activation = await conn.fetchrow("select whatsapp_activated from activation_state where user_id = $1", scope(user))
         await conn.execute(
             "update parents set deleted_at = now() where id = $1::uuid and user_id = $2",
             parent_id, scope(user),
@@ -999,6 +1060,9 @@ async def delete_parent(parent_id: str, user: dict = Depends(get_current_user), 
             "update schedules set deleted_at = now(), active = false where parent_id = $1::uuid",
             parent_id,
         )
+    # Warm farewell only if this parent was actually live on WhatsApp.
+    if parent and activation and activation["whatsapp_activated"]:
+        background_tasks.add_task(send_parent_goodbye, dict(parent))
     return {"ok": True}
 
 # ---------------- Emergency contacts (distinct from Care Circle) ----------------
@@ -2820,15 +2884,26 @@ async def admin_stats(admin: dict = Depends(get_current_admin)):
         completed = await conn.fetchval(
             "select count(*) from users where role = 'user' and onboarding_complete = true and deleted_at is null"
         )
+        new_today = await conn.fetchval(
+            "select count(*) from users where role = 'user' and deleted_at is null and created_at >= date_trunc('day', now())"
+        )
+        new_7d = await conn.fetchval(
+            "select count(*) from users where role = 'user' and deleted_at is null and created_at >= now() - interval '7 days'"
+        )
         activated = await conn.fetchval("select count(*) from activation_state where whatsapp_activated = true")
         parents = await conn.fetchval("select count(*) from parents where deleted_at is null")
         schedules = await conn.fetchval("select count(*) from schedules where deleted_at is null and active = true")
         messages = await conn.fetchval("select count(*) from message_logs")
         emergencies = await conn.fetchval("select count(*) from emergency_events where status = 'open'")
+        paying = await conn.fetchval("select count(*) from payment_state where status in ('active', 'paid', 'trialing')")
+        plan_rows = await conn.fetch("select coalesce(plan, 'none') as plan, count(*) as n from payment_state group by plan")
+        plan_breakdown = {r["plan"]: r["n"] for r in plan_rows}
     return {
         "total_users": total_users, "completed_onboarding": completed,
+        "new_today": new_today, "new_7d": new_7d,
         "activated": activated, "parents": parents, "active_schedules": schedules,
         "messages_delivered": messages, "open_emergencies": emergencies,
+        "paying_users": paying, "plan_breakdown": plan_breakdown,
         "whatsapp_enabled": whatsapp_enabled(),
     }
 
