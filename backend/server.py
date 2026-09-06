@@ -17,6 +17,7 @@ Fixed file: server_fixed.py
 """
 
 import asyncio
+import asyncpg
 import hmac
 import json
 import logging
@@ -542,6 +543,19 @@ async def register(request: Request, response: Response, payload: RegisterInput)
     async with get_pool().acquire() as conn:
         if await conn.fetchrow("select 1 from users where email = $1", email):
             raise HTTPException(status_code=400, detail="An account with this email already exists.")
+        # Mirror _assert_phone_role_available's parent-role check here too:
+        # without this, a new account can be created using a phone number
+        # that's already a live parent's WhatsApp number, and the clash isn't
+        # caught until the child later revisits update_child with that same
+        # number (if ever).
+        clash_parent = await conn.fetchrow(
+            "select 1 from parents where phone = $1 and deleted_at is null", _normalize_phone(payload.phone)
+        )
+        if clash_parent:
+            raise HTTPException(
+                status_code=400,
+                detail="This number is already set up as a parent receiving check-ins. Please use a different phone number for your own account.",
+            )
         invite = await conn.fetchrow(
             "select * from circle_invites where email = $1 and status = 'pending'", email
         )
@@ -951,6 +965,21 @@ async def _assert_phone_role_available(conn, acting_user: dict, phone: str, excl
         )
 
 
+def _raise_if_phone_unique_violation(exc: Exception):
+    """
+    Translate a idx_parents_phone_unique violation (the DB-level backstop for
+    _assert_phone_role_available, hit only under a genuine race between two
+    concurrent requests) into the same friendly 400 the app-layer check
+    gives on the non-race path, instead of an unhandled 500.
+    """
+    if isinstance(exc, asyncpg.UniqueViolationError) and "idx_parents_phone_unique" in (exc.constraint_name or ""):
+        raise HTTPException(
+            status_code=400,
+            detail="This number is already set up as a parent receiving check-ins. Each parent's WhatsApp number can only be used once.",
+        ) from exc
+    raise exc
+
+
 @api.get("/parents")
 async def list_parents(user: dict = Depends(get_current_user)):
     async with get_pool().acquire() as conn:
@@ -981,14 +1010,17 @@ async def create_parent(payload: ParentInput, background_tasks: BackgroundTasks,
         doc = payload.model_dump()
         values, cols, placeholders = _parent_insert_values(doc)
         values.append(uid)
-        row = await conn.fetchrow(
-            f"""
-            insert into parents (user_id, {cols}, created_at, deleted_at)
-            values (${len(values)}, {placeholders}, now(), null)
-            returning *
-            """,
-            *values,
-        )
+        try:
+            row = await conn.fetchrow(
+                f"""
+                insert into parents (user_id, {cols}, created_at, deleted_at)
+                values (${len(values)}, {placeholders}, now(), null)
+                returning *
+                """,
+                *values,
+            )
+        except asyncpg.UniqueViolationError as e:
+            _raise_if_phone_unique_violation(e)
         await conn.execute(
             "update users set onboarding_step = greatest(onboarding_step, 3) where id = $1", user["id"]
         )
@@ -1026,10 +1058,13 @@ async def update_parent(parent_id: str, payload: ParentInput, user: dict = Depen
                 set_clauses.append(f"{field} = ${len(values)}{cast}")
             if set_clauses:
                 values.append(parent_id)
-                await conn.execute(
-                    f"update parents set {', '.join(set_clauses)} where id = ${len(values)}::uuid and deleted_at is null",
-                    *values,
-                )
+                try:
+                    await conn.execute(
+                        f"update parents set {', '.join(set_clauses)} where id = ${len(values)}::uuid and deleted_at is null",
+                        *values,
+                    )
+                except asyncpg.UniqueViolationError as e:
+                    _raise_if_phone_unique_violation(e)
 
         sync_result = None
         if "medicine_list" in update_data:

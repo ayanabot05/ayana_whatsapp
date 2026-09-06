@@ -380,7 +380,7 @@ export default function Dashboard() {
           </TabBoundary></TabsContent>
 
           <TabsContent value="plan" className="mt-6"><TabBoundary tab="plan" onRetry={load}>
-            <PlanTab plans={plans} currencies={currencies} planId={planId} plan={plan} usage={usage} circle={circle} reload={load} currentBilling={payment?.state?.billing || "month"} paymentsEnabled={!!payment?.payments_enabled} />
+            <PlanTab plans={plans} currencies={currencies} planId={planId} plan={plan} usage={usage} circle={circle} parents={parents} reload={load} currentBilling={payment?.state?.billing || "month"} paymentsEnabled={!!payment?.payments_enabled} />
           </TabBoundary></TabsContent>
 
           <TabsContent value="account" className="mt-6 max-w-xl"><TabBoundary tab="account" onRetry={load}>
