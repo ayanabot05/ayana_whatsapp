@@ -133,8 +133,11 @@ export default function Admin() {
 
   const cards = [
     { icon: Users,         label: "Total users",          value: stats.total_users          },
+    { icon: Users,         label: "New today",            value: stats.new_today ?? 0        },
+    { icon: Users,         label: "New this week",        value: stats.new_7d ?? 0           },
     { icon: CheckCircle2,  label: "Completed onboarding", value: stats.completed_onboarding },
     { icon: Activity,      label: "Activated circles",    value: stats.activated            },
+    { icon: CalendarHeart, label: "Paying users",         value: stats.paying_users ?? 0     },
     { icon: CalendarHeart, label: "Active schedules",     value: stats.active_schedules     },
     { icon: MessageCircle, label: "Messages delivered",   value: stats.messages_delivered   },
     { icon: AlertTriangle, label: "Open emergencies",     value: stats.open_emergencies     },

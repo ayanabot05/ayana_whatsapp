@@ -667,3 +667,23 @@ async def send_welcome_for_new_parent(
     new_parent: Dict[str, Any],
 ) -> Dict[str, Any]:
     return await send_care_circle_activation_welcome(child_user, [new_parent])
+
+
+# ── Farewell when a parent is removed (e.g. on plan downgrade) ─────────────
+_GOODBYE_TEXT = {
+    "en": "Namaste {name} 💛 AYANA's daily check-ins are being paused for now. It's been a joy checking in on you. Take good care — your family loves you.",
+    "te": "నమస్తే {name} 💛 ప్రస్తుతానికి AYANA రోజువారీ పలకరింపులు ఆపుతున్నాం. మిమ్మల్ని పలకరించడం చాలా సంతోషంగా ఉంది. జాగ్రత్తగా ఉండండి — మీ కుటుంబం మిమ్మల్ని ఎంతో ప్రేమిస్తోంది.",
+    "hi": "नमस्ते {name} 💛 अभी के लिए AYANA की रोज़ की बातचीत रोकी जा रही है। आपका हाल पूछना बहुत अच्छा लगा। अपना ख्याल रखिए — आपका परिवार आपसे बहुत प्यार करता है।",
+}
+
+
+async def send_parent_goodbye(parent: Dict[str, Any]) -> Dict[str, Any]:
+    """Warm free-text farewell to a parent whose check-ins are stopping."""
+    phone = parent.get("phone")
+    if not phone:
+        return {"status": "skipped", "detail": "no phone"}
+    name = parent.get("preferred_name") or parent.get("name") or "there"
+    lang = parent.get("language") or "en"
+    body = _GOODBYE_TEXT.get(lang, _GOODBYE_TEXT["en"]).format(name=name)
+    logger.info("[goodbye] -> %s (%s)", phone, name)
+    return send_whatsapp(phone, body)

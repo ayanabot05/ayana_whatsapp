@@ -106,6 +106,48 @@ function MiniChatPanel({ langCode, isActive }) {
   );
 }
 
+// "What YOU see" — the child's WhatsApp notification stream from AYANA,
+// modelled on a real family's chat (mood taps, voice notes, no-reply alert).
+const CHILD_FEED = [
+  { kind: "reply", who: "Devi", mood: "😊", text: "Good", time: "6:57 PM" },
+  { kind: "voice", who: "Devi", text: "sent you a voice note — tap to listen 🎤", time: "6:16 PM" },
+  { kind: "alert", text: "Rama Raju hasn't replied to today's check-ins yet. You may want to give them a call. — AYANA 💛", time: "7:52 PM" },
+  { kind: "reply", who: "Rama Raju", mood: "😊", text: "బాగున్నాను", time: "7:52 PM" },
+  { kind: "reply", who: "Devi", mood: "😟", text: "Not well", time: "9:52 PM" },
+];
+
+function ChildNotificationPanel() {
+  return (
+    <div className="rounded-2xl overflow-hidden shadow-lg border border-ayana-line max-w-sm mx-auto" data-testid="child-view-panel">
+      <div className="bg-[#075E54] px-4 py-3 flex items-center gap-3">
+        <div className="w-8 h-8 rounded-full bg-ayana-gold/30 flex items-center justify-center text-base">💛</div>
+        <div>
+          <p className="text-white text-sm font-semibold leading-none">AYANA</p>
+          <p className="text-white/60 text-[11px] mt-0.5">Updates from your parents · today</p>
+        </div>
+        <span className="ml-auto w-2 h-2 rounded-full bg-[#25D366] animate-pulse" />
+      </div>
+      <div className="bg-[#0B141A] px-3 py-4 space-y-2.5 min-h-[160px]">
+        {CHILD_FEED.map((n, i) => (
+          <div key={i} className={`max-w-[92%] rounded-2xl rounded-tl-sm px-3.5 py-2.5 ${n.kind === "alert" ? "bg-[#3a2f1a] border border-amber-500/30" : "bg-[#1F2C34]"}`}>
+            {n.kind === "reply" && (
+              <p className="text-white text-[12px] leading-relaxed"><span className="text-white/50">💬 {n.who} replied:</span> {n.mood} <b>{n.text}</b></p>
+            )}
+            {n.kind === "voice" && (
+              <p className="text-white text-[12px] leading-relaxed">🎤 {n.who} {n.text}</p>
+            )}
+            {n.kind === "alert" && (
+              <p className="text-amber-100 text-[12px] leading-relaxed">⚠️ {n.text}</p>
+            )}
+            <p className="text-white/40 text-[10px] text-right mt-1">{n.time}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+
 // Simple lightbox for the walkthrough video
 function VideoWalkthroughModal({ open, onClose, src }) {
   const [errored, setErrored] = useState(false);
@@ -368,6 +410,28 @@ export default function Landing() {
               <span className="inline-flex items-center gap-2 text-xs font-medium text-ayana-secondary bg-white border border-ayana-line px-4 py-2 rounded-full shadow-sm">
                 <MessageCircle className="w-3.5 h-3.5 text-[#25D366]" />
                 {demoT.badge}
+              </span>
+            </div>
+          </div>
+        </section>
+
+        {/* WHAT THE CHILD SEES — mirrors the Amma section above */}
+        <section id="what-you-see" className="bg-warm-peach">
+          <div className="max-w-7xl mx-auto px-5 sm:px-8 py-20 lg:py-28">
+            <div className="text-center max-w-2xl mx-auto mb-12">
+              <Eyebrow center>What you actually see</Eyebrow>
+              <h2 className="font-display font-extrabold text-3xl sm:text-4xl lg:text-5xl leading-[1.05] text-ayana-text">
+                <HighlightText text="Peace of mind, in one glance." ranges={[[0, 0.35]]} colors={["text-gradient-gold"]} />
+              </h2>
+              <p className="font-serif text-xl sm:text-2xl text-ayana-secondary mt-4">
+                Every time your parent taps a button or sends a voice note, it lands on your WhatsApp instantly. No app to open — you just know they're okay.
+              </p>
+            </div>
+            <ChildNotificationPanel />
+            <div className="mt-8 flex justify-center">
+              <span className="inline-flex items-center gap-2 text-xs font-medium text-ayana-secondary bg-white border border-ayana-line px-4 py-2 rounded-full shadow-sm">
+                <MessageCircle className="w-3.5 h-3.5 text-[#25D366]" />
+                Live updates, plus a gentle nudge if they go quiet
               </span>
             </div>
           </div>

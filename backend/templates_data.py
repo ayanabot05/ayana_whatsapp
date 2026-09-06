@@ -53,13 +53,20 @@ CATEGORY_TO_TEMPLATE = {
 
 CHECKIN_CATEGORIES = {
     "morning_wish", "breakfast", "lunch", "dinner", "afternoon_checkin",
-    "tea_check", "walk_check", "how_feeling", "goodnight", "love_note",
+    "goodnight", "love_note",
 }
-REMINDER_CATEGORIES = {"medicine", "water", "bp_check", "sugar_check", "health_check"}
+REMINDER_CATEGORIES = {"medicine", "bp_check", "sugar_check", "health_check"}
+# Daily routine / lifestyle nudges — a distinct plan bucket from medical
+# reminders (medicine/BP/sugar/health) and from emotional check-ins.
+ACTIVITY_CATEGORIES = {"walk_check", "tea_check", "water", "how_feeling"}
 
 
 def category_type(category: str) -> str:
-    return "reminder" if category in REMINDER_CATEGORIES else "checkin"
+    if category in REMINDER_CATEGORIES:
+        return "reminder"
+    if category in ACTIVITY_CATEGORIES:
+        return "activity"
+    return "checkin"
 
 
 def get_template_sid_key(category: str) -> str:
@@ -125,31 +132,31 @@ def get_nicknames_for_day(parent: dict, day_index: int) -> tuple[str, str, str]:
 SLOT_VARIANTS: dict[str, dict[str, list[str]]] = {
     "morning_wish": {
         "en": [
-            "Good morning {nick1} ☀ {city} morning is {season} — how did you sleep?",
-            "{nick2}, had good sleep? 😊",
-            "Good morning {nick1}, up already? Hope you slept well.",
-            "{nick1}, morning walk done? 🚶‍♀️",
-            "Hello {nick1} 🌸 thinking of you this morning.",
-            "Good morning {nick2} — {city} is {season} today.",
-            "Morning {nick3}, did you have your {tea_type} yet?",
+            "Good morning {nick1} ☀️ How did you sleep last night?",
+            "{nick2}, did you sleep well? 😊",
+            "Good morning {nick1}, up already? Hope you rested well.",
+            "Morning {nick1} 🌸 How was your sleep?",
+            "Rise and shine {nick2}! Did you get good rest?",
+            "Good morning {nick1} — did the night go peacefully?",
+            "Morning {nick3}, hope you slept nicely last night. 💛",
         ],
         "te": [
-            "శుభోదయం {nick1} ☀ {city}లో {season}? నిద్ర బాగా పట్టిందా?",
-            "{nick2}, నిద్ర బాగా పట్టిందా? 😊",
-            "శుభోదయం {nick1}, లేచావా? బాగా నిద్రపోయావా?",
-            "{nick1}, వాకింగ్‌కి వెళ్ళావా? 🚶‍♀️",
-            "హలో {nick1} 🌸 పొద్దున్నే నీ గుర్తొచ్చింది.",
-            "శుభోదయం {nick2} — {city}లో {season}.",
-            "{nick3}, {tea_type} తాగావా?",
+            "శుభోదయం {nick1} ☀️ రాత్రి నిద్ర బాగా పట్టిందా?",
+            "{nick2}, బాగా నిద్రపోయావా? 😊",
+            "శుభోదయం {nick1}, లేచావా? బాగా విశ్రాంతి తీసుకున్నావా?",
+            "పొద్దున్నే {nick1} 🌸 నిద్ర ఎలా పట్టింది?",
+            "లే {nick2}! రాత్రి బాగా నిద్రపోయావా?",
+            "శుభోదయం {nick1} — రాత్రి ప్రశాంతంగా గడిచిందా?",
+            "శుభోదయం {nick3}, రాత్రి హాయిగా నిద్రపోయావా? 💛",
         ],
         "hi": [
-            "गुड मॉर्निंग {nick1} ☀ {city} में आज {season} — नींद अच्छी आई?",
-            "{nick2}, नींद अच्छी आई? 😊",
-            "गुड मॉर्निंग {nick1}, उठ गईं? अच्छी नींद आई?",
-            "{nick1}, सुबह की सैर हो गई? 🚶‍♀️",
-            "हैलो {nick1} 🌸 सुबह-सुबह आपकी याद आई।",
-            "गुड मॉर्निंग {nick2} — {city} में आज {season}।",
-            "{nick3}, {tea_type} पी ली?",
+            "गुड मॉर्निंग {nick1} ☀️ रात को नींद कैसी आई?",
+            "{nick2}, अच्छी नींद आई? 😊",
+            "गुड मॉर्निंग {nick1}, उठ गए? अच्छे से आराम हुआ?",
+            "सुप्रभात {nick1} 🌸 नींद कैसी रही?",
+            "उठिए {nick2}! अच्छी नींद हुई?",
+            "गुड मॉर्निंग {nick1} — रात चैन से बीती?",
+            "गुड मॉर्निंग {nick3}, रात अच्छी नींद आई? 💛",
         ],
     },
     "breakfast": {
@@ -157,7 +164,7 @@ SLOT_VARIANTS: dict[str, dict[str, list[str]]] = {
             "{nick1}, had your breakfast? 🍵 Don't skip it!",
             "Tiffin done, {nick2}?",
             "{nick1}, eat properly this morning, don't rush 😊",
-            "Breakfast time {nick3} — what did you have?",
+            "Breakfast time {nick3} — have you eaten yet?",
             "{nick1}, please don't skip breakfast today.",
             "Morning meal done, {nick2}? 🍵",
             "{nick1}, hope breakfast was good today.",
@@ -166,7 +173,7 @@ SLOT_VARIANTS: dict[str, dict[str, list[str]]] = {
             "{nick1}, టిఫిన్ చేసావా? 🍵 మానకు!",
             "టిఫిన్ అయ్యిందా, {nick2}?",
             "{nick1}, తొందర పడకుండా తిను 😊",
-            "బ్రేక్ఫాస్ట్ టైం {nick3} — ఏం తిన్నావ్?",
+            "బ్రేక్ఫాస్ట్ టైం {nick3} — తిన్నావా?",
             "{nick1}, ఈరోజు టిఫిన్ మానకు.",
             "పొద్దున్న తిండి అయ్యిందా, {nick2}? 🍵",
             "{nick1}, టిఫిన్ బాగుందా ఈరోజు?",
@@ -175,7 +182,7 @@ SLOT_VARIANTS: dict[str, dict[str, list[str]]] = {
             "{nick1}, नाश्ता किया? 🍵 छोड़ना मत!",
             "नाश्ता हो गया, {nick2}?",
             "{nick1}, आराम से खाना, जल्दबाज़ी मत करना 😊",
-            "नाश्ते का समय {nick3} — क्या खाया?",
+            "नाश्ते का समय {nick3} — कुछ खाया?",
             "{nick1}, आज नाश्ता मत छोड़ना।",
             "सुबह का खाना हो गया, {nick2}? 🍵",
             "{nick1}, आज नाश्ता अच्छा था?",
@@ -609,9 +616,9 @@ async def render_slot_body_async(
 # ── Tap-only quick-reply buttons (language-aware, no typing 1/2/3) ─────────
 BUTTONS: dict[str, dict[str, list[tuple[str, str]]]] = {
     "morning_wish": {
-        "en": [("Good 😊", "feeling:good"), ("Okay 🙂", "feeling:okay"), ("Not well 😟", "feeling:not_well")],
-        "te": [("😊 బాగున్నా", "feeling:good"), ("😐 ఫర్వాలేదు", "feeling:okay"), ("😟 బాలేదు", "feeling:not_well")],
-        "hi": [("😊 ठीक हूँ", "feeling:good"), ("😐 ठीक-ठाक", "feeling:okay"), ("😟 ठीक नहीं", "feeling:not_well")],
+        "en": [("Slept well 😴", "feeling:good"), ("So-so 🙂", "feeling:okay"), ("Couldn't sleep 😔", "feeling:not_well")],
+        "te": [("😴 బాగా నిద్రపోయా", "feeling:good"), ("🙂 అలా అలా", "feeling:okay"), ("😔 నిద్ర పట్టలేదు", "feeling:not_well")],
+        "hi": [("😴 अच्छी नींद आई", "feeling:good"), ("🙂 ठीक-ठाक", "feeling:okay"), ("😔 नींद नहीं आई", "feeling:not_well")],
     },
     "how_feeling": {
         "en": [("Good 😊", "feeling:good"), ("Okay 🙂", "feeling:okay"), ("Not well 😟", "feeling:not_well")],

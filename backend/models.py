@@ -170,7 +170,7 @@ class ParentInput(BaseModel):
     # When set, outbound messages are deferred if sent outside this window.
     activity_window_start: Optional[str] = Field(None, pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
     activity_window_end: Optional[str] = Field(None, pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
-    auto_activity_detection: bool = True
+    auto_activity_detection: bool = False
 
     @field_validator("phone")
     @classmethod
@@ -247,15 +247,27 @@ class ScheduleInput(BaseModel):
     @field_validator("messages")
     @classmethod
     def limit_messages(cls, v, info):
+        from templates_data import category_type
         mode = info.data.get("mode", "nitya") if hasattr(info, "data") else "nitya"
         limits = plan_limits(mode)
-        max_touches = limits["templates_per_day"]
-        if info.data.get("recovery_mode") and limits.get("recovery_mode"):
-            max_touches += limits.get("recovery_extra_reminders", 0)
-        if len(v) > max_touches:
-            raise ValueError(f"This plan allows max {max_touches} daily messages.")
         if len(v) == 0:
             raise ValueError("Add at least 1 daily check-in")
+
+        counts = {"checkin": 0, "reminder": 0, "activity": 0}
+        for m in v:
+            counts[category_type(m.category)] += 1
+
+        limit_key = {"checkin": "checkins", "reminder": "reminders", "activity": "activities"}
+        labels = {"checkin": "check-ins", "reminder": "medicine reminders", "activity": "daily activities"}
+        recovery_extra = limits.get("recovery_extra_reminders", 0) if (info.data.get("recovery_mode") and limits.get("recovery_mode")) else 0
+        for t, n in counts.items():
+            allowed = limits.get(limit_key[t], 0) + (recovery_extra if t == "reminder" else 0)
+            if n > allowed:
+                raise ValueError(f"This plan allows up to {allowed} {labels[t]} per day.")
+
+        max_total = limits["templates_per_day"] + recovery_extra
+        if len(v) > max_total:
+            raise ValueError(f"This plan allows max {max_total} daily messages.")
         return v
 
 

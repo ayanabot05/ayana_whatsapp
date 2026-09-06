@@ -212,7 +212,8 @@ export default function Onboarding() {
     if (parentForm.phone.length < 8) { toast.error("Please enter a valid WhatsApp number."); return; }
     if (!parentConsent) { toast.error("Please confirm you have your parent's consent."); return; }
     if (parentForm.messages.length === 0) { toast.error("Add at least one daily check-in."); return; }
-    if (parentForm.messages.length > maxCheckins) { toast.error(`Your plan allows up to ${maxCheckins} check-ins. Remove some or upgrade.`); return; }
+    const checkinCount = parentForm.messages.filter((m) => (m.type || "checkin") === "checkin").length;
+    if (checkinCount > maxCheckins) { toast.error(`Your plan allows up to ${maxCheckins} check-ins. Remove some or upgrade.`); return; }
     setLoading(true);
     try {
       const { messages, reengagement_hours, ...parentData } = parentForm;

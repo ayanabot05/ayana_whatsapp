@@ -127,16 +127,22 @@
 **Delivery logic:** Session closed → Meta template (costs per message). Session open (parent replied within 24h) → Free interactive quick-reply buttons with rich rotating content.
 
 ---
+## Pricing & Plans
 
-## Pricing Tiers
+USD prices are the global anchor; INR is priced for the Indian market. All plans are monthly or yearly (yearly ≈ 2 months free).
 
-| Tier | Parents | Care Circle | Daily Touches | Recovery | Report | Price |
-|---|:---:|:---:|:---:|:---:|:---:|---|
-| **Nitya** | 1 | — | 4 (2+2) | ❌ | Basic | ₹149/mo · $10/mo |
-| **Bandham** ⭐ | 2 | — | 6 (3+3) | ❌ | + Mood Graph | ₹299/mo · $19/mo |
-| **Raksha** | 2 | 2 members | 8 (4+4) | ✅ 30-90 days | Full + Shared | ₹429/mo · $29/mo |
+| Tier | Parents | Children | Check-ins | Medicine | Activities | Recovery | Price (USD / INR) |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|---|
+| **Nitya** | 1 | 1 | 3 | 3 | 1 | ❌ | $10 · ₹749 /mo |
+| **Bandham** ⭐ | 2 | 1 | 4 | 4 | 2 | ❌ | $19 · ₹1,499 /mo |
+| **Raksha** | 2 | 3 (owner + 2 siblings) | 4 | 6 | 4 | ✅ 30 days | $29 · ₹1,999 /mo |
 
-Multi-currency: USD, GBP, EUR, AED, SGD, AUD, CAD, INR
+- **Check-ins** — morning, meals, afternoon, goodnight, love note.
+- **Medicine reminders** — medicine, BP, sugar, general health.
+- **Daily activities** — walk, tea/coffee, water, "how are you feeling?".
+- Multi-currency: USD, GBP, EUR, AED, SGD, AUD, CAD, INR.
+
+Plan limits are defined once in `backend/pricing.py` and mirrored for offline use in `frontend/src/lib/fallbackPlans.js`.
 
 ---
 
