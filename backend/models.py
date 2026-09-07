@@ -8,10 +8,8 @@ from templates_data import LANGUAGES
 
 _VALID_LANGUAGE_CODES = {l["code"] for l in LANGUAGES}
 
-
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
-
 
 # ---------- Auth ----------
 class RegisterInput(BaseModel):
@@ -19,6 +17,9 @@ class RegisterInput(BaseModel):
     email: EmailStr
     phone: str = Field(..., min_length=6, max_length=20)
     password: str = Field(..., min_length=8, max_length=128)
+    city: Optional[str] = Field(None, max_length=80)
+    timezone: Optional[str] = Field(None, max_length=64)
+    country_code: Optional[str] = Field(None, max_length=4)
 
     @field_validator("phone")
     @classmethod
@@ -30,6 +31,12 @@ class RegisterInput(BaseModel):
     def strong_password(cls, v: str) -> str:
         return validate_password(v)
 
+    @field_validator("city", "timezone", "country_code", mode="before")
+    @classmethod
+    def blank_to_none(cls, v):
+        if v is None or (isinstance(v, str) and not v.strip()):
+            return None
+        return v.strip() if isinstance(v, str) else v
 
 class ForgotPasswordInput(BaseModel):
     phone: str = Field(..., min_length=6, max_length=20)
@@ -38,7 +45,6 @@ class ForgotPasswordInput(BaseModel):
     @classmethod
     def clean_phone(cls, v: str) -> str:
         return validate_phone(v)
-
 
 class ResetPasswordInput(BaseModel):
     phone: str = Field(..., min_length=6, max_length=20)
@@ -55,7 +61,6 @@ class ResetPasswordInput(BaseModel):
     def strong_password(cls, v: str) -> str:
         return validate_password(v)
 
-
 class ChangePasswordInput(BaseModel):
     current_password: str = Field(..., min_length=1)
     new_password: str = Field(..., min_length=8, max_length=128)
@@ -65,20 +70,16 @@ class ChangePasswordInput(BaseModel):
     def strong_password(cls, v: str) -> str:
         return validate_password(v)
 
-
 class EmailChangeRequestInput(BaseModel):
     new_email: EmailStr
     password: str = Field(..., min_length=1)
 
-
 class EmailChangeConfirmInput(BaseModel):
     code: str = Field(..., min_length=4, max_length=8)
-
 
 class LoginInput(BaseModel):
     email: EmailStr
     password: str = Field(..., min_length=1)
-
 
 # ---------- Child profile ----------
 class ChildProfileInput(BaseModel):
@@ -91,12 +92,10 @@ class ChildProfileInput(BaseModel):
     def clean_phone(cls, v: str) -> str:
         return validate_phone(v)
 
-
 # ---------- Medicine ----------
 MEDICINE_SHAPES = {"round", "oval", "capsule", "oblong", "diamond", "square"}
 MEDICINE_COLORS = {"white", "cream", "yellow", "orange", "pink", "red", "purple", "blue", "green", "brown", "beige"}
 MEDICINE_TIMINGS = {"morning", "afternoon", "evening", "bedtime", "before_food", "after_food", "empty_stomach", "with_food"}
-
 
 class MedicineItem(BaseModel):
     name: str = Field(..., min_length=1, max_length=80)
@@ -129,7 +128,6 @@ class MedicineItem(BaseModel):
             raise ValueError(f"timing must be one of: {', '.join(sorted(MEDICINE_TIMINGS))}")
         return v
 
-
 # ---------- Habits ----------
 class HabitsInput(BaseModel):
     wake_time: Optional[str] = Field(None, pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
@@ -140,7 +138,6 @@ class HabitsInput(BaseModel):
     dinner_time: Optional[str] = Field(None, pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
     sleep_time: Optional[str] = Field(None, pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
 
-
 # ---------- Parent profile ----------
 VALID_CATEGORIES = {
     "morning_wish", "breakfast", "lunch", "dinner", "afternoon_checkin",
@@ -148,7 +145,6 @@ VALID_CATEGORIES = {
     "medicine", "water", "bp_check", "sugar_check", "health_check",
     "how_feeling", "goodnight", "love_note",
 }
-
 
 class ParentInput(BaseModel):
     name: str = Field(..., min_length=1, max_length=80)
@@ -166,8 +162,6 @@ class ParentInput(BaseModel):
     habits: Optional[HabitsInput] = None
     medicine_list: Optional[List[MedicineItem]] = Field(default_factory=list)
     stories: Optional[List[str]] = Field(default_factory=list, max_length=5)
-    # Activity window — auto-learned from historical reply patterns.
-    # When set, outbound messages are deferred if sent outside this window.
     activity_window_start: Optional[str] = Field(None, pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
     activity_window_end: Optional[str] = Field(None, pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
     auto_activity_detection: bool = False
@@ -199,10 +193,6 @@ class ParentInput(BaseModel):
     @field_validator("birthday", mode="before")
     @classmethod
     def blank_birthday_to_none(cls, v):
-        # Frontend sends "" (not omitted) when the optional birthday date
-        # picker is left blank — without this, the MM-DD pattern check
-        # rejects "" with a 422 and silently breaks parent create/update
-        # for anyone who doesn't set a birthday.
         if v is None or (isinstance(v, str) and not v.strip()):
             return None
         return v
@@ -210,14 +200,9 @@ class ParentInput(BaseModel):
     @field_validator("activity_window_start", "activity_window_end", mode="before")
     @classmethod
     def blank_activity_window_to_none(cls, v):
-        # Same fix as birthday above — the DND start/end time pickers send
-        # "" when left blank, which fails the HH:MM pattern check with a
-        # 422 and breaks saving for any parent who doesn't set a quiet
-        # window. Both fields are optional, so "" should just mean unset.
         if v is None or (isinstance(v, str) and not v.strip()):
             return None
         return v
-
 
 # ---------- Schedule ----------
 class ScheduleMessage(BaseModel):
@@ -233,7 +218,6 @@ class ScheduleMessage(BaseModel):
         if v not in VALID_CATEGORIES:
             raise ValueError(f"category must be one of: {', '.join(sorted(VALID_CATEGORIES))}")
         return v
-
 
 class ScheduleInput(BaseModel):
     parent_id: str
@@ -270,12 +254,10 @@ class ScheduleInput(BaseModel):
             raise ValueError(f"This plan allows max {max_total} daily messages.")
         return v
 
-
 # ---------- Recovery mode (Raksha) ----------
 class RecoveryStartInput(BaseModel):
     extra_reminders: List[ScheduleMessage] = Field(..., min_length=1, max_length=4)
     days: Optional[int] = Field(None, ge=1, le=90)
-
 
 # ---------- Preferences ----------
 class PreferencesInput(BaseModel):
@@ -284,13 +266,11 @@ class PreferencesInput(BaseModel):
     email_notifications: Optional[bool] = None
     whatsapp_reports: Optional[bool] = None
 
-
 # ---------- Consent ----------
 class ConsentInput(BaseModel):
     consent_type: str = Field(..., pattern="^(child|parent)$")
     agreed: bool
     text: str = Field(..., max_length=500)
-
 
 # ---------- Emergency contacts (distinct from Care Circle) ----------
 class EmergencyContact(BaseModel):
@@ -303,10 +283,8 @@ class EmergencyContact(BaseModel):
     def clean_phone(cls, v: str) -> str:
         return validate_phone(v)
 
-
 class EmergencyContactsInput(BaseModel):
     contacts: List[EmergencyContact] = Field(default_factory=list, max_length=5)
-
 
 # ---------- Two-way moment (child -> parent) ----------
 class MomentInput(BaseModel):

@@ -571,16 +571,39 @@ async def register(request: Request, response: Response, payload: RegisterInput)
         )
         household_owner_id = invite["owner_id"] if invite else None
 
+        from zoneinfo import ZoneInfo
+
+        FALLBACK_TZ = {"IN": "Asia/Kolkata", "US": "America/Los_Angeles", "GB": "Europe/London", "AE": "Asia/Dubai"}
+
+        invite = await conn.fetchrow(
+            "select * from circle_invites where lower(email) = lower($1) and status = 'pending'", email
+        )
+        household_owner_id = invite["owner_id"] if invite else None
+
+        raw_city = getattr(payload, 'city', None)
+        raw_tz = getattr(payload, 'timezone', None)
+        raw_cc = getattr(payload, 'country_code', None) or "IN"
+
+        # validate the IANA tz coming from browser - Intl can send junk
+        try:
+            ZoneInfo(raw_tz) if raw_tz else (_ for _ in ()).throw(Exception())
+            tz = raw_tz
+        except Exception:
+            tz = FALLBACK_TZ.get(raw_cc.upper(), "Asia/Kolkata")
+
+        city = raw_city.strip() if isinstance(raw_city, str) and raw_city.strip() else None
+
         user_row = await conn.fetchrow(
             """
             insert into users (name, email, phone, password_hash, role, household_owner_id,
                                 onboarding_complete, onboarding_step, city, timezone,
                                 created_at, deleted_at)
-            values ($1, $2, $3, $4, 'user', $5::uuid, $6, $7, null, null, now(), null)
+            values ($1, $2, $3, $4, 'user', $5::uuid, $6, $7, $8, $9, now(), null)
             returning *
             """,
             payload.name.strip(), email, payload.phone, hash_password(payload.password),
             household_owner_id, bool(household_owner_id), 5 if household_owner_id else 0,
+            city, tz, # city can be null, tz NEVER null - fixes your error
         )
         uid = user_row["id"]
 

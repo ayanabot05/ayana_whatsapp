@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Loader2 } from "lucide-react";
 import { Logo } from "@/components/Logo";
@@ -14,17 +14,36 @@ export default function Signup() {
   const { loginWithToken } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  // Pre-fill email when arriving via a Care Circle invite link. InviteClaim.js's
-  // "Create account & accept" CTA links to /signup?email=...&invite_token=...;
-  // `invite` (old ?invite=email param) is kept for backward compatibility with
-  // any invite links already sent out under the old scheme.
   const inviteEmail = searchParams.get("email") || searchParams.get("invite") || "";
   const inviteToken = searchParams.get("invite_token") || "";
   const [form, setForm] = useState({ name: "", email: inviteEmail, phone: "+91", password: "" });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [geo, setGeo] = useState({
+    city: "",
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, // dynamic - Asia/Kolkata for you
+    country_code: "IN",
+  });
 
-  const upd = (k) => (e) => setForm({ ...form, [k]: e.target.value });
+  // Dynamic location -> no hardcoded default
+  useEffect(() => {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    setGeo(g => ({...g, timezone: tz }));
+
+    // Get city + more accurate timezone from IP
+    fetch("https://ipapi.co/json/")
+     .then(r => r.json())
+     .then(d => {
+        setGeo(g => ({
+          city: d.city || g.city,
+          timezone: d.timezone || g.timezone,
+          country_code: d.country_code || g.country_code,
+        }));
+      })
+     .catch(() => {});
+  }, []);
+
+  const upd = (k) => (e) => setForm({...form, [k]: e.target.value });
 
   const submit = async (e) => {
     e.preventDefault();
@@ -32,23 +51,22 @@ export default function Signup() {
     const phoneMsg = phoneError(form.phone);
     if (phoneMsg) { setError(phoneMsg); return; }
     const pwMsg = passwordError(form.password);
-    if (pwMsg) {
-      setError(pwMsg);
-      return;
-    }
+    if (pwMsg) { setError(pwMsg); return; }
     setLoading(true);
     try {
-      const { data } = await api.post("/auth/register", form);
+      // merge dynamic geo into payload
+      const payload = {
+       ...form,
+        city: geo.city || null,
+        timezone: geo.timezone, // never null now
+        country_code: geo.country_code,
+      };
+      const { data } = await api.post("/auth/register", payload);
       loginWithToken(data.access_token, data.refresh_token, data.user);
       if (data.user.household_owner_id) {
-        // /auth/register already auto-links + accepts a pending invite that
-        // matches this email, so the join is done — no token round-trip needed.
         toast.success("You've joined the family care circle 💛");
         navigate("/dashboard");
       } else if (inviteToken) {
-        // Registered email didn't match a pending invite by itself (e.g. case
-        // difference, or the invite was created after this email already had
-        // one pending elsewhere) — fall back to the token-based accept flow.
         navigate(`/invite/${inviteToken}`);
       } else {
         toast.success("Account created. Let's set up their care circle.");
@@ -63,22 +81,17 @@ export default function Signup() {
 
   return (
     <div className="min-h-screen grid lg:grid-cols-2 bg-warm-cream">
-      {/* Left brand panel — shows the live check-in phone preview on signup */}
       <AuthBrandPanel
         headline="A few minutes now. Warmth for them, every day after."
         bullets={["Set up in minutes", "No app for your parents", "Their language, their time"]}
         footer="AYANA supports your care — it never replaces it."
         showPhone
       />
-
       <div className="flex items-center justify-center p-6 sm:p-12">
         <div className="w-full max-w-sm">
-          <Link to="/" className="lg:hidden flex items-center justify-center mb-8">
-            <Logo size={36} />
-          </Link>
+          <Link to="/" className="lg:hidden flex items-center justify-center mb-8"><Logo size={36} /></Link>
           <h1 className="font-display text-3xl font-semibold text-ayana-text">Create your account</h1>
           <p className="mt-2 text-ayana-secondary">Begin their care circle today.</p>
-
           <form onSubmit={submit} className="mt-8 space-y-4" data-testid="signup-form">
             <div>
               <label className="text-sm font-medium text-ayana-text">Your name</label>
@@ -92,7 +105,7 @@ export default function Signup() {
             </div>
             <div>
               <label className="text-sm font-medium text-ayana-text">Phone</label>
-              <div className="mt-1.5"><PhoneInput value={form.phone} onChange={(v) => setForm({ ...form, phone: v })} testid="signup-phone" /></div>
+              <div className="mt-1.5"><PhoneInput value={form.phone} onChange={(v) => setForm({...form, phone: v })} testid="signup-phone" /></div>
               {form.phone.length > 4 && phoneError(form.phone) && <p className="mt-1 text-xs text-red-600" data-testid="signup-phone-error">{phoneError(form.phone)}</p>}
             </div>
             <div>
@@ -110,7 +123,6 @@ export default function Signup() {
               <Link to="/terms" className="underline text-ayana-bright">Terms</Link> &{" "}
               <Link to="/privacy" className="underline text-ayana-bright">Privacy Policy</Link>.</p>
           </form>
-
           <p className="mt-6 text-sm text-ayana-secondary text-center">
             Already have an account?{" "}
             <Link to="/login" className="text-ayana-bright font-semibold hover:underline" data-testid="signup-to-login">Log in</Link>
