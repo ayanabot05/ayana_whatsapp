@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   MessageCircle, Globe, ShieldCheck, ArrowRight, Check, Mic, Clock, Languages,
@@ -13,6 +13,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useLang } from "@/context/LanguageContext";
 import { StartConnectingModal } from "@/components/StartConnectingModal";
 import { FALLBACK_PLANS, FALLBACK_CURRENCIES } from "../lib/fallbackPlans";
+import { trackEvent, trackPageView } from "@/lib/analytics";
 
 const IMG = {
   amma:  "/ayana_amma.png",
@@ -26,7 +27,6 @@ const IMG = {
 const WALKTHROUGH_VIDEO_SRC = "/videos/ayana_video_walkthrough_engl.mp4";
 
 const LANGS = [["en", "EN"], ["te", "తె"], ["hi", "हिं"]];
-const trackEvent = (name, props) => { if (window.gtag) window.gtag("event", name, props); };
 
 function LangSwitch({ lang, setLang }) {
   return (
@@ -109,11 +109,11 @@ function MiniChatPanel({ langCode, isActive }) {
 // "What YOU see" — the child's WhatsApp notification stream from AYANA,
 // modelled on a real family's chat (mood taps, voice notes, no-reply alert).
 const CHILD_FEED = [
-  { kind: "reply", who: "Devi", mood: "😊", text: "Good", time: "6:57 PM" },
-  { kind: "voice", who: "Devi", text: "sent you a voice note — tap to listen 🎤", time: "6:16 PM" },
-  { kind: "alert", text: "Rama Raju hasn't replied to today's check-ins yet. You may want to give them a call. — AYANA 💛", time: "7:52 PM" },
-  { kind: "reply", who: "Rama Raju", mood: "😊", text: "బాగున్నాను", time: "7:52 PM" },
-  { kind: "reply", who: "Devi", mood: "😟", text: "Not well", time: "9:52 PM" },
+  { kind: "reply", who: "Amma", mood: "😊", text: "బాగున్నాను", time: "6:17 PM" },
+  { kind: "voice", who: "Amma", text: "sent you a voice note — tap to listen 🎤", time: "6:18 PM" },
+  { kind: "reply", who: "Dady", mood: "😊", text: "బాగున్నాను", time: "7:02 AM" },
+  { kind: "alert", text: "Dady hasn't replied to today's check-ins yet. You may want to give them a call. — AYANA 💛", time: "3:00 PM" },
+  { kind: "reply", who: "Amma", mood: "😟", text: "వేసుకోలేదు", time: "9:00 AM" },
 ];
 
 function ChildNotificationPanel() {
@@ -205,6 +205,13 @@ export default function Landing() {
   const safetyT      = t("safety");
   const extrasT      = t("extras");
   const demoT        = t("whatsappDemo");
+
+  useEffect(() => {
+    trackPageView("landing");
+    // Only fire once per mount — not on every lang switch, since that's a UI
+    // toggle within the same page view, not a new page.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <div data-lang={lang} className="relative min-h-screen overflow-x-hidden bg-warm-cream text-ayana-text">

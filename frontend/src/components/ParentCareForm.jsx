@@ -6,7 +6,7 @@ import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import { PhoneInput } from "@/components/PhoneInput";
 import { ScheduleEditor, ReminderEditor, ActivityEditor } from "@/components/ScheduleEditor";
-import { TIMEZONES } from "@/lib/constants";
+import { TIMEZONES, getBrowserTimezone } from "@/lib/constants";
 import {
   FALLBACK_LANGUAGES, FALLBACK_RELATIONSHIPS, FALLBACK_CATEGORIES,
   FALLBACK_MEDICINE_SHAPES, FALLBACK_MEDICINE_COLORS, FALLBACK_MEDICINE_TIMINGS,
@@ -50,7 +50,7 @@ export const blankParentForm = () => ({
   relationship: "mother",
   phone: "+91",
   language: "en",
-  timezone: "Asia/Kolkata",
+  timezone: getBrowserTimezone(),
   notes: "",
   preferred_name: "",
   nicknames: [],
@@ -72,7 +72,7 @@ export const blankParentForm = () => ({
   messages: [],
   // Schedule-level, not parent-level — ParentDialog.save() pulls this out
   // separately before sending the parent payload, same treatment as `messages`.
-  reengagement_hours: 4,
+  reengagement_hours: 1,
 });
 
 export const blankMedicine = () => ({
@@ -320,17 +320,18 @@ export function ParentCareForm({ form, setForm, newMed, setNewMed, config, limit
         />
         <div className="flex items-center gap-3 pt-1">
           <label className="text-xs font-medium text-ayana-secondary flex items-center gap-1.5">
-            <Timer className="w-3.5 h-3.5" /> If they don't reply, check again after
+            <Timer className="w-3.5 h-3.5" /> If they don't reply to a check-in, gently re-check after
           </label>
           <select
-            value={form.reengagement_hours ?? 4}
+            value={form.reengagement_hours ?? 1}
             onChange={(e) => setForm({ ...form, reengagement_hours: Number(e.target.value) })}
             data-testid={t("reengagement-hours")}
             className={`${smInputCls} w-auto`}
           >
-            {[1, 2, 3, 4, 6, 8, 12, 24].map((h) => <option key={h} value={h}>{h} hour{h > 1 ? "s" : ""}</option>)}
+            {[1, 2, 3, 4, 6, 8, 12, 24].map((h) => <option key={h} value={h}>{h} hour{h > 1 ? "s" : ""}{h === 1 ? " (default)" : ""}</option>)}
           </select>
         </div>
+        <p className="text-[11px] text-ayana-muted -mt-3">Medicine reminders are re-checked sooner (about every 45 min) so a missed dose isn't left too long.</p>
 
         {/* Health reminders — water / BP / sugar / general. Share the plan's
             reminder quota with the Medicine section below, so the counter

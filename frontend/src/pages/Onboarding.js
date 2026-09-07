@@ -6,7 +6,7 @@ import {
 } from "lucide-react";
 import { api, formatApiError, formatAxiosError } from "../lib/api";
 import { useAuth } from "@/context/AuthContext";
-import { TIMEZONES } from "@/lib/constants";
+import { TIMEZONES, getBrowserTimezone } from "@/lib/constants";
 import { PhoneInput } from "@/components/PhoneInput";
 import { PhoneVerificationCard } from "@/components/PhoneVerificationCard";
 import { PricingCards } from "@/components/PricingCards";
@@ -34,7 +34,7 @@ export default function Onboarding() {
     name: user?.name || "",
     phone: user?.phone || "+91",
     city: user?.city || "",
-    timezone: user?.timezone || "Asia/Kolkata",
+    timezone: user?.timezone || getBrowserTimezone(),
   });
   const [childConsent, setChildConsent] = useState(false);
   const [verifiedPhone, setVerifiedPhone] = useState(
@@ -120,7 +120,7 @@ export default function Onboarding() {
     if (!childConsent) { toast.error("Please confirm consent to continue."); return; }
     if (!child.name.trim()) { toast.error("Please enter your name."); return; }
     if (child.phone.length < 8) { toast.error("Please enter a valid phone number."); return; }
-    if (!childPhoneVerified) { toast.error("Please verify your phone number with the SMS code first."); return; }
+    if (!childPhoneVerified) { toast.error("Please verify your phone number with the code first."); return; }
     setLoading(true);
     try {
       await api.put("/profile/child", { name: child.name, phone: child.phone, city: child.city, timezone: child.timezone });
@@ -132,6 +132,7 @@ export default function Onboarding() {
   const sendChildOtp = async (phone) => {
     const { data } = await api.post("/auth/otp/send", { phone });
     if (data?.dev_code) toast.message(`Test mode code: ${data.dev_code}`, { duration: 8000 });
+    return data;
   };
   const verifyChildOtp = async (phone, code) => {
     await api.post("/auth/otp/verify", { phone, code });
@@ -141,6 +142,7 @@ export default function Onboarding() {
   const resendChildOtp = async (phone) => {
     const { data } = await api.post("/auth/otp/resend", { phone });
     if (data?.dev_code) toast.message(`Test mode code: ${data.dev_code}`, { duration: 8000 });
+    return data;
   };
 
   const choosePlan = async (id, billing) => {
@@ -184,7 +186,7 @@ export default function Onboarding() {
         relationship: p.relationship || "mother",
         phone: p.phone || "+91",
         language: p.language || "en",
-        timezone: p.timezone || "Asia/Kolkata",
+        timezone: p.timezone || getBrowserTimezone(),
         notes: p.notes || "",
         preferred_name: p.preferred_name || "",
         nicknames: p.nicknames || [],
@@ -230,7 +232,7 @@ export default function Onboarding() {
         await api.post("/consent", { consent_type: "parent", agreed: true, text: `Consent confirmed for parent ${parentForm.name}.` });
       }
       const existingSchedId = scheduleIds[savedParent.id];
-      const schedPayload = { parent_id: savedParent.id, mode: planId, messages, active: true, reengagement_hours: reengagement_hours ?? 4 };
+      const schedPayload = { parent_id: savedParent.id, mode: planId, messages, active: true, reengagement_hours: reengagement_hours ?? 1 };
       let dropped = savedParent.medicine_reminders_dropped;
       if (existingSchedId) {
         const { data: schedData } = await api.put(`/schedules/${existingSchedId}`, schedPayload);
@@ -352,7 +354,7 @@ export default function Onboarding() {
                       testid="child-otp"
                     />
                     {!childPhoneVerified && (
-                      <p className="mt-2 text-xs text-ayana-muted">We'll text a 6-digit code to confirm this is your number. Verification is required to continue.</p>
+                      <p className="mt-2 text-xs text-ayana-muted">We'll send a 6-digit code on WhatsApp (or SMS if WhatsApp can't reach you) to confirm this is your number. Verification is required to continue.</p>
                     )}
                   </div>
                 </div>

@@ -1,0 +1,56 @@
+{
+  "summary": "Iteration 15 review testing. CRITICAL BLOCKER found in POST /api/auth/register — it returns 500 for every new signup because it inserts NULL into users.timezone but Supabase now has a NOT NULL constraint on that column. Because signup is the entry point of the whole reviewed journey (signup → login → OTP dev_code → onboarding step 0/1/2/3 → dashboard), the child/onboarding UI portion cannot be exercised end-to-end in this environment. Verified separately that the admin path works: admin@ayana.care/AyanaAdmin123! logs in 200, GET /api/admin/stats returns 200 with delivery_funnel {sent,delivered,read,failed}=0, and an authed GET /api/dashboard/bootstrap on the admin account returns 200 with delivery_funnel present as well. GET /api/config = 200. Previous iteration's user ravi.e1test2@ayanabott.com/Test@12345 no longer exists in this DB (login → 401), so we could not reuse an existing non-admin account either. Full pytest run: 2 passed (config, admin stats+funnel), 5 errors chained on the register 500, 2 failed (activate route 404, logout while unauth).",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "POST /api/auth/register",
+        "issue": "500 InternalServerError for ALL new signups. asyncpg NotNullViolationError: null value in column \"timezone\" of relation \"users\" violates not-null constraint. server.py register() ~L567 inserts city=null, timezone=null explicitly but the current users table has NOT NULL on timezone. Either (a) set a default in the INSERT (e.g. coalesce($9,'UTC') or hard-code 'UTC'/'Asia/Kolkata'), (b) accept optional timezone on RegisterInput and pass it, or (c) drop NOT NULL / add DEFAULT 'UTC' on users.timezone in Supabase. Blocks signup, OTP send (requires auth), onboarding step 0/1/2/3, and dashboard for new users.",
+        "priority": "CRITICAL"
+      }
+    ],
+    "minor": [
+      {
+        "endpoint": "POST /api/circle/activate (and /api/care/activate)",
+        "issue": "Both return 404. Could not locate the actual 'Activate Care Circle' endpoint from the review request — please confirm the route name so future test scripts and the frontend activate-care-circle button both point at the same URL. Not verified end-to-end this iteration because of the register blocker upstream."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {
+        "flow": "Signup → Onboarding step 0 (child) → OTP dev_code → Continue",
+        "issue": "Not testable in this run — every new-account POST /api/auth/register 500s (see backend critical), so the browser flow can never reach PhoneVerificationCard / step0-next. This blocks child-otp-send / child-otp-verify / child-otp-resend / dashboard-delivery-funnel / medicine-chip UI verification for new users.",
+        "affected_selectors": ["signup-*", "child-otp-send", "child-otp-code", "child-otp-verify", "child-otp-resend", "step0-next", "add-parent", "parent-med-*", "save-parent", "activate-care-circle", "dashboard-delivery-funnel"]
+      }
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter15_review.py",
+    "/app/test_reports/pytest/iteration_15_results.xml"
+  ],
+  "action_items": [
+    "CRITICAL: Fix POST /api/auth/register to satisfy users.timezone NOT NULL. Simplest 1-line fix in server.py register() ~L567: change the INSERT to `... city, timezone, ...) values ($1,$2,$3,$4,$5::uuid,$6,$7,null,'UTC', now(), null)` (or 'Asia/Kolkata'). Onboarding step 0 will overwrite it via /api/profile/child anyway. Alternatively add `alter table users alter column timezone drop not null;` (or set default 'UTC') in Supabase. After the fix, re-run /app/backend/tests/test_iter15_review.py — the same 9 tests should pass and unlock every downstream child/onboarding/dashboard UI check.",
+    "MINOR: Confirm the real route for the 'Activate Care Circle' button (activate-care-circle) — /api/circle/activate and /api/care/activate both 404. Point pytest + frontend at the correct path.",
+    "After the register fix, re-run frontend Playwright on: /signup → auto-login → /onboarding step0 (child-otp-send returns dev_code toast, child-otp-verify flips to Verified, step0-next enabled) → step1 (plan cards, payments disabled advance) → step2 (parent + medicine w/ shape/color/dose/time) → step3 (activate-care-circle) → /dashboard (dashboard-delivery-funnel renders with sent/delivered/read/failed rows; medicine chip shows glyph + name + dose + time; edit/reload persists) → /admin (admin-stats + admin-delivery-funnel + Users/Deliveries/Schedules/Emergencies tabs)."
+  ],
+  "critical_code_review_comments": [
+    "server.py register() (~L567): explicit `city=null, timezone=null` INSERT is fragile against schema changes. RegisterInput doesn't accept timezone at all (models.py L17) so timezone can only ever be null at register time. Either default it server-side or add it to the payload (frontend already knows Intl.DateTimeFormat().resolvedOptions().timeZone at signup).",
+    "server.py _delivery_funnel + admin_stats/dashboard_bootstrap wiring: verified — both endpoints return a well-shaped {sent,delivered,read,failed} dict (all zero on this fresh DB, expected per review-request note about WHATSAPP_ENABLED=false). No serialization issues.",
+    "server.py: register() calls send_child_welcome as BackgroundTask AFTER an implicit-successful path — currently unreachable in this env because register 500s before the background task is queued. Once fixed, background_tasks.add_task(send_child_welcome, dict(user_row)) will fire, and with WHATSAPP_ENABLED=false the welcome will run in SIMULATE mode (fine)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter15_review.py"
+  ],
+  "success_rate": {
+    "backend": "22% (2/9) — 1 critical blocker on /api/auth/register",
+    "frontend": "0% of new-user flow verified (blocked by backend); admin route reachable but not walked in Playwright this run because the primary review target is the signup→onboarding path"
+  },
+  "test_credentials": "Admin admin@ayana.care / AyanaAdmin123! works (verified). New signup credentials cannot be created in this env until the register 500 is fixed. Prior iter14 user ravi.e1test2@ayanabott.com/Test@12345 no longer resolves (login 401) — DB likely reset since last iteration.",
+  "seed_data_creation": "None. Register-attempts all rolled back due to 500 before any commit.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Once main agent fixes the users.timezone NOT NULL issue on /api/auth/register, /app/backend/tests/test_iter15_review.py should go 9/9 green and unblock the full signup→OTP dev_code→onboarding→dashboard Playwright walk. dev_code is returned as JSON field `dev_code` on POST /api/auth/otp/send (also shown as a 'Test mode code' toast). Admin creds still work today. delivery_funnel objects are already correctly returned by /api/admin/stats and /api/dashboard/bootstrap; expect all-zero counts on this DB (WHATSAPP_ENABLED=false, SMS_ENABLED=false).",
+  "rca_of_the_issue": "REPRO: POST /api/auth/register with {name,email,phone,password} (any valid unique values) → 500. Backend log (var/log/supervisor/backend.err.log): `asyncpg.exceptions.NotNullViolationError: null value in column \"timezone\" of relation \"users\" violates not-null constraint. Failing row contains (..., null, null, null, ...)`. CAUSE: server.py register() explicitly binds `city=null, timezone=null` in the INSERT (line ~L570-577), but the Supabase users table (migration 003 applied on this env) now enforces NOT NULL on `timezone`. Register never had a path to populate it — RegisterInput (models.py L17-31) doesn't even accept timezone. MITIGATION (1-line): change the INSERT to `... values ($1,$2,$3,$4,$5::uuid,$6,$7,null,'UTC', now(), null)` OR add `timezone` to RegisterInput and pass Intl-detected value from the frontend signup form. Longer term: `alter table users alter column timezone drop not null;` (or set default) so that fresh code + old schema and vice-versa both work."
+}

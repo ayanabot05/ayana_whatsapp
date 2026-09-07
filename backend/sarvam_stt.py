@@ -30,7 +30,75 @@ def stt_enabled() -> bool:
     return bool(os.environ.get("SARVAM_API_KEY", "").strip())
 
 
+def confidence_label(score: float | None) -> str:
+    """Map a 0-1 confidence to a human-facing band the child message can use.
+
+    Thresholds are env-tunable (STT_CONF_HIGH / STT_CONF_MEDIUM) so you can
+    dial how cautiously the child's message is worded without a code change."""
+    if score is None:
+        return "unknown"
+    try:
+        high = float(os.environ.get("STT_CONF_HIGH", "0.8"))
+        medium = float(os.environ.get("STT_CONF_MEDIUM", "0.55"))
+    except ValueError:
+        high, medium = 0.8, 0.55
+    if score >= high:
+        return "high"
+    if score >= medium:
+        return "medium"
+    return "low"
+
+
+def _heuristic_confidence(transcript: str) -> float:
+    """Best-effort confidence when Sarvam returns no score of its own.
+
+    Longer, cleaner transcripts are more trustworthy; 1-word / noisy ones less
+    so. This is intentionally conservative — it only gates how we *word* the
+    child's message, never whether we forward the voice note."""
+    if not transcript:
+        return 0.0
+    words = transcript.split()
+    n = len(words)
+    if n >= 6:
+        base = 0.9
+    elif n >= 3:
+        base = 0.72
+    elif n == 2:
+        base = 0.55
+    else:
+        base = 0.4
+    clean = sum(1 for c in transcript if c.isalnum() or c.isspace())
+    ratio = clean / max(len(transcript), 1)
+    return max(0.0, min(1.0, base * (0.6 + 0.4 * ratio)))
+
+
+def _extract_confidence(data: dict, transcript: str) -> float:
+    """Prefer a confidence Sarvam gives us; fall back to a heuristic."""
+    for key in ("confidence", "confidence_score", "score"):
+        v = data.get(key)
+        if isinstance(v, (int, float)):
+            return max(0.0, min(1.0, float(v)))
+    metrics = data.get("metrics")
+    if isinstance(metrics, dict) and isinstance(metrics.get("confidence"), (int, float)):
+        return max(0.0, min(1.0, float(metrics["confidence"])))
+    return _heuristic_confidence(transcript)
+
+
 async def transcribe_voice_note(media_url: str, language: str = "en", auth_headers: dict | None = None) -> str | None:
+    """Backward-compatible wrapper — returns just the transcript string (or None)."""
+    result = await transcribe_voice_note_detailed(media_url, language, auth_headers)
+    return result["transcript"] if result else None
+
+
+async def transcribe_voice_note_detailed(media_url: str, language: str = "en", auth_headers: dict | None = None) -> dict | None:
+    """
+    Transcribe a WhatsApp voice note via Sarvam AI.
+
+    Returns {"transcript": str, "confidence": float 0-1, "confidence_label": str}
+    or None when transcription wasn't possible at all (no key, download/API
+    failure, empty result). Never raises — the caller always forwards the audio
+    regardless, and just words its message to the child based on confidence.
+    """
     api_key = os.environ.get("SARVAM_API_KEY", "").strip()
     endpoint = os.environ.get("SARVAM_STT_URL", _SARVAM_URL).strip()
     if not api_key:
@@ -72,11 +140,13 @@ async def transcribe_voice_note(media_url: str, language: str = "en", auth_heade
             )
         if resp.status_code in (200, 201):
             data = resp.json()
-            transcript = data.get("transcript", "").strip() or data.get("text", "").strip()
-            if transcript:
-                logger.info("[stt] Transcribed [%s] %s chars", lang_code, len(transcript))
-                return transcript
-            return None
+            transcript = (data.get("transcript") or "").strip() or (data.get("text") or "").strip()
+            if not transcript:
+                return None
+            confidence = _extract_confidence(data, transcript)
+            logger.info("[stt] Transcribed [%s] %s chars confidence=%.2f (%s)",
+                        lang_code, len(transcript), confidence, confidence_label(confidence))
+            return {"transcript": transcript, "confidence": confidence, "confidence_label": confidence_label(confidence)}
         logger.error("[stt] Sarvam API error %s", resp.status_code)
         return None
     except httpx.TimeoutException:

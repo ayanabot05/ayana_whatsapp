@@ -147,6 +147,11 @@ async def _mark_paid(conn, session_id: str, record) -> None:
     # asyncpg's execute() returns a string like "UPDATE 1" — check the count
     modified = result.split()[-1] != "0"
     if modified and record.get("user_id"):
+        prev = await conn.fetchrow(
+            "select plan from payment_state where user_id = $1::uuid", record["user_id"]
+        )
+        old_plan = (prev["plan"] if prev else None) or "nitya"
+        new_plan = record.get("plan", "nitya")
         await conn.execute(
             """
             insert into payment_state (user_id, status, plan, billing, updated_at)
@@ -155,8 +160,33 @@ async def _mark_paid(conn, session_id: str, record) -> None:
                 set status = 'active', plan = excluded.plan,
                     billing = excluded.billing, updated_at = now()
             """,
-            record["user_id"], record.get("plan", "nitya"), record.get("billing", "month"),
+            record["user_id"], new_plan, record.get("billing", "month"),
         )
+        # Best-effort: tell the account owner over WhatsApp their plan changed.
+        try:
+            from whatsapp import send_plan_change
+            from pricing import PLAN_BY_ID
+            user_row = await conn.fetchrow(
+                "select phone from users where id = $1::uuid", record["user_id"]
+            )
+            if user_row and user_row["phone"]:
+                plan_name = (PLAN_BY_ID.get(new_plan) or {}).get("name", new_plan)
+                await send_plan_change(user_row["phone"], "en", plan_name, _plan_direction(old_plan, new_plan))
+        except Exception as e:
+            logger.warning("[stripe] plan-change WhatsApp notify failed: %s", e)
+
+
+_PLAN_RANK = {"nitya": 0, "bandham": 1, "raksha": 2}
+
+
+def _plan_direction(old_plan: str, new_plan: str) -> str:
+    o = _PLAN_RANK.get((old_plan or "nitya"), 0)
+    n = _PLAN_RANK.get((new_plan or "nitya"), 0)
+    if n > o:
+        return "upgrade"
+    if n < o:
+        return "downgrade"
+    return "same"
 
 
 @payments_router.post("/webhook/stripe")

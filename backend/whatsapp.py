@@ -7,7 +7,6 @@ import asyncio
 import uuid
 from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional, Tuple
-import sms
 
 import httpx
 
@@ -107,40 +106,6 @@ def send_whatsapp(to_phone: str, body: str) -> Dict[str, Any]:
     except Exception as e:
         logger.error("[wa] Send failed to %s: %s", to_phone, e, exc_info=True)
         return {"status": "failed", "detail": str(e), "to": to_phone}
-
-
-async def send_whatsapp_with_fallback(to_phone: str, body: str) -> Dict[str, Any]:
-    """
-    Safety-critical alert send: try WhatsApp first, and if it fails
-    (Meta outage, expired/misconfigured token, invalid number, etc.),
-    fall back to a plain Twilio SMS so the recipient still gets the
-    message instead of silence.
-
-    Not used for routine check-ins/reminders/moments — those stay
-    WhatsApp-only via send_whatsapp() as before. This is specifically for
-    the two places a missed alert has real safety consequences: emergency
-    keyword/ML-flagged distress notifications (server.py's
-    _notify_family) and the Care Watch afternoon no-reply escalation
-    (escalation.py's _notify_child).
-
-    A "simulated" WhatsApp result (test mode, WHATSAPP_ENABLED=false) is
-    NOT treated as a failure — nothing is actually broken in that case,
-    so it doesn't fall back and doesn't burn a real SMS in dev/test.
-
-    Returns the WhatsApp result dict as-is on success/simulated, or on
-    WhatsApp failure, the SMS result dict with "whatsapp_detail" added
-    so callers/logs can see both attempts.
-    """
-    wa_result = send_whatsapp(to_phone, body)
-    if wa_result.get("status") in ("sent", "simulated"):
-        return {**wa_result, "channel": "whatsapp"}
-
-    logger.warning("[wa] WhatsApp send failed for %s, falling back to SMS: %s", to_phone, wa_result.get("detail"))
-    from sms import send_alert_sms
-    sms_result = await send_alert_sms(to_phone, body)
-    sms_result["channel"] = "sms_fallback" if sms_result.get("status") == "sent" else "sms_fallback_failed"
-    sms_result["whatsapp_detail"] = wa_result.get("detail")
-    return sms_result
 
 
 def _build_body_params(content_variables: Dict[str, str]) -> List[Dict[str, str]]:
@@ -722,3 +687,95 @@ async def send_parent_goodbye(parent: Dict[str, Any]) -> Dict[str, Any]:
     body = _GOODBYE_TEXT.get(lang, _GOODBYE_TEXT["en"]).format(name=name)
     logger.info("[goodbye] -> %s (%s)", phone, name)
     return send_whatsapp(phone, body)
+
+
+
+# ── Lifecycle notifications (Issue #3) ─────────────────────────────────────
+# Warm, plain-text WhatsApp nudges sent on account/plan/care-circle lifecycle
+# events. All are best-effort: they use send_whatsapp() which returns a
+# 'simulated' result when WhatsApp is disabled, and never raise. On cold
+# numbers (no open 24h session and no template) Meta may reject free text —
+# that's acceptable here; these are courtesy messages, not the OTP path.
+
+_CHILD_WELCOME_TEXT = {
+    "en": "Welcome to AYANA, {name}! 💛 We'll help you stay close to your parents with gentle daily check-ins. Add a parent and activate WhatsApp check-ins from your dashboard to begin.",
+    "te": "AYANAకి స్వాగతం, {name}! 💛 రోజువారీ ఆప్యాయమైన పలకరింపులతో మీ తల్లిదండ్రులకు దగ్గరగా ఉండేందుకు మేము సహాయం చేస్తాం. మొదలుపెట్టడానికి మీ డాష్‌బోర్డ్ నుండి ఒక పేరెంట్‌ను జోడించి WhatsApp పలకరింపులను యాక్టివేట్ చేయండి.",
+    "hi": "AYANA में आपका स्वागत है, {name}! 💛 रोज़ की स्नेहभरी बातचीत से हम आपको अपने माता-पिता के करीब रखने में मदद करेंगे। शुरू करने के लिए अपने डैशबोर्ड से एक पैरेंट जोड़ें और WhatsApp चेक-इन चालू करें।",
+}
+
+_PLAN_CHANGE_TEXT = {
+    "en": {
+        "upgrade": "🌟 Your AYANA plan is now {plan}! Thank you — your family's care just got even better. 💛",
+        "downgrade": "Your AYANA plan has been changed to {plan}. Some features may have changed; you can upgrade anytime from your dashboard. 💛",
+        "same": "Your AYANA {plan} plan is active. 💛",
+    },
+    "te": {
+        "upgrade": "🌟 మీ AYANA ప్లాన్ ఇప్పుడు {plan}! ధన్యవాదాలు — మీ కుటుంబ సంరక్షణ మరింత మెరుగైంది. 💛",
+        "downgrade": "మీ AYANA ప్లాన్ {plan}కి మార్చబడింది. కొన్ని ఫీచర్లు మారి ఉండవచ్చు; మీ డాష్‌బోర్డ్ నుండి ఎప్పుడైనా అప్‌గ్రేడ్ చేసుకోవచ్చు. 💛",
+        "same": "మీ AYANA {plan} ప్లాన్ యాక్టివ్‌గా ఉంది. 💛",
+    },
+    "hi": {
+        "upgrade": "🌟 आपका AYANA प्लान अब {plan} है! धन्यवाद — आपके परिवार की देखभाल और भी बेहतर हो गई। 💛",
+        "downgrade": "आपका AYANA प्लान {plan} में बदल दिया गया है। कुछ सुविधाएँ बदल सकती हैं; आप अपने डैशबोर्ड से कभी भी अपग्रेड कर सकते हैं। 💛",
+        "same": "आपका AYANA {plan} प्लान सक्रिय है। 💛",
+    },
+}
+
+_PARENT_REMOVED_CHILD_TEXT = {
+    "en": "AYANA daily check-ins for {parent} have been stopped. You can add them again anytime from your dashboard. 💛",
+    "te": "{parent} కోసం AYANA రోజువారీ పలకరింపులు ఆపబడ్డాయి. మీ డాష్‌బోర్డ్ నుండి ఎప్పుడైనా మళ్ళీ జోడించవచ్చు. 💛",
+    "hi": "{parent} के लिए AYANA की रोज़ की बातचीत रोक दी गई है। आप उन्हें अपने डैशबोर्ड से कभी भी दोबारा जोड़ सकते हैं। 💛",
+}
+
+_MEMBER_REMOVED_TEXT = {
+    "en": "You've been removed from an AYANA Care Circle. You'll no longer receive updates for that family. 💛",
+    "te": "మిమ్మల్ని ఒక AYANA కేర్ సర్కిల్ నుండి తొలగించారు. ఆ కుటుంబం కోసం ఇకపై అప్‌డేట్‌లు అందవు. 💛",
+    "hi": "आपको एक AYANA केयर सर्कल से हटा दिया गया है। अब आपको उस परिवार के अपडेट नहीं मिलेंगे। 💛",
+}
+
+
+def _lang2(language: str | None) -> str:
+    return (language or "en").strip().lower()[:2] or "en"
+
+
+async def send_child_welcome(user: Dict[str, Any]) -> Dict[str, Any]:
+    """Welcome the account owner (adult child) right after they sign up."""
+    phone = user.get("phone") or user.get("whatsapp_number") or user.get("phone_number")
+    if not phone:
+        return {"status": "skipped", "detail": "no phone"}
+    name = (user.get("name") or user.get("full_name") or "there").split()[0]
+    lang = _lang2(user.get("language"))
+    body = _CHILD_WELCOME_TEXT.get(lang, _CHILD_WELCOME_TEXT["en"]).format(name=name)
+    logger.info("[welcome] child welcome -> %s", phone)
+    return send_whatsapp(phone, body)
+
+
+async def send_plan_change(phone: str, language: str, plan_name: str, direction: str) -> Dict[str, Any]:
+    """Notify the account owner their subscription plan changed."""
+    if not phone:
+        return {"status": "skipped", "detail": "no phone"}
+    lang = _lang2(language)
+    tset = _PLAN_CHANGE_TEXT.get(lang, _PLAN_CHANGE_TEXT["en"])
+    body = tset.get(direction, tset["same"]).format(plan=plan_name)
+    logger.info("[plan] %s notice (%s) -> %s", direction, plan_name, phone)
+    return send_whatsapp(phone, body)
+
+
+async def send_parent_removed_child_notice(child_phone: str, language: str, parent_name: str) -> Dict[str, Any]:
+    """Let the child know check-ins for a removed parent have stopped."""
+    if not child_phone:
+        return {"status": "skipped", "detail": "no phone"}
+    lang = _lang2(language)
+    body = _PARENT_REMOVED_CHILD_TEXT.get(lang, _PARENT_REMOVED_CHILD_TEXT["en"]).format(parent=parent_name or "your parent")
+    logger.info("[lifecycle] parent-removed child notice -> %s", child_phone)
+    return send_whatsapp(child_phone, body)
+
+
+async def send_member_removed_notice(member_phone: str, language: str = "en") -> Dict[str, Any]:
+    """Let a removed Care Circle member know they've been removed."""
+    if not member_phone:
+        return {"status": "skipped", "detail": "no phone"}
+    lang = _lang2(language)
+    body = _MEMBER_REMOVED_TEXT.get(lang, _MEMBER_REMOVED_TEXT["en"])
+    logger.info("[lifecycle] member-removed notice -> %s", member_phone)
+    return send_whatsapp(member_phone, body)

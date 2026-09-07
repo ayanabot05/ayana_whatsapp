@@ -65,9 +65,9 @@
     "zod": "3.24.4"
   },
   "scripts": {
-    "start": "craco start",
-    "build": "craco build",
-    "test": "craco test"
+    "start": "cross-env NODE_OPTIONS=--max-old-space-size=8192 GENERATE_SOURCEMAP=false craco start",
+    "build": "cross-env NODE_OPTIONS=--max-old-space-size=8192 GENERATE_SOURCEMAP=false craco build",
+    "test": "cross-env NODE_OPTIONS=--max-old-space-size=8192 craco test"
   },
   "browserslist": {
     "production": [
@@ -92,6 +92,7 @@
     "@testing-library/user-event": "^14.6.3",
     "@types/lodash": "4.17.24",
     "autoprefixer": "10.4.20",
+    "cross-env": "^10.1.0",
     "dotenv": "16.4.5",
     "eslint": "9.23.0",
     "eslint-plugin-import": "2.31.0",

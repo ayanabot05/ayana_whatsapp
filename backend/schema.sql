@@ -95,15 +95,7 @@ create table parents (
         (activity_window_end   is null or activity_window_end   ~ '^[0-2][0-9]:[0-5][0-9]$')
     )
 );
--- Non-unique lookup index kept for the webhook's phone-match query.
 create index idx_parents_phone on parents(phone);
--- Partial unique index: only one *active* parent per phone number, globally
--- (across all households). Soft-deleted parents (deleted_at set) are excluded
--- so a removed parent's number can be re-added elsewhere without conflict.
--- This is the DB-level backstop for _assert_phone_role_available() in
--- server.py, which does the same check in application code but can race
--- under concurrent requests.
-create unique index idx_parents_phone_unique on parents(phone) where deleted_at is null;
 create index idx_parents_user on parents(user_id);
 
 -- ============================================================================
@@ -148,22 +140,14 @@ create table message_logs (
     detail         text,
     sid            text,
     reply_status   text,
-    -- Delivery-health funnel: written by the WhatsApp webhook's status
-    -- callbacks (sent/delivered/read/failed), matched back to this row by
-    -- `sid` (the WhatsApp message id). See _apply_wa_delivery_status() in
-    -- server.py. delivered_at/read_at are set once (first occurrence) via
-    -- coalesce, so they survive out-of-order or duplicate webhook retries.
-    status_updated_at  timestamptz,
-    delivered_at        timestamptz,
-    read_at              timestamptz,
-    failed_at            timestamptz,
-    wa_error             jsonb,
+    delivery_status text,                        -- Meta callback: 'sent'|'delivered'|'read'|'failed'
+    delivered_at   timestamptz,
+    read_at        timestamptz,
     created_at     timestamptz not null default now()
 );
 create index idx_msglogs_sched_idx_day on message_logs(schedule_id, message_index, day_key);
 create index idx_msglogs_parent_day on message_logs(parent_id, day_key);
 create index idx_msglogs_sid on message_logs(sid) where sid is not null;
-create index idx_msglogs_created_at on message_logs(created_at);
 
 -- ============================================================================
 -- ESCALATION_STATE + ESCALATION_DAILY
@@ -289,6 +273,7 @@ create table parent_replies (
     emergency_keywords  jsonb not null default '[]'::jsonb,
     ml_flagged          boolean not null default false,
     ml_score            double precision,
+    stt_confidence      double precision,
     raw_payload         jsonb not null default '{}'::jsonb,
     created_at          timestamptz not null default now()
 );
@@ -365,6 +350,7 @@ create table monthly_reports (
     trend_note              text,
     shared_with_care_circle boolean not null default false,
     generated_at            timestamptz not null default now(),
+    details                 jsonb,
     unique (user_id, parent_id, period)
 );
 

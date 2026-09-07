@@ -96,7 +96,7 @@ from models import (
 )
 from medicine_sync import sync_medicine_reminders
 from storage import init_storage, put_object, get_object, signed_url as storage_signed_url, is_enabled as storage_enabled, APP_NAME as STORAGE_APP_NAME
-from otp import create_and_send_otp, create_and_send_otp_with_fallback, verify_otp_code, create_and_send_email_otp, verify_email_otp_code, _normalize_phone
+from otp import create_and_send_otp, verify_otp_code, create_and_send_email_otp, verify_email_otp_code, _normalize_phone
 
 class CheckoutInput(BaseModel):
     plan: str = Field("nitya", pattern="^(nitya|bandham|raksha|basic|care_plus)$")
@@ -132,7 +132,7 @@ from pricing import PLANS, CURRENCIES, PLAN_BY_ID, plan_limits, resolve_plan_id
 from scheduler import start_scheduler, shutdown_scheduler
 from email_sender import send_invite_email
 from monthly_report import generate_monthly_report
-from sarvam_stt import transcribe_voice_note
+from sarvam_stt import transcribe_voice_note, transcribe_voice_note_detailed, confidence_label
 from distress_detection import assess_transcript
 from whatsapp import (
     detect_emergency,
@@ -145,7 +145,6 @@ from whatsapp import (
     send_moment,
     send_mood_template,
     send_whatsapp,
-    send_whatsapp_with_fallback,
     send_whatsapp_opener,
     verify_meta_signature,
     resolve_meta_media_url,
@@ -154,6 +153,9 @@ from whatsapp import (
     send_care_circle_activation_welcome,  # NEW
     send_welcome_for_new_parent,          # NEW
     send_parent_goodbye,                  # NEW: farewell on removal/downgrade
+    send_child_welcome,                   # NEW: welcome new account owner
+    send_parent_removed_child_notice,     # NEW: tell child a parent was removed
+    send_member_removed_notice,           # NEW: tell removed circle member
 )
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -265,15 +267,6 @@ async def _run_startup_migrations():
         await conn.execute("alter table users add column if not exists pending_email text")
         # Images are uploaded before the moment row exists, so moment_id must be nullable.
         await conn.execute("alter table moment_images alter column moment_id drop not null")
-        # Delivery-health funnel: lets the webhook's status callbacks
-        # (sent/delivered/read/failed) actually update message_logs instead
-        # of being logged and discarded. See _apply_wa_delivery_status().
-        await conn.execute("alter table message_logs add column if not exists status_updated_at timestamptz")
-        await conn.execute("alter table message_logs add column if not exists delivered_at timestamptz")
-        await conn.execute("alter table message_logs add column if not exists read_at timestamptz")
-        await conn.execute("alter table message_logs add column if not exists failed_at timestamptz")
-        await conn.execute("alter table message_logs add column if not exists wa_error jsonb")
-        await conn.execute("create index if not exists idx_msglogs_created_at on message_logs(created_at)")
         # Link replies that arrived from Meta as '91xxxxxxxxxx' to parents stored as '+91xxxxxxxxxx'.
         linked = await conn.execute(
             """
@@ -540,7 +533,7 @@ async def public_config():
 
 # ---------------- Auth ----------------
 @api.post("/auth/register")
-async def register(request: Request, response: Response, payload: RegisterInput):
+async def register(request: Request, response: Response, payload: RegisterInput, background_tasks: BackgroundTasks):
     allowed, retry_after = await check_api_rate_limit(request)
     if not allowed:
         raise HTTPException(
@@ -571,39 +564,16 @@ async def register(request: Request, response: Response, payload: RegisterInput)
         )
         household_owner_id = invite["owner_id"] if invite else None
 
-        from zoneinfo import ZoneInfo
-
-        FALLBACK_TZ = {"IN": "Asia/Kolkata", "US": "America/Los_Angeles", "GB": "Europe/London", "AE": "Asia/Dubai"}
-
-        invite = await conn.fetchrow(
-            "select * from circle_invites where lower(email) = lower($1) and status = 'pending'", email
-        )
-        household_owner_id = invite["owner_id"] if invite else None
-
-        raw_city = getattr(payload, 'city', None)
-        raw_tz = getattr(payload, 'timezone', None)
-        raw_cc = getattr(payload, 'country_code', None) or "IN"
-
-        # validate the IANA tz coming from browser - Intl can send junk
-        try:
-            ZoneInfo(raw_tz) if raw_tz else (_ for _ in ()).throw(Exception())
-            tz = raw_tz
-        except Exception:
-            tz = FALLBACK_TZ.get(raw_cc.upper(), "Asia/Kolkata")
-
-        city = raw_city.strip() if isinstance(raw_city, str) and raw_city.strip() else None
-
         user_row = await conn.fetchrow(
             """
             insert into users (name, email, phone, password_hash, role, household_owner_id,
                                 onboarding_complete, onboarding_step, city, timezone,
                                 created_at, deleted_at)
-            values ($1, $2, $3, $4, 'user', $5::uuid, $6, $7, $8, $9, now(), null)
+            values ($1, $2, $3, $4, 'user', $5::uuid, $6, $7, null, 'Asia/Kolkata', now(), null)
             returning *
             """,
             payload.name.strip(), email, payload.phone, hash_password(payload.password),
             household_owner_id, bool(household_owner_id), 5 if household_owner_id else 0,
-            city, tz, # city can be null, tz NEVER null - fixes your error
         )
         uid = user_row["id"]
 
@@ -626,6 +596,8 @@ async def register(request: Request, response: Response, payload: RegisterInput)
             )
 
     await audit(uid, "register", {"linked_household": str(household_owner_id) if household_owner_id else None})
+    # Welcome the new account owner (adult child) over WhatsApp — best-effort.
+    background_tasks.add_task(send_child_welcome, dict(user_row))
     access_token = create_access_token(str(uid), email, "user")
     refresh_token = create_refresh_token(str(uid), email, "user")
     set_auth_cookies(response, access_token, refresh_token)
@@ -751,14 +723,14 @@ class OtpVerifyInput(BaseModel):
 @api.post("/auth/otp/send")
 @api.post("/auth/otp/resend")
 async def auth_otp_send(payload: OtpSendInput, user: dict = Depends(get_current_user), _csrf: None = Depends(validate_csrf_token)):
-    result = await create_and_send_otp_with_fallback(payload.phone)
+    result = await create_and_send_otp(payload.phone)
     status = result.get("status")
     if status == "rate_limited":
         raise HTTPException(status_code=429, detail=result.get("detail", "Too many requests. Try again shortly."),
                             headers={"Retry-After": str(result.get("retry_after_seconds", 60))})
     if status == "failed":
         raise HTTPException(status_code=502, detail=result.get("detail", "Could not send the code. Please try again."))
-    out = {"sent": True, "expires_at": result.get("expires_at"), "channel": result.get("channel")}
+    out = {"sent": True, "expires_at": result.get("expires_at"), "channel": result.get("channel", "sms")}
     if "dev_code" in result:
         out["dev_code"] = result["dev_code"]
     return out
@@ -798,7 +770,7 @@ async def forgot_password(payload: ForgotPasswordInput, request: Request):
         raise HTTPException(status_code=429, detail=f"Too many attempts. Try again in {retry_after}s.")
     user = await _user_by_phone(payload.phone)
     # Always answer the same way so phone numbers can't be enumerated.
-    out = {"sent": True, "message": "If an account exists for this number, a 6-digit code has been sent on SMS."}
+    out = {"sent": True, "message": "If an account exists for this number, a 6-digit code has been sent via WhatsApp or SMS."}
     if user:
         result = await create_and_send_otp(user["phone"])
         if result.get("status") == "rate_limited":
@@ -907,7 +879,7 @@ async def update_child(
     if not (user.get("phone_verified") and verified_number and _normalize_phone(verified_number) == normalized):
         raise HTTPException(
             status_code=400,
-            detail="Please verify your phone number with the SMS code before continuing.",
+            detail="Please verify your phone number with the verification code before continuing.",
         )
     async with get_pool().acquire() as conn:
         clash_parent = await conn.fetchrow(
@@ -1128,9 +1100,13 @@ async def delete_parent(parent_id: str, background_tasks: BackgroundTasks, user:
             "update schedules set deleted_at = now(), active = false where parent_id = $1::uuid",
             parent_id,
         )
-    # Warm farewell only if this parent was actually live on WhatsApp.
-    if parent and activation and activation["whatsapp_activated"]:
-        background_tasks.add_task(send_parent_goodbye, dict(parent))
+    # Warm farewell to the parent (only if they were live), and always let the
+    # child know check-ins for this parent have stopped.
+    if parent:
+        if activation and activation["whatsapp_activated"]:
+            background_tasks.add_task(send_parent_goodbye, dict(parent))
+        if user.get("phone"):
+            background_tasks.add_task(send_parent_removed_child_notice, user.get("phone"), "en", parent["name"])
     return {"ok": True}
 
 # ---------------- Emergency contacts (distinct from Care Circle) ----------------
@@ -2096,14 +2072,21 @@ async def accept_invite_by_token(token: str, user: dict = Depends(get_current_us
     return {"ok": True, "owner_id": invite["owner_id"]}
 
 @api.delete("/circle/member/{member_id}")
-async def remove_member(member_id: str, user: dict = Depends(get_current_user), _csrf: None = Depends(validate_csrf_token)):
+async def remove_member(member_id: str, background_tasks: BackgroundTasks, user: dict = Depends(get_current_user), _csrf: None = Depends(validate_csrf_token)):
     if is_member(user):
         raise HTTPException(status_code=403, detail="Only the account owner can remove members.")
     async with get_pool().acquire() as conn:
+        member = await conn.fetchrow(
+            "select phone from users where id = $1::uuid and household_owner_id = $2",
+            member_id, str(user["id"]),
+        )
         await conn.execute(
             "update users set household_owner_id = null where id = $1::uuid and household_owner_id = $2",
             member_id, str(user["id"]),
         )
+    # Let the removed Care Circle member know — best-effort.
+    if member and member["phone"]:
+        background_tasks.add_task(send_member_removed_notice, member["phone"], "en")
     return {"ok": True}
 
 @api.delete("/circle/invite/{invite_id}")
@@ -2193,69 +2176,101 @@ def parse_reply(text: str) -> str | None:
     return None
 
 
-async def _notify_family(owner_id, parent, feeling: str | None, is_voice: bool, body: str, keywords: list, ml_flagged: bool = False, media_url: str = None, transcription: str | None = None):
+# Friendly labels for what the parent was replying to (Issue #2), so the
+# child sees "Amma · Morning check-in" instead of a bare "Amma replied: good".
+_CATEGORY_LABEL = {
+    "breakfast": "Breakfast check-in", "lunch": "Lunch check-in", "dinner": "Dinner check-in",
+    "afternoon_checkin": "Afternoon check-in", "tea_check": "Tea-time check-in", "walk_check": "Walk check-in",
+    "morning": "Morning check-in", "evening": "Evening check-in", "night": "Night check-in",
+    "medicine": "Medicine reminder", "water": "Water reminder", "bp_check": "BP check reminder",
+    "sugar_check": "Sugar check reminder", "health_check": "Health check reminder",
+}
+
+
+def _prompt_label(last_log) -> str:
+    """Human-readable name of the check-in/reminder the parent just answered."""
+    if not last_log:
+        return "Check-in"
+    cat = (last_log["category"] or "").strip()
+    if cat in _CATEGORY_LABEL:
+        return _CATEGORY_LABEL[cat]
+    mtype = (last_log["msg_type"] or "").strip()
+    if mtype == "reminder":
+        return f"{cat.replace('_', ' ').title()} reminder" if cat else "Reminder"
+    if cat:
+        return f"{cat.replace('_', ' ').title()} check-in"
+    return "Check-in"
+
+
+async def _notify_family(owner_id, parent, feeling: str | None, is_voice: bool, body: str, keywords: list, ml_flagged: bool = False, media_url: str = None, transcription: str | None = None, stt_confidence: float | None = None):
     async with get_pool().acquire() as conn:
         owner = await conn.fetchrow("select * from users where id = $1::uuid", owner_id)
         members = await conn.fetch(
             "select * from users where household_owner_id = $1::uuid and deleted_at is null limit 20", owner_id
         )
+        last_log = None
+        if parent:
+            last_log = await conn.fetchrow(
+                "select category, msg_type, body from message_logs where parent_id = $1::uuid order by created_at desc limit 1",
+                parent["id"],
+            )
     recipients = ([owner] if owner else []) + list(members)
     pname = parent["name"] if parent else "Your parent"
+    prompt = _prompt_label(last_log)
 
-    # --- NEW VOICE FORWARD LOGIC (Issue #2) ---
+    # --- VOICE FORWARD LOGIC with confidence (Issue #1 + #2) ---
     if is_voice and media_url:
         from whatsapp import send_audio_link, download_and_host_voice_note
         hosted_audio_url = await download_and_host_voice_note(media_url, str(parent["id"]) if parent else "unknown")
 
-        is_clear = bool(transcription and transcription.strip() and transcription.strip()!= "[voice note]" and len(transcription.strip()) > 2)
+        is_clear = bool(transcription and transcription.strip() and transcription.strip() != "[voice note]" and len(transcription.strip()) > 2)
+        conf_label = confidence_label(stt_confidence) if stt_confidence is not None else ("high" if is_clear else "unknown")
         translated_text = transcription
 
-        # Translate if clear
+        # Translate if clear and languages differ
         if is_clear and owner:
             child_lang = (owner.get("language") or "en").lower()[:2]
             parent_lang = (parent.get("language") if parent else "en").lower()[:2]
-            if child_lang!= parent_lang:
+            if child_lang != parent_lang:
                 try:
                     from translation_engine import translate_text
                     translated_text = await translate_text(transcription, target_language=child_lang, source_language=parent_lang)
                 except Exception as e:
                     logger.warning(f"[voice] Translation failed: {e}")
 
+        pct = f" (≈{round((stt_confidence or 0) * 100)}% confident)" if stt_confidence is not None else ""
         for r in recipients:
             if not r or not r["phone"]:
                 continue
             if hosted_audio_url:
                 await send_audio_link(r["phone"], hosted_audio_url)
-            if is_clear:
-                text = f"🎤 {pname} sent you a voice note: {translated_text}"
+            if is_clear and conf_label == "high":
+                text = f"🎤 {pname} · {prompt}\n\n“{translated_text}”"
+            elif is_clear and conf_label == "medium":
+                text = f"🎤 {pname} · {prompt}\n\nWe think she said{pct} — please listen to confirm:\n“{translated_text}”"
+            elif is_clear:  # low confidence but we got some words
+                text = f"🎤 {pname} · {prompt}\n\nRough transcription{pct}, may be inaccurate — please listen:\n“{translated_text}”"
             else:
-                text = f"🎤 {pname} sent you a voice note - audio not clear to transcribe, please listen 💛"
+                text = f"🎤 {pname} · {prompt}\n\nWe couldn't transcribe this voice note clearly — please listen 💛"
             send_whatsapp(r["phone"], text)
         return
 
-    # --- Existing logic for text/button ---
+    # --- Text / button replies (Issue #2: clean, contextual message) ---
     if keywords:
-        head = f"🚨 {pname} may need attention. They sent: \"{body}\""
+        head = f"🚨 {pname} · {prompt}\nMay need attention — they said: “{body}”"
     elif ml_flagged:
-        head = f"💛 Worth checking in on {pname} — something in their voice note stood out."
+        head = f"💛 {pname} · {prompt}\nWorth checking in — something in their voice note stood out."
     elif is_voice:
-        head = f"🎤 {pname} sent you a voice note on WhatsApp. Open the chat to listen 💛"
+        head = f"🎤 {pname} · {prompt}\nSent a voice note on WhatsApp. Open the chat to listen 💛"
     elif feeling:
         f = FEELING_MAP.get(feeling, {})
-        head = f"💬 {pname} replied: {f.get('emoji','')} {f.get('label',{}).get('en', feeling)}"
+        reply_txt = f"{f.get('emoji','')} {f.get('label',{}).get('en', feeling)}".strip()
+        head = f"💬 {pname} · {prompt}\nReplied: {reply_txt}"
     else:
-        head = f"💬 {pname} replied: \"{body}\""
-    # Emergency keyword or ML-flagged distress is safety-critical — fall
-    # back to SMS if WhatsApp delivery fails, so a Meta outage doesn't mean
-    # nobody finds out. Routine replies (mood, plain text, voice-note
-    # notice) stay WhatsApp-only, same as before.
-    is_safety_critical = bool(keywords) or ml_flagged
+        head = f"💬 {pname} · {prompt}\nReplied: “{body}”"
     for r in recipients:
         if r and r["phone"]:
-            if is_safety_critical:
-                await send_whatsapp_with_fallback(r["phone"], head)
-            else:
-                send_whatsapp(r["phone"], head)
+            send_whatsapp(r["phone"], head)
 
 # ── Generic-payload disambiguation ──────────────────────────────────────
 _GENERIC_REMINDER_PAYLOADS = {
@@ -2385,6 +2400,7 @@ async def _record_reply(from_number: str, body_text: str, num_media: int = 0, pa
 
     is_voice = False
     transcription = None
+    stt_confidence = None
     intent = None
     if parent is None:
         logger.warning("[webhook] Inbound from unknown number %s — no matching parent, ignoring", from_number)
@@ -2399,7 +2415,9 @@ async def _record_reply(from_number: str, body_text: str, num_media: int = 0, pa
             intent = resolved if resolved is not None else button_payload
         elif media_url and (media_content_type or "").startswith("audio/"):
             is_voice = True
-            transcription = await transcribe_voice_note(media_url, language=lang, auth_headers=meta_auth_header())
+            stt = await transcribe_voice_note_detailed(media_url, language=lang, auth_headers=meta_auth_header())
+            transcription = stt.get("transcript") if stt else None
+            stt_confidence = stt.get("confidence") if stt else None
             effective_text = transcription or "[voice note]"
             intent = parse_intent(None, effective_text)
             body_text = effective_text
@@ -2441,13 +2459,13 @@ async def _record_reply(from_number: str, body_text: str, num_media: int = 0, pa
             insert into parent_replies
                 (from_phone, parent_id, user_id, body, button_payload, intent, feeling,
                  is_voice, transcription, media_url, emergency_keywords, ml_flagged, ml_score,
-                 raw_payload, created_at)
-            values ($1, $2::uuid, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12, $13, $14::jsonb, now())
+                 stt_confidence, raw_payload, created_at)
+            values ($1, $2::uuid, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12, $13, $14, $15::jsonb, now())
             returning *
             """,
             from_number, parent["id"] if parent else None, owner_id, body_text, button_payload,
             intent, feeling, is_voice, transcription, media_url, json.dumps(keywords),
-            ml_flagged, ml_score, json.dumps(raw_payload or {}),
+            ml_flagged, ml_score, stt_confidence, json.dumps(raw_payload or {}),
         )
         if keywords and parent:
             await conn.execute(
@@ -2458,7 +2476,7 @@ async def _record_reply(from_number: str, body_text: str, num_media: int = 0, pa
                 owner_id, parent["id"], from_number, body_text, json.dumps(keywords), intent, is_voice,
             )
     if parent and owner_id:
-        await _notify_family(owner_id, parent, feeling, is_voice, body_text, keywords, ml_flagged, media_url=media_url, transcription=transcription or body_text)
+        await _notify_family(owner_id, parent, feeling, is_voice, body_text, keywords, ml_flagged, media_url=media_url, transcription=transcription or body_text, stt_confidence=stt_confidence)
     return dict(reply_row)
 
 
@@ -2773,6 +2791,77 @@ async def checkins_summary(
     return {"parents": out_parents, "alerts": alerts}
 
 # ---------------- WhatsApp webhook ----------------
+# ── Delivery health funnel (Issue #4) ──────────────────────────────────────
+# Meta sends status callbacks (sent -> delivered -> read, or failed) referencing
+# the message SID we stored on message_logs.sid. We persist the furthest state
+# reached so the dashboard/admin can show a real delivery funnel.
+async def _persist_delivery_status(status: dict) -> None:
+    sid = status.get("id")
+    st = status.get("status")
+    if not sid or not st:
+        return
+    try:
+        async with get_pool().acquire() as conn:
+            if st == "sent":
+                await conn.execute(
+                    "update message_logs set delivery_status = coalesce(delivery_status, 'sent') where sid = $1",
+                    sid,
+                )
+            elif st == "delivered":
+                await conn.execute(
+                    """update message_logs
+                       set delivery_status = 'delivered', delivered_at = coalesce(delivered_at, now())
+                       where sid = $1 and (delivery_status is distinct from 'read')""",
+                    sid,
+                )
+            elif st == "read":
+                await conn.execute(
+                    """update message_logs
+                       set delivery_status = 'read', read_at = coalesce(read_at, now()),
+                           delivered_at = coalesce(delivered_at, now())
+                       where sid = $1""",
+                    sid,
+                )
+            elif st == "failed":
+                errors = status.get("errors") or []
+                detail = (errors[0].get("title") if errors and isinstance(errors[0], dict) else None) or "delivery failed"
+                await conn.execute(
+                    """update message_logs
+                       set delivery_status = 'failed', status = 'failed', detail = coalesce(detail, $2)
+                       where sid = $1""",
+                    sid, detail,
+                )
+    except Exception as e:
+        logger.warning("[webhook] Failed to persist delivery status %s for %s: %s", st, sid, e)
+
+
+async def _delivery_funnel(conn, user_id: str | None = None) -> dict:
+    """Aggregate sent -> delivered -> read + failed counts for real (SID-bearing)
+    outbound messages. Scoped to a user when user_id is given, else global."""
+    where = "where (sid is not null or status in ('sent','simulated','failed'))"
+    args: list = []
+    if user_id:
+        where += " and user_id = $1::uuid"
+        args = [user_id]
+    row = await conn.fetchrow(
+        f"""
+        select
+            count(*) filter (where status in ('sent','simulated') or delivery_status is not null) as sent,
+            count(*) filter (where delivery_status in ('delivered','read'))                        as delivered,
+            count(*) filter (where delivery_status = 'read')                                       as read,
+            count(*) filter (where delivery_status = 'failed' or status = 'failed')                as failed
+        from message_logs {where}
+        """,
+        *args,
+    )
+    return {
+        "sent": row["sent"] or 0,
+        "delivered": row["delivered"] or 0,
+        "read": row["read"] or 0,
+        "failed": row["failed"] or 0,
+    }
+
+
 @api.get("/whatsapp/webhook")
 async def whatsapp_webhook_verify(request: Request):
     mode = request.query_params.get("hub.mode")
@@ -2784,58 +2873,6 @@ async def whatsapp_webhook_verify(request: Request):
         return Response(content=challenge, media_type="text/plain")
     logger.warning("[webhook] Meta verification handshake failed")
     raise HTTPException(status_code=403, detail="Verification failed")
-
-# Monotonic status ranking so a late-arriving/out-of-order webhook event
-# can't downgrade a row that's already advanced further (e.g. a delayed
-# "sent" callback arriving after "read" already landed). "failed" always
-# applies — Meta only sends it when the message definitively didn't go
-# through, so it should never be blocked by rank.
-_WA_STATUS_RANK = {"simulated": 1, "sent": 1, "delivered": 2, "read": 3}
-
-
-async def _apply_wa_delivery_status(wamid: str | None, new_status: str, ts_dt: datetime, errors: list | None = None):
-    """
-    Persist a Meta delivery-status webhook callback (sent/delivered/read/failed)
-    onto the message_logs row it belongs to, matched by the WhatsApp message id
-    (sid) saved at send time by scheduler.py / escalation.py / server.py's
-    send-test path. This is what actually powers the delivery-health funnel —
-    without it, message_logs.status just freezes at "sent" forever regardless
-    of what Meta later reports.
-    """
-    if not wamid or (new_status not in _WA_STATUS_RANK and new_status != "failed"):
-        return
-    new_rank = _WA_STATUS_RANK.get(new_status, 4)  # failed always outranks
-    async with get_pool().acquire() as conn:
-        result = await conn.execute(
-            """
-            update message_logs
-            set status = $1,
-                status_updated_at = $2,
-                delivered_at = case when $1 = 'delivered' then coalesce(delivered_at, $2) else delivered_at end,
-                read_at      = case when $1 = 'read'      then coalesce(read_at, $2)      else read_at end,
-                failed_at    = case when $1 = 'failed'    then coalesce(failed_at, $2)    else failed_at end,
-                wa_error     = case when $1 = 'failed'    then $4::jsonb                   else wa_error end
-            where sid = $3
-              and (
-                    $1 = 'failed'
-                    or coalesce(
-                         case status
-                           when 'read' then 3
-                           when 'delivered' then 2
-                           when 'sent' then 1
-                           when 'simulated' then 1
-                           else 0
-                         end, 0) < $5
-                  )
-            """,
-            new_status, ts_dt, wamid, json.dumps(errors or []), new_rank,
-        )
-        if result.rsplit(" ", 1)[-1] == "0":
-            logger.debug(
-                "[webhook] status update sid=%s -> %s matched no row (rank not advanced, or sid not found — test send predates this migration, or send failed before sid was recorded)",
-                wamid, new_status,
-            )
-
 
 @api.post("/whatsapp/webhook")
 async def whatsapp_webhook(request: Request):
@@ -2867,31 +2904,17 @@ async def whatsapp_webhook(request: Request):
             if value.get("statuses"):
                 for status in value["statuses"]:
                     st = status.get("status")
-                    wamid = status.get("id")
-                    ts_raw = status.get("timestamp")
-                    try:
-                        ts_dt = datetime.fromtimestamp(int(ts_raw), tz=timezone.utc) if ts_raw else datetime.now(timezone.utc)
-                    except (TypeError, ValueError):
-                        ts_dt = datetime.now(timezone.utc)
                     if st == "failed":
-                        errors = status.get("errors", [])
                         logger.warning(
                             "[webhook] Delivery FAILED for message %s to %s: %s",
-                            wamid, status.get("recipient_id"), errors,
+                            status.get("id"), status.get("recipient_id"), status.get("errors", []),
                         )
-                        try:
-                            await _apply_wa_delivery_status(wamid, "failed", ts_dt, errors)
-                        except Exception as e:
-                            logger.error("[webhook] failed to persist failed-status for sid=%s: %s", wamid, e)
                     else:
                         logger.info(
                             "[webhook] Status update: message %s to %s -> %s",
-                            wamid, status.get("recipient_id"), st,
+                            status.get("id"), status.get("recipient_id"), st,
                         )
-                        try:
-                            await _apply_wa_delivery_status(wamid, st, ts_dt)
-                        except Exception as e:
-                            logger.error("[webhook] failed to persist status=%s for sid=%s: %s", st, wamid, e)
+                    await _persist_delivery_status(status)
                 continue
             for message in value.get("messages", []):
                 from_number = message.get("from", "")
@@ -3005,6 +3028,8 @@ async def dashboard_bootstrap(user: dict = Depends(get_current_user)):
         moments_quota(user),
         list_moments(user),
     )
+    async with get_pool().acquire() as conn:
+        funnel = await _delivery_funnel(conn, str(scope(user)))
     return {
         "parents": parents,
         "schedules": schedules,
@@ -3015,6 +3040,7 @@ async def dashboard_bootstrap(user: dict = Depends(get_current_user)):
         "audit": audit_logs,
         "moments_quota": quota,
         "moments": moments,
+        "delivery_funnel": funnel,
         "server_time": datetime.now(timezone.utc).isoformat(),
     }
 
@@ -3040,113 +3066,16 @@ async def admin_stats(admin: dict = Depends(get_current_admin)):
         paying = await conn.fetchval("select count(*) from payment_state where status in ('active', 'paid', 'trialing')")
         plan_rows = await conn.fetch("select coalesce(plan, 'none') as plan, count(*) as n from payment_state group by plan")
         plan_breakdown = {r["plan"]: r["n"] for r in plan_rows}
+        funnel = await _delivery_funnel(conn)
     return {
         "total_users": total_users, "completed_onboarding": completed,
         "new_today": new_today, "new_7d": new_7d,
         "activated": activated, "parents": parents, "active_schedules": schedules,
-        "messages_delivered": messages, "open_emergencies": emergencies,
+        "messages_delivered": funnel["delivered"], "messages_total": messages,
+        "open_emergencies": emergencies,
         "paying_users": paying, "plan_breakdown": plan_breakdown,
+        "delivery_funnel": funnel,
         "whatsapp_enabled": whatsapp_enabled(),
-    }
-
-
-@api.get("/admin/delivery-health")
-async def admin_delivery_health(admin: dict = Depends(get_current_admin), days: int = Query(7, ge=1, le=90)):
-    """
-    Real delivered/read/failed funnel, driven by delivered_at/read_at/failed_at
-    (set by _apply_wa_delivery_status() from Meta's webhook callbacks) rather
-    than message_logs.status alone — status only ever holds the single latest
-    value, so a message that reached "read" wouldn't separately count toward
-    "delivered" if we just grouped by status.
-    """
-    async with get_pool().acquire() as conn:
-        overall = await conn.fetchrow(
-            """
-            select
-              count(*) as total,
-              count(*) filter (where status in ('sent', 'simulated', 'delivered', 'read', 'failed')) as attempted,
-              count(*) filter (where delivered_at is not null) as delivered,
-              count(*) filter (where read_at is not null) as read,
-              count(*) filter (where status = 'failed') as failed,
-              count(*) filter (
-                where status in ('sent', 'simulated') and delivered_at is null and failed_at is null
-              ) as pending
-            from message_logs
-            where created_at >= now() - ($1 || ' days')::interval
-            """,
-            days,
-        )
-        daily_rows = await conn.fetch(
-            """
-            select
-              day_key,
-              count(*) as total,
-              count(*) filter (where delivered_at is not null) as delivered,
-              count(*) filter (where read_at is not null) as read,
-              count(*) filter (where status = 'failed') as failed
-            from message_logs
-            where created_at >= now() - ($1 || ' days')::interval
-            group by day_key
-            order by day_key desc
-            """,
-            days,
-        )
-        # Sent (per status/sid) more than 2 hours ago with no delivery
-        # confirmation and no failure — either the webhook isn't configured
-        # right for this deployment, or Meta silently dropped it.
-        stuck_rows = await conn.fetch(
-            """
-            select ml.id, ml.parent_id, p.name as parent_name, ml.category, ml.created_at, ml.sid
-            from message_logs ml
-            left join parents p on p.id = ml.parent_id
-            where ml.status in ('sent', 'simulated')
-              and ml.delivered_at is null and ml.failed_at is null
-              and ml.created_at < now() - interval '2 hours'
-              and ml.created_at >= now() - ($1 || ' days')::interval
-            order by ml.created_at desc
-            limit 50
-            """,
-            days,
-        )
-
-    total = overall["total"] or 0
-    delivered = overall["delivered"] or 0
-    read = overall["read"] or 0
-    failed = overall["failed"] or 0
-
-    return {
-        "days": days,
-        "overall": {
-            "total": total,
-            "delivered": delivered,
-            "read": read,
-            "failed": failed,
-            "pending": overall["pending"] or 0,
-            "delivery_rate": round(delivered / total, 4) if total else None,
-            "read_rate": round(read / delivered, 4) if delivered else None,
-            "failure_rate": round(failed / total, 4) if total else None,
-        },
-        "daily": [
-            {
-                "day_key": r["day_key"],
-                "total": r["total"],
-                "delivered": r["delivered"],
-                "read": r["read"],
-                "failed": r["failed"],
-            }
-            for r in daily_rows
-        ],
-        "stuck_sends": [
-            {
-                "id": str(r["id"]),
-                "parent_id": str(r["parent_id"]) if r["parent_id"] else None,
-                "parent_name": r["parent_name"] or "Unknown",
-                "category": r["category"],
-                "created_at": r["created_at"].isoformat(),
-                "has_sid": bool(r["sid"]),
-            }
-            for r in stuck_rows
-        ],
     }
 
 
@@ -3236,6 +3165,101 @@ async def admin_schedules(
         out.append(s)
     return {"total": total, "skip": skip, "limit": limit, "items": out}
 
+
+@api.get("/admin/delivery-health")
+async def admin_delivery_health(
+    admin: dict = Depends(get_current_admin),
+    days: int = Query(7, ge=1, le=90),
+):
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+    async with get_pool().acquire() as conn:
+        overall_row = await conn.fetchrow(
+            """
+            select
+                count(*) filter (where status in ('sent','simulated') or delivery_status is not null) as total,
+                count(*) filter (where delivery_status in ('delivered','read'))                        as delivered,
+                count(*) filter (where delivery_status = 'read')                                       as read,
+                count(*) filter (where delivery_status = 'failed' or status = 'failed')                as failed
+            from message_logs
+            where created_at >= $1
+            """,
+            since,
+        )
+        total = overall_row["total"] or 0
+        delivered = overall_row["delivered"] or 0
+        read = overall_row["read"] or 0
+        failed = overall_row["failed"] or 0
+        pending = max(total - delivered - failed, 0)
+
+        daily_rows = await conn.fetch(
+            """
+            select
+                day_key,
+                count(*) filter (where delivery_status in ('delivered','read'))         as delivered,
+                count(*) filter (where delivery_status = 'read')                        as read,
+                count(*) filter (where delivery_status = 'failed' or status = 'failed') as failed
+            from message_logs
+            where created_at >= $1 and day_key is not null
+            group by day_key
+            order by day_key desc
+            limit $2
+            """,
+            since, days,
+        )
+
+        stuck_rows = await conn.fetch(
+            """
+            select ml.id, ml.category, ml.created_at, ml.sid, p.name as parent_name
+            from message_logs ml
+            left join parents p on p.id = ml.parent_id
+            where ml.created_at <= now() - interval '2 hours'
+              and ml.created_at >= $1
+              and (ml.status in ('sent', 'simulated') or ml.delivery_status = 'sent' or ml.delivery_status is null)
+              and ml.delivery_status is distinct from 'delivered'
+              and ml.delivery_status is distinct from 'read'
+              and ml.delivery_status is distinct from 'failed'
+              and ml.status is distinct from 'failed'
+            order by ml.created_at asc
+            limit 50
+            """,
+            since,
+        )
+
+    def _rate(n, d):
+        return round(n / d, 4) if d else None
+
+    return {
+        "range_days": days,
+        "overall": {
+            "total": total,
+            "delivered": delivered,
+            "read": read,
+            "failed": failed,
+            "pending": pending,
+            "delivery_rate": _rate(delivered, total),
+            "read_rate": _rate(read, total),
+            "failure_rate": _rate(failed, total),
+        },
+        "daily": [
+            {
+                "day_key": r["day_key"],
+                "delivered": r["delivered"] or 0,
+                "read": r["read"] or 0,
+                "failed": r["failed"] or 0,
+            }
+            for r in daily_rows
+        ],
+        "stuck_sends": [
+            {
+                "id": str(r["id"]),
+                "parent_name": r["parent_name"] or "Unknown",
+                "category": r["category"],
+                "created_at": r["created_at"].isoformat(),
+                "has_sid": r["sid"] is not None,
+            }
+            for r in stuck_rows
+        ],
+    }
 
 app.include_router(api)
 

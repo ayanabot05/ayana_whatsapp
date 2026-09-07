@@ -15,6 +15,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import { PaginationBar } from "@/components/ui/PaginationBar";
+import { DeliveryFunnel } from "@/components/DeliveryFunnel";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 const USERS_PER_PAGE = 50;
@@ -148,7 +149,7 @@ export default function Admin() {
     { icon: Activity,      label: "Activated circles",    value: stats.activated            },
     { icon: CalendarHeart, label: "Paying users",         value: stats.paying_users ?? 0     },
     { icon: CalendarHeart, label: "Active schedules",     value: stats.active_schedules     },
-    { icon: MessageCircle, label: "Messages sent",         value: stats.messages_delivered   },
+    { icon: MessageCircle, label: "Messages sent",        value: stats.messages_delivered   },
     { icon: AlertTriangle, label: "Open emergencies",     value: stats.open_emergencies     },
   ];
 
@@ -170,7 +171,7 @@ export default function Admin() {
           </span>
         </div>
 
-        <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 mb-10" data-testid="admin-stats">
+        <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 mb-6" data-testid="admin-stats">
           {cards.map((c) => (
             <div key={c.label} className="bg-white rounded-xl border border-ayana-line p-5">
               <c.icon className="w-5 h-5 text-ayana-primary mb-3" strokeWidth={1.5} />
@@ -179,6 +180,12 @@ export default function Admin() {
             </div>
           ))}
         </div>
+
+        {stats.delivery_funnel && (
+          <div className="mb-10">
+            <DeliveryFunnel funnel={stats.delivery_funnel} testid="admin-delivery-funnel" />
+          </div>
+        )}
 
         <Tabs defaultValue="users">
           <TabsList className="bg-ayana-alt">

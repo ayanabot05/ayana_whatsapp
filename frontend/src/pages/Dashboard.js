@@ -9,7 +9,7 @@ import {
 import { Navbar } from "@/components/Navbar";
 import { api, formatApiError, formatAxiosError } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
-import { LANG_LABELS, TIMEZONES } from "@/lib/constants";
+import { LANG_LABELS, TIMEZONES, getBrowserTimezone } from "@/lib/constants";
 import { CATEGORY_ICONS, normalizeCategory } from "@/components/ScheduleEditor";
 import { ParentCareForm, blankParentForm, blankMedicine, SHAPE_ICON, COLOR_HEX } from "@/components/ParentCareForm";
 import { cleanHabits, cleanOptionalString } from "@/lib/formHelpers";
@@ -20,6 +20,7 @@ import { Switch } from "@/components/ui/switch";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { CareTab } from "@/components/CareTab";
+import { DeliveryFunnel } from "@/components/DeliveryFunnel";
 import { PricingCards } from "@/components/PricingCards";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { MonthlyReportView } from "@/components/MonthlyReportView";
@@ -342,7 +343,7 @@ export default function Dashboard() {
                                   >
                                     {SHAPE_ICON[m.shape] || "💊"}
                                   </span>
-                                  {m.name}{m.dose ? ` ${m.dose}` : ""}
+                                  {m.name}{m.dose ? ` ${m.dose}` : ""}{m.reminder_time ? ` · ${m.reminder_time}` : ""}
                                 </span>
                               );
                             })}
@@ -357,6 +358,11 @@ export default function Dashboard() {
           </TabBoundary></TabsContent>
 
           <TabsContent value="checkins" className="mt-6"><TabBoundary tab="checkins" onRetry={load}>
+            {boot?.delivery_funnel && (
+              <div className="mb-6">
+                <DeliveryFunnel funnel={boot.delivery_funnel} testid="dashboard-delivery-funnel" />
+              </div>
+            )}
             <CheckinsTab
               parents={parents}
               data={checkinsData}
@@ -448,10 +454,10 @@ export default function Dashboard() {
 function AccountPanel({ user, plan, payment, circle, setActiveTab, refreshUser }) {
   const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [form, setForm] = useState({ name: user?.name || "", city: user?.city || "", timezone: user?.timezone || "Asia/Kolkata" });
+  const [form, setForm] = useState({ name: user?.name || "", city: user?.city || "", timezone: user?.timezone || getBrowserTimezone() });
 
   const startEdit = () => {
-    setForm({ name: user?.name || "", city: user?.city || "", timezone: user?.timezone || "Asia/Kolkata" });
+    setForm({ name: user?.name || "", city: user?.city || "", timezone: user?.timezone || getBrowserTimezone() });
     setEditing(true);
   };
 
@@ -747,7 +753,7 @@ function ParentDialog({ parent, config, limits, plan, schedules = [], onSaved, t
       relationship: parent.relationship || "mother",
       phone: parent.phone || "+91",
       language: parent.language || "en",
-      timezone: parent.timezone || "Asia/Kolkata",
+      timezone: parent.timezone || getBrowserTimezone(),
       notes: parent.notes || "",
       preferred_name: parent.preferred_name || "",
       nicknames: parent.nicknames || [],
@@ -838,7 +844,7 @@ function ParentDialog({ parent, config, limits, plan, schedules = [], onSaved, t
         mode: plan?.id || "nitya",
         messages: messages,
         active: existingSchedule?.active ?? true,
-        reengagement_hours: reengagement_hours ?? 4,
+        reengagement_hours: reengagement_hours ?? 1,
       };
       if (existingSchedule) {
         await api.put(`/schedules/${existingSchedule.id}`, schedPayload);

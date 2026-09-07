@@ -15,6 +15,24 @@ export const TIMEZONES = [
 
 export const LANG_LABELS = { en: "English", te: "Telugu", hi: "Hindi" };
 
+// Auto-detect the visitor's own timezone from their browser instead of
+// hardcoding a single region — customers can be anywhere in India (or the
+// world). Falls back to Asia/Kolkata if the browser can't tell us.
+export function getBrowserTimezone() {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Kolkata";
+  } catch {
+    return "Asia/Kolkata";
+  }
+}
+
+// Make sure the visitor's own timezone is always selectable in the dropdowns,
+// even when it isn't one of the curated options above.
+const _browserTz = getBrowserTimezone();
+if (_browserTz && !TIMEZONES.some((t) => t.value === _browserTz)) {
+  TIMEZONES.unshift({ value: _browserTz, label: `Your timezone — ${_browserTz}` });
+}
+
 // Common country dial codes (unique labels for dropdown)
 export const COUNTRY_CODES = [
   { code: "+91", flag: "🇮🇳", name: "India" },
