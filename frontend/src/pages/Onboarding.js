@@ -26,8 +26,6 @@ export default function Onboarding() {
     return Math.min(Math.max(s, 0), 3);
   });
   const [loading, setLoading] = useState(false);
-  // Set true right before we intentionally route to /activation so the
-  // onboarding_complete->/dashboard redirect effect doesn't hijack it.
   const skipRedirect = useRef(false);
 
   const [child, setChild] = useState({
@@ -38,12 +36,15 @@ export default function Onboarding() {
   });
   const [childConsent, setChildConsent] = useState(false);
   const [verifiedPhone, setVerifiedPhone] = useState(
-    user?.phone_verified && user?.phone_verified_number ? user.phone_verified_number : ""
+    user?.phone_verified && user?.phone_verified_number? user.phone_verified_number : ""
   );
   const [planId, setPlanId] = useState("nitya");
 
+  // DEV ONLY: show OTP on screen
+  const [devCode, setDevCode] = useState(null);
+
   const normPhone = (p) => (p || "").replace(/\s/g, "");
-  const childPhoneVerified = !!verifiedPhone && normPhone(child.phone) === normPhone(verifiedPhone);
+  const childPhoneVerified =!!verifiedPhone && normPhone(child.phone) === normPhone(verifiedPhone);
 
   const plans = useMemo(() => config?.plans?.length? config.plans : FALLBACK_PLANS, [config]);
   const currencies = config?.currencies?.length? config.currencies : FALLBACK_CURRENCIES;
@@ -114,6 +115,11 @@ export default function Onboarding() {
     }
   }, [parentsLoaded, parentsList.length, parentForm, newBlankParent]);
 
+  // Clear dev code when phone changes
+  useEffect(() => {
+    setDevCode(null);
+  }, [child.phone]);
+
   const inputCls = "w-full px-4 py-3 rounded-xl border border-ayana-line bg-white focus:outline-none focus:ring-2 focus:ring-ayana-bright/50 focus:border-ayana-bright transition";
 
   const saveChild = async () => {
@@ -131,17 +137,26 @@ export default function Onboarding() {
 
   const sendChildOtp = async (phone) => {
     const { data } = await api.post("/auth/otp/send", { phone });
-    if (data?.dev_code) toast.message(`Test mode code: ${data.dev_code}`, { duration: 8000 });
+    if (data?.dev_code) {
+      setDevCode(data.dev_code);
+      toast.message(`Dev OTP: ${data.dev_code}`, { duration: 10000 });
+    }
     return data;
   };
+
   const verifyChildOtp = async (phone, code) => {
     await api.post("/auth/otp/verify", { phone, code });
     setVerifiedPhone(phone);
+    setDevCode(null);
     refreshUser?.();
   };
+
   const resendChildOtp = async (phone) => {
     const { data } = await api.post("/auth/otp/resend", { phone });
-    if (data?.dev_code) toast.message(`Test mode code: ${data.dev_code}`, { duration: 8000 });
+    if (data?.dev_code) {
+      setDevCode(data.dev_code);
+      toast.message(`Dev OTP: ${data.dev_code}`, { duration: 10000 });
+    }
     return data;
   };
 
@@ -218,7 +233,7 @@ export default function Onboarding() {
     if (checkinCount > maxCheckins) { toast.error(`Your plan allows up to ${maxCheckins} check-ins. Remove some or upgrade.`); return; }
     setLoading(true);
     try {
-      const { messages, reengagement_hours, ...parentData } = parentForm;
+      const { messages, reengagement_hours,...parentData } = parentForm;
       parentData.habits = cleanHabits(parentData.habits);
       let savedParent;
       if (editingParentId) {
@@ -232,7 +247,7 @@ export default function Onboarding() {
         await api.post("/consent", { consent_type: "parent", agreed: true, text: `Consent confirmed for parent ${parentForm.name}.` });
       }
       const existingSchedId = scheduleIds[savedParent.id];
-      const schedPayload = { parent_id: savedParent.id, mode: planId, messages, active: true, reengagement_hours: reengagement_hours ?? 1 };
+      const schedPayload = { parent_id: savedParent.id, mode: planId, messages, active: true, reengagement_hours: reengagement_hours?? 1 };
       let dropped = savedParent.medicine_reminders_dropped;
       if (existingSchedId) {
         const { data: schedData } = await api.put(`/schedules/${existingSchedId}`, schedPayload);
@@ -266,11 +281,6 @@ export default function Onboarding() {
   const activate = async () => {
     setLoading(true);
     try {
-      // Activation fires a real Meta WhatsApp send per parent, which can
-      // take 15-20s on the first cold call (measured 16.5s in production).
-      // Override the default 30s axios timeout with a generous 60s so the
-      // client waits for the actual result instead of falsely toasting a
-      // failure while the server already sent the message.
       const { data } = await api.post("/activation/activate", null, { timeout: 60000 });
       if (data?.activated) {
         toast.success("🎉 Care Circle activated! Your parent will start receiving daily check-ins.");
@@ -342,6 +352,8 @@ export default function Onboarding() {
                     <input type="checkbox" checked={childConsent} onChange={(e) => setChildConsent(e.target.checked)} data-testid="child-consent" className="mt-1 w-4 h-4 accent-ayana-primary" />
                     <span className="text-sm text-ayana-secondary">I consent to AYANA storing my details to manage care check-ins. I can delete my data anytime.</span>
                   </label>
+
+                  {/* VERIFICATION WITH DEV CODE ON SCREEN */}
                   <div className="pt-2">
                     <p className="text-sm font-medium text-ayana-text mb-2">Verify your phone number</p>
                     <PhoneVerificationCard
@@ -353,8 +365,43 @@ export default function Onboarding() {
                       onResend={resendChildOtp}
                       testid="child-otp"
                     />
-                    {!childPhoneVerified && (
+
+                    {devCode &&!childPhoneVerified && (
+                      <motion.div
+                        initial={{ opacity: 0, y: -8 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="mt-4 rounded-2xl border-2 border-dashed border-amber-300 bg-amber-50 p-4 flex items-center justify-between gap-4"
+                      >
+                        <div>
+                          <p className="text- font-bold tracking-widest text-amber-700 uppercase">DEV MODE - OTP ON SCREEN</p>
+                          <p className="mt-1 text-3xl font-mono font-bold tracking-[0.3em] text-ayana-text">{devCode}</p>
+                          <p className="text-xs text-amber-700/70 mt-1">WhatsApp skipped - use this code for now</p>
+                        </div>
+                        <div className="flex flex-col gap-2">
+                          <button
+                            onClick={() => {
+                              navigator.clipboard.writeText(devCode);
+                              toast.success("Copied!");
+                            }}
+                            className="px-4 py-2 rounded-full bg-white border border-amber-200 text-sm font-medium hover:bg-amber-100 transition"
+                          >
+                            Copy
+                          </button>
+                          <button
+                            onClick={() => verifyChildOtp(child.phone, devCode)}
+                            className="px-5 py-2.5 rounded-full bg-ayana-primary text-white text-sm font-semibold shadow hover:bg-ayana-primary-hover transition"
+                          >
+                            Auto Verify
+                          </button>
+                        </div>
+                      </motion.div>
+                    )}
+
+                    {!childPhoneVerified &&!devCode && (
                       <p className="mt-2 text-xs text-ayana-muted">We'll send a 6-digit code on WhatsApp (or SMS if WhatsApp can't reach you) to confirm this is your number. Verification is required to continue.</p>
+                    )}
+                    {childPhoneVerified && (
+                      <p className="mt-2 text-xs text-green-600 font-medium flex items-center gap-1"><Check className="w-3.5 h-3.5" /> Phone verified - {verifiedPhone}</p>
                     )}
                   </div>
                 </div>
