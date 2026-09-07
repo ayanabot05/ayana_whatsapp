@@ -27,7 +27,7 @@ from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 
 from database import get_pool
-from whatsapp import send_whatsapp, send_medicine_template, send_dynamic_checkin
+from whatsapp import send_whatsapp, send_whatsapp_with_fallback, send_medicine_template, send_dynamic_checkin
 
 logger = logging.getLogger("ayana.escalation")
 
@@ -115,9 +115,11 @@ async def _notify_child(conn, user_id, parent, text: str):
         unique_phones = list(dict.fromkeys(phones))
         for p in unique_phones:
             try:
-                # send_whatsapp is sync (blocks) — run in threadpool to not block event loop
-                # If whatsapp.py is ever made async, replace with await send_whatsapp(...)
-                await asyncio.to_thread(send_whatsapp, p, text)
+                # Safety-critical family/emergency-contact alert — falls back
+                # to SMS if WhatsApp delivery fails, so a Meta outage doesn't
+                # mean silence for someone who might need to act. (Routine
+                # sends elsewhere stay WhatsApp-only via plain send_whatsapp.)
+                await send_whatsapp_with_fallback(p, text)
             except Exception as e:
                 logger.warning("[escalation] notify %s failed: %s", p, e)
     except Exception as e:

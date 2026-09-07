@@ -108,6 +108,40 @@ def send_whatsapp(to_phone: str, body: str) -> Dict[str, Any]:
         return {"status": "failed", "detail": str(e), "to": to_phone}
 
 
+async def send_whatsapp_with_fallback(to_phone: str, body: str) -> Dict[str, Any]:
+    """
+    Safety-critical alert send: try WhatsApp first, and if it fails
+    (Meta outage, expired/misconfigured token, invalid number, etc.),
+    fall back to a plain Twilio SMS so the recipient still gets the
+    message instead of silence.
+
+    Not used for routine check-ins/reminders/moments — those stay
+    WhatsApp-only via send_whatsapp() as before. This is specifically for
+    the two places a missed alert has real safety consequences: emergency
+    keyword/ML-flagged distress notifications (server.py's
+    _notify_family) and the Care Watch afternoon no-reply escalation
+    (escalation.py's _notify_child).
+
+    A "simulated" WhatsApp result (test mode, WHATSAPP_ENABLED=false) is
+    NOT treated as a failure — nothing is actually broken in that case,
+    so it doesn't fall back and doesn't burn a real SMS in dev/test.
+
+    Returns the WhatsApp result dict as-is on success/simulated, or on
+    WhatsApp failure, the SMS result dict with "whatsapp_detail" added
+    so callers/logs can see both attempts.
+    """
+    wa_result = send_whatsapp(to_phone, body)
+    if wa_result.get("status") in ("sent", "simulated"):
+        return {**wa_result, "channel": "whatsapp"}
+
+    logger.warning("[wa] WhatsApp send failed for %s, falling back to SMS: %s", to_phone, wa_result.get("detail"))
+    from sms import send_alert_sms
+    sms_result = await send_alert_sms(to_phone, body)
+    sms_result["channel"] = "sms_fallback" if sms_result.get("status") == "sent" else "sms_fallback_failed"
+    sms_result["whatsapp_detail"] = wa_result.get("detail")
+    return sms_result
+
+
 def _build_body_params(content_variables: Dict[str, str]) -> List[Dict[str, str]]:
     ordered_keys = sorted(content_variables.keys(), key=lambda k: int(k))
     return [{"type": "text", "text": content_variables[k]} for k in ordered_keys]

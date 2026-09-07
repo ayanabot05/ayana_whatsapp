@@ -1,21 +1,27 @@
 """
-otp.py — SMS OTP verification for AYANA family members, plus email OTP
-for login-email change confirmation.
+otp.py — WhatsApp-first OTP verification for AYANA family members (SMS
+fallback via Twilio), plus email OTP for login-email change confirmation.
 
 PHONE OTP verifies the FAMILY MEMBER'S OWN phone number (sons, daughters,
 primary carers) — NOT the elderly parent's WhatsApp. Called during signup
 or from Profile to badge the account with phone_verified=true.
-Delivery channel: Twilio SMS API.
+Delivery: WhatsApp (Meta Cloud API, via whatsapp.py) first, falling back
+to Twilio SMS only on a genuine WhatsApp failure. A "simulated" WhatsApp
+result (WHATSAPP_ENABLED=false, dev/test mode) is NOT a failure and does
+NOT fall back to SMS — same convention as whatsapp.send_whatsapp_with_fallback.
 
 EMAIL OTP verifies a NEW login email address when the user changes it from
 Account settings — the code is sent to the new address itself, so
 completing the flow proves the user controls that inbox. Delivery
 channel: Resend (via email_sender.py).
 
-WhatsApp (Meta Cloud API) is used only for care check-ins / openers,
-NOT for OTP of either kind.
+WhatsApp check-ins/openers for the ELDERLY PARENT are unrelated to this
+file — parents are never sent an OTP of either kind.
 
-Required env vars (when SMS_ENABLED=true):
+Required env vars (WhatsApp OTP — see whatsapp.py):
+  WHATSAPP_ENABLED, META_WA_ACCESS_TOKEN, META_WA_PHONE_NUMBER_ID
+
+Required env vars (SMS fallback, when SMS_ENABLED=true):
   TWILIO_ACCOUNT_SID   Twilio Account SID
   TWILIO_AUTH_TOKEN     Twilio Auth Token
   TWILIO_SMS_FROM       Twilio phone number to send from (E.164 format)
@@ -59,7 +65,6 @@ VERIFY_WINDOW_MINUTES = 15  # Window in minutes for verify rate limit
 BCRYPT_ROUNDS        = 12
 
 # ── Redis connection ───────────────────────────────────────────────────────────
-# Unchanged — Redis was never Mongo, nothing to migrate here.
 _redis_client = None
 _redis_available = True
 
@@ -166,7 +171,62 @@ def verify_otp_hash(code: str, stored_hash: str) -> bool:
 
 
 # ── Twilio SMS delivery ─────────────────────────────────────────────────────
-# Unchanged — Twilio's REST API, nothing database-related in here.
+# Low-level Twilio call, shared by OTP delivery (send_otp_sms below) and
+# generic safety-alert delivery (sms.send_alert_sms) — one place that knows
+# how to talk to Twilio's Messages API, so there's nothing to keep in sync
+# if that API ever changes. Callers own their own message content and their
+# own "should I even try" gating (otp_delivery_enabled() /
+# sms.sms_alerts_enabled() — both just check SMS_ENABLED + TWILIO_ACCOUNT_SID)
+# — this function always attempts the call once it's invoked.
+
+async def _twilio_send_raw(phone: str, body: str) -> dict:
+    account_sid = os.environ.get("TWILIO_ACCOUNT_SID", "").strip()
+    auth_token = os.environ.get("TWILIO_AUTH_TOKEN", "").strip()
+    from_number = os.environ.get("TWILIO_SMS_FROM", "").strip()
+
+    if not account_sid or not auth_token:
+        return {"status": "failed", "detail": "Missing TWILIO_ACCOUNT_SID or TWILIO_AUTH_TOKEN"}
+    if not from_number:
+        return {"status": "failed", "detail": "Missing TWILIO_SMS_FROM (sender phone number)"}
+
+    try:
+        import httpx
+
+        url = f"https://api.twilio.com/2010-04-01/Accounts/{account_sid}/Messages.json"
+        credentials = b64encode(f"{account_sid}:{auth_token}".encode()).decode()
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(
+                url,
+                headers={
+                    "Authorization": f"Basic {credentials}",
+                    "Content-Type": "application/x-www-form-urlencoded",
+                },
+                data={"To": phone, "From": from_number, "Body": body},
+            )
+
+        if resp.status_code in (200, 201):
+            data = resp.json()
+            return {"status": "sent", "sid": data.get("sid", "")}
+
+        try:
+            err_data = resp.json()
+            err_msg = err_data.get("message", resp.text[:200])
+            err_code = err_data.get("code", "")
+            logger.error("[sms] Twilio error for %s: HTTP %s, code=%s, msg=%s", phone, resp.status_code, err_code, err_msg)
+        except Exception:
+            logger.error("[sms] Twilio error for %s: HTTP %s, body=%s", phone, resp.status_code, resp.text[:200])
+
+        return {"status": "failed", "detail": "SMS delivery failed — try again shortly."}
+
+    except Exception as exc:
+        logger.error("[sms] Twilio delivery error for %s: %s", phone, type(exc).__name__)
+        return {"status": "failed", "detail": "SMS delivery failed — try again shortly."}
+
+
+def _otp_message_body(code: str) -> str:
+    return f"Your AYANA verification code is: {code}. It expires in {OTP_EXPIRY_MINUTES} minutes. Do not share this code."
+
 
 async def send_otp_sms(phone: str, code: str) -> dict:
     """
@@ -184,57 +244,41 @@ async def send_otp_sms(phone: str, code: str) -> dict:
         logger.info("[otp] SMS delivery disabled (%s) — simulating for %s", reason, phone)
         return {"status": "simulated", "detail": f"OTP delivery disabled ({reason})"}
 
-    try:
-        import httpx
+    result = await _twilio_send_raw(phone, _otp_message_body(code))
 
-        account_sid = os.environ.get("TWILIO_ACCOUNT_SID", "").strip()
-        auth_token = os.environ.get("TWILIO_AUTH_TOKEN", "").strip()
-        from_number = os.environ.get("TWILIO_SMS_FROM", "").strip()
+    if result.get("status") == "sent":
+        logger.info("[otp] SMS OTP sent to %s (sid=%s)", phone, result.get("sid"))
+        return {"status": "sent", "message_sid": result.get("sid", "")}
+    return result
 
-        if not account_sid or not auth_token:
-            return {"status": "failed", "detail": "Missing TWILIO_ACCOUNT_SID or TWILIO_AUTH_TOKEN"}
-        if not from_number:
-            return {"status": "failed", "detail": "Missing TWILIO_SMS_FROM (sender phone number)"}
 
-        url = f"https://api.twilio.com/2010-04-01/Accounts/{account_sid}/Messages.json"
-        credentials = b64encode(f"{account_sid}:{auth_token}".encode()).decode()
+# ── WhatsApp OTP delivery (primary channel) ─────────────────────────────────
+# Reuses whatsapp.send_whatsapp (Meta Cloud API plain text) so this stays in
+# sync with the rest of the app's WhatsApp sending/simulation behaviour.
+# Imported locally to avoid a module-load-time circular import with
+# whatsapp.py.
 
-        sms_body = f"Your AYANA verification code is: {code}. It expires in {OTP_EXPIRY_MINUTES} minutes. Do not share this code."
+async def send_otp_whatsapp(phone: str, code: str) -> dict:
+    """
+    Send the OTP via WhatsApp (Meta Cloud API).
 
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.post(
-                url,
-                headers={
-                    "Authorization": f"Basic {credentials}",
-                    "Content-Type": "application/x-www-form-urlencoded",
-                },
-                data={
-                    "To": phone,
-                    "From": from_number,
-                    "Body": sms_body,
-                },
-            )
+    Returns:
+      {"status": "sent",      "sid": "..."}
+      {"status": "simulated", "detail": "..."}
+      {"status": "failed",    "detail": "..."}
 
-        if resp.status_code in (200, 201):
-            data = resp.json()
-            message_sid = data.get("sid", "")
-            logger.info("[otp] SMS OTP sent to %s (sid=%s)", phone, message_sid)
-            return {"status": "sent", "message_sid": message_sid}
+    IMPORTANT: `code` is NEVER logged — only redacted references appear.
+    """
+    from whatsapp import send_whatsapp
 
-        try:
-            err_data = resp.json()
-            err_msg = err_data.get("message", resp.text[:200])
-            err_code = err_data.get("code", "")
-            logger.error("[otp] Twilio SMS error for %s: HTTP %s, code=%s, msg=%s", phone, resp.status_code, err_code, err_msg)
-        except Exception:
-            err_msg = resp.text[:200]
-            logger.error("[otp] Twilio SMS error for %s: HTTP %s, body=%s", phone, resp.status_code, err_msg)
-
-        return {"status": "failed", "detail": "SMS delivery failed — try again shortly."}
-
-    except Exception as exc:
-        logger.error("[otp] SMS delivery error for %s: %s", phone, type(exc).__name__)
-        return {"status": "failed", "detail": "SMS delivery failed — try again shortly."}
+    result = send_whatsapp(phone, _otp_message_body(code))
+    if result.get("status") == "sent":
+        logger.info("[otp] WhatsApp OTP sent to %s (sid=%s)", phone, result.get("sid"))
+    elif result.get("status") == "simulated":
+        logger.info("[otp] WhatsApp OTP simulated (test mode) for %s", phone)
+    else:
+        logger.warning("[otp] WhatsApp OTP failed for %s: %s", phone, result.get("detail"))
+    return result
 
 
 # ── Database helpers (phone) ─────────────────────────────────────────────────
@@ -251,22 +295,21 @@ async def _get_otp_row(conn, phone: str):
     return await conn.fetchrow("select * from phone_otps where phone = $1", phone)
 
 
-async def create_and_send_otp(phone: str) -> dict:
+async def _generate_and_store_otp(phone: str) -> dict:
     """
-    Full send flow:
+    Shared first half of the send flow (used by both SMS-only and
+    WhatsApp-first-with-SMS-fallback entry points):
       1. Check resend rate-limit (max 3/10-min window).
       2. Generate + hash a fresh OTP.
       3. Upsert the phone_otps row (resets attempts + expiry).
-      4. Deliver via Twilio.
 
-    Returns send result dict + {phone, expires_at}.
-    Never returns the plaintext OTP.
+    Returns either {"status": "rate_limited", ...} or
+    {"code": <plaintext>, "expires_at": <datetime>} on success.
+    Never returns the plaintext OTP to callers outside this module.
     """
-    phone = _normalize_phone(phone)
-    now   = datetime.now(timezone.utc)
+    now = datetime.now(timezone.utc)
 
     async with get_pool().acquire() as conn:
-        # ── Rate-limit check ──────────────────────────────────────────────
         existing = await _get_otp_row(conn, phone)
         if existing:
             window_start = existing["send_window_start"] or now
@@ -288,7 +331,6 @@ async def create_and_send_otp(phone: str) -> dict:
             window_start = now
             send_count   = 0
 
-        # ── Generate + hash ───────────────────────────────────────────────
         code       = generate_otp()          # plaintext — used only here, never stored
         code_hash  = hash_otp(code)
         expires_at = now + timedelta(minutes=OTP_EXPIRY_MINUTES)
@@ -311,21 +353,76 @@ async def create_and_send_otp(phone: str) -> dict:
             phone, code_hash, expires_at, now, send_count + 1, window_start,
         )
 
-    # ── Deliver ───────────────────────────────────────────────────────────
-    result = await send_otp_sms(phone, code)
+    return {"code": code, "expires_at": expires_at}
+
+
+async def create_and_send_otp(phone: str) -> dict:
+    """
+    SMS-only send flow (kept for callers that explicitly want Twilio SMS,
+    e.g. a manual "resend via SMS" action). For normal signup, prefer
+    create_and_send_otp_with_fallback().
+
+    Returns send result dict + {phone, expires_at}.
+    Never returns the plaintext OTP.
+    """
+    phone = _normalize_phone(phone)
+    gen = await _generate_and_store_otp(phone)
+    if gen.get("status") == "rate_limited":
+        return gen
+
+    result = await send_otp_sms(phone, gen["code"])
     result["phone"]      = phone
-    result["expires_at"] = expires_at.isoformat()
+    result["expires_at"] = gen["expires_at"].isoformat()
     # In simulated mode (SMS delivery disabled) the code is never actually
     # sent anywhere, so surface it to the caller for local/preview testing.
     # This branch is impossible once SMS_ENABLED=true in production.
     if not otp_delivery_enabled():
+        result["dev_code"] = gen["code"]
+    return result
+
+
+async def create_and_send_otp_with_fallback(phone: str) -> dict:
+    """
+    Default send flow for child onboarding: try WhatsApp first (cheaper,
+    richer), fall back to Twilio SMS only on a genuine WhatsApp failure.
+
+    A "simulated" WhatsApp result (WHATSAPP_ENABLED=false, dev/test mode)
+    is treated as success and does NOT trigger an SMS send — same
+    convention as whatsapp.send_whatsapp_with_fallback, so testing this
+    flow locally never burns a real SMS.
+
+    Returns send result dict + {phone, expires_at, channel}.
+    Never returns the plaintext OTP (except dev_code in simulated mode).
+    """
+    phone = _normalize_phone(phone)
+    gen = await _generate_and_store_otp(phone)
+    if gen.get("status") == "rate_limited":
+        return gen
+
+    code = gen["code"]
+    result = await send_otp_whatsapp(phone, code)
+
+    if result.get("status") in ("sent", "simulated"):
+        result["channel"] = "whatsapp"
+    else:
+        logger.warning("[otp] WhatsApp OTP failed for %s, falling back to SMS", phone)
+        sms_result = await send_otp_sms(phone, code)
+        sms_result["channel"] = "sms_fallback"
+        sms_result["whatsapp_detail"] = result.get("detail")
+        result = sms_result
+
+    result["phone"]      = phone
+    result["expires_at"] = gen["expires_at"].isoformat()
+    if result.get("status") == "simulated":
         result["dev_code"] = code
     return result
 
 
 async def verify_otp_code(phone: str, code: str) -> dict:
     """
-    Verify submitted code against the stored hash.
+    Verify submitted code against the stored hash. Works regardless of
+    which channel (WhatsApp or SMS) the code was delivered on, since both
+    write to the same phone_otps row.
 
     Returns:
       {"ok": True,  "phone": ...}                  — success

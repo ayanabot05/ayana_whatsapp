@@ -96,7 +96,7 @@ from models import (
 )
 from medicine_sync import sync_medicine_reminders
 from storage import init_storage, put_object, get_object, signed_url as storage_signed_url, is_enabled as storage_enabled, APP_NAME as STORAGE_APP_NAME
-from otp import create_and_send_otp, verify_otp_code, create_and_send_email_otp, verify_email_otp_code, _normalize_phone
+from otp import create_and_send_otp, create_and_send_otp_with_fallback, verify_otp_code, create_and_send_email_otp, verify_email_otp_code, _normalize_phone
 
 class CheckoutInput(BaseModel):
     plan: str = Field("nitya", pattern="^(nitya|bandham|raksha|basic|care_plus)$")
@@ -145,6 +145,7 @@ from whatsapp import (
     send_moment,
     send_mood_template,
     send_whatsapp,
+    send_whatsapp_with_fallback,
     send_whatsapp_opener,
     verify_meta_signature,
     resolve_meta_media_url,
@@ -264,6 +265,15 @@ async def _run_startup_migrations():
         await conn.execute("alter table users add column if not exists pending_email text")
         # Images are uploaded before the moment row exists, so moment_id must be nullable.
         await conn.execute("alter table moment_images alter column moment_id drop not null")
+        # Delivery-health funnel: lets the webhook's status callbacks
+        # (sent/delivered/read/failed) actually update message_logs instead
+        # of being logged and discarded. See _apply_wa_delivery_status().
+        await conn.execute("alter table message_logs add column if not exists status_updated_at timestamptz")
+        await conn.execute("alter table message_logs add column if not exists delivered_at timestamptz")
+        await conn.execute("alter table message_logs add column if not exists read_at timestamptz")
+        await conn.execute("alter table message_logs add column if not exists failed_at timestamptz")
+        await conn.execute("alter table message_logs add column if not exists wa_error jsonb")
+        await conn.execute("create index if not exists idx_msglogs_created_at on message_logs(created_at)")
         # Link replies that arrived from Meta as '91xxxxxxxxxx' to parents stored as '+91xxxxxxxxxx'.
         linked = await conn.execute(
             """
@@ -718,14 +728,14 @@ class OtpVerifyInput(BaseModel):
 @api.post("/auth/otp/send")
 @api.post("/auth/otp/resend")
 async def auth_otp_send(payload: OtpSendInput, user: dict = Depends(get_current_user), _csrf: None = Depends(validate_csrf_token)):
-    result = await create_and_send_otp(payload.phone)
+    result = await create_and_send_otp_with_fallback(payload.phone)
     status = result.get("status")
     if status == "rate_limited":
         raise HTTPException(status_code=429, detail=result.get("detail", "Too many requests. Try again shortly."),
                             headers={"Retry-After": str(result.get("retry_after_seconds", 60))})
     if status == "failed":
         raise HTTPException(status_code=502, detail=result.get("detail", "Could not send the code. Please try again."))
-    out = {"sent": True, "expires_at": result.get("expires_at")}
+    out = {"sent": True, "expires_at": result.get("expires_at"), "channel": result.get("channel")}
     if "dev_code" in result:
         out["dev_code"] = result["dev_code"]
     return out
@@ -2212,9 +2222,17 @@ async def _notify_family(owner_id, parent, feeling: str | None, is_voice: bool, 
         head = f"💬 {pname} replied: {f.get('emoji','')} {f.get('label',{}).get('en', feeling)}"
     else:
         head = f"💬 {pname} replied: \"{body}\""
+    # Emergency keyword or ML-flagged distress is safety-critical — fall
+    # back to SMS if WhatsApp delivery fails, so a Meta outage doesn't mean
+    # nobody finds out. Routine replies (mood, plain text, voice-note
+    # notice) stay WhatsApp-only, same as before.
+    is_safety_critical = bool(keywords) or ml_flagged
     for r in recipients:
         if r and r["phone"]:
-            send_whatsapp(r["phone"], head)
+            if is_safety_critical:
+                await send_whatsapp_with_fallback(r["phone"], head)
+            else:
+                send_whatsapp(r["phone"], head)
 
 # ── Generic-payload disambiguation ──────────────────────────────────────
 _GENERIC_REMINDER_PAYLOADS = {
@@ -2744,6 +2762,58 @@ async def whatsapp_webhook_verify(request: Request):
     logger.warning("[webhook] Meta verification handshake failed")
     raise HTTPException(status_code=403, detail="Verification failed")
 
+# Monotonic status ranking so a late-arriving/out-of-order webhook event
+# can't downgrade a row that's already advanced further (e.g. a delayed
+# "sent" callback arriving after "read" already landed). "failed" always
+# applies — Meta only sends it when the message definitively didn't go
+# through, so it should never be blocked by rank.
+_WA_STATUS_RANK = {"simulated": 1, "sent": 1, "delivered": 2, "read": 3}
+
+
+async def _apply_wa_delivery_status(wamid: str | None, new_status: str, ts_dt: datetime, errors: list | None = None):
+    """
+    Persist a Meta delivery-status webhook callback (sent/delivered/read/failed)
+    onto the message_logs row it belongs to, matched by the WhatsApp message id
+    (sid) saved at send time by scheduler.py / escalation.py / server.py's
+    send-test path. This is what actually powers the delivery-health funnel —
+    without it, message_logs.status just freezes at "sent" forever regardless
+    of what Meta later reports.
+    """
+    if not wamid or (new_status not in _WA_STATUS_RANK and new_status != "failed"):
+        return
+    new_rank = _WA_STATUS_RANK.get(new_status, 4)  # failed always outranks
+    async with get_pool().acquire() as conn:
+        result = await conn.execute(
+            """
+            update message_logs
+            set status = $1,
+                status_updated_at = $2,
+                delivered_at = case when $1 = 'delivered' then coalesce(delivered_at, $2) else delivered_at end,
+                read_at      = case when $1 = 'read'      then coalesce(read_at, $2)      else read_at end,
+                failed_at    = case when $1 = 'failed'    then coalesce(failed_at, $2)    else failed_at end,
+                wa_error     = case when $1 = 'failed'    then $4::jsonb                   else wa_error end
+            where sid = $3
+              and (
+                    $1 = 'failed'
+                    or coalesce(
+                         case status
+                           when 'read' then 3
+                           when 'delivered' then 2
+                           when 'sent' then 1
+                           when 'simulated' then 1
+                           else 0
+                         end, 0) < $5
+                  )
+            """,
+            new_status, ts_dt, wamid, json.dumps(errors or []), new_rank,
+        )
+        if result.rsplit(" ", 1)[-1] == "0":
+            logger.debug(
+                "[webhook] status update sid=%s -> %s matched no row (rank not advanced, or sid not found — test send predates this migration, or send failed before sid was recorded)",
+                wamid, new_status,
+            )
+
+
 @api.post("/whatsapp/webhook")
 async def whatsapp_webhook(request: Request):
     raw_body = await request.body()
@@ -2774,17 +2844,31 @@ async def whatsapp_webhook(request: Request):
             if value.get("statuses"):
                 for status in value["statuses"]:
                     st = status.get("status")
+                    wamid = status.get("id")
+                    ts_raw = status.get("timestamp")
+                    try:
+                        ts_dt = datetime.fromtimestamp(int(ts_raw), tz=timezone.utc) if ts_raw else datetime.now(timezone.utc)
+                    except (TypeError, ValueError):
+                        ts_dt = datetime.now(timezone.utc)
                     if st == "failed":
                         errors = status.get("errors", [])
                         logger.warning(
                             "[webhook] Delivery FAILED for message %s to %s: %s",
-                            status.get("id"), status.get("recipient_id"), errors,
+                            wamid, status.get("recipient_id"), errors,
                         )
+                        try:
+                            await _apply_wa_delivery_status(wamid, "failed", ts_dt, errors)
+                        except Exception as e:
+                            logger.error("[webhook] failed to persist failed-status for sid=%s: %s", wamid, e)
                     else:
                         logger.info(
                             "[webhook] Status update: message %s to %s -> %s",
-                            status.get("id"), status.get("recipient_id"), st,
+                            wamid, status.get("recipient_id"), st,
                         )
+                        try:
+                            await _apply_wa_delivery_status(wamid, st, ts_dt)
+                        except Exception as e:
+                            logger.error("[webhook] failed to persist status=%s for sid=%s: %s", st, wamid, e)
                 continue
             for message in value.get("messages", []):
                 from_number = message.get("from", "")
@@ -2940,6 +3024,106 @@ async def admin_stats(admin: dict = Depends(get_current_admin)):
         "messages_delivered": messages, "open_emergencies": emergencies,
         "paying_users": paying, "plan_breakdown": plan_breakdown,
         "whatsapp_enabled": whatsapp_enabled(),
+    }
+
+
+@api.get("/admin/delivery-health")
+async def admin_delivery_health(admin: dict = Depends(get_current_admin), days: int = Query(7, ge=1, le=90)):
+    """
+    Real delivered/read/failed funnel, driven by delivered_at/read_at/failed_at
+    (set by _apply_wa_delivery_status() from Meta's webhook callbacks) rather
+    than message_logs.status alone — status only ever holds the single latest
+    value, so a message that reached "read" wouldn't separately count toward
+    "delivered" if we just grouped by status.
+    """
+    async with get_pool().acquire() as conn:
+        overall = await conn.fetchrow(
+            """
+            select
+              count(*) as total,
+              count(*) filter (where status in ('sent', 'simulated', 'delivered', 'read', 'failed')) as attempted,
+              count(*) filter (where delivered_at is not null) as delivered,
+              count(*) filter (where read_at is not null) as read,
+              count(*) filter (where status = 'failed') as failed,
+              count(*) filter (
+                where status in ('sent', 'simulated') and delivered_at is null and failed_at is null
+              ) as pending
+            from message_logs
+            where created_at >= now() - ($1 || ' days')::interval
+            """,
+            days,
+        )
+        daily_rows = await conn.fetch(
+            """
+            select
+              day_key,
+              count(*) as total,
+              count(*) filter (where delivered_at is not null) as delivered,
+              count(*) filter (where read_at is not null) as read,
+              count(*) filter (where status = 'failed') as failed
+            from message_logs
+            where created_at >= now() - ($1 || ' days')::interval
+            group by day_key
+            order by day_key desc
+            """,
+            days,
+        )
+        # Sent (per status/sid) more than 2 hours ago with no delivery
+        # confirmation and no failure — either the webhook isn't configured
+        # right for this deployment, or Meta silently dropped it.
+        stuck_rows = await conn.fetch(
+            """
+            select ml.id, ml.parent_id, p.name as parent_name, ml.category, ml.created_at, ml.sid
+            from message_logs ml
+            left join parents p on p.id = ml.parent_id
+            where ml.status in ('sent', 'simulated')
+              and ml.delivered_at is null and ml.failed_at is null
+              and ml.created_at < now() - interval '2 hours'
+              and ml.created_at >= now() - ($1 || ' days')::interval
+            order by ml.created_at desc
+            limit 50
+            """,
+            days,
+        )
+
+    total = overall["total"] or 0
+    delivered = overall["delivered"] or 0
+    read = overall["read"] or 0
+    failed = overall["failed"] or 0
+
+    return {
+        "days": days,
+        "overall": {
+            "total": total,
+            "delivered": delivered,
+            "read": read,
+            "failed": failed,
+            "pending": overall["pending"] or 0,
+            "delivery_rate": round(delivered / total, 4) if total else None,
+            "read_rate": round(read / delivered, 4) if delivered else None,
+            "failure_rate": round(failed / total, 4) if total else None,
+        },
+        "daily": [
+            {
+                "day_key": r["day_key"],
+                "total": r["total"],
+                "delivered": r["delivered"],
+                "read": r["read"],
+                "failed": r["failed"],
+            }
+            for r in daily_rows
+        ],
+        "stuck_sends": [
+            {
+                "id": str(r["id"]),
+                "parent_id": str(r["parent_id"]) if r["parent_id"] else None,
+                "parent_name": r["parent_name"] or "Unknown",
+                "category": r["category"],
+                "created_at": r["created_at"].isoformat(),
+                "has_sid": bool(r["sid"]),
+            }
+            for r in stuck_rows
+        ],
     }
 
 
