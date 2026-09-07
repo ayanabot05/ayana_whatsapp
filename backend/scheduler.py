@@ -240,16 +240,14 @@ async def _deliver_due_messages_impl():
                             if chosen is None and isinstance(medicines[0], dict):
                                 chosen = medicines[0]
                         if chosen:
-                            # Describe the pill by colour + shape so the parent can
-                            # recognise it visually — not just a generic 💊.
+                            # Describe the pill as "Name Dose (colour shape)" so
+                            # the parent recognises it — e.g. "Pan 40mg (white round)".
                             name = chosen.get("name", "")
                             descr = " ".join(x for x in [chosen.get("color"), chosen.get("shape")] if x).strip()
                             dose = chosen.get("dose")
-                            medicine_name = name
+                            medicine_name = f"{name} {dose}".strip() if dose else name
                             if descr:
-                                medicine_name = f"{name} ({descr})" if name else descr
-                            if dose:
-                                medicine_name = f"{medicine_name} — {dose}"
+                                medicine_name = f"{medicine_name} ({descr})".strip() if medicine_name else descr
 
                     result = await send_dynamic_checkin(
                         dict(parent),

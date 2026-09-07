@@ -140,6 +140,9 @@ create table message_logs (
     detail         text,
     sid            text,
     reply_status   text,
+    delivery_status text,                        -- Meta callback: 'sent'|'delivered'|'read'|'failed'
+    delivered_at   timestamptz,
+    read_at        timestamptz,
     created_at     timestamptz not null default now()
 );
 create index idx_msglogs_sched_idx_day on message_logs(schedule_id, message_index, day_key);
@@ -270,6 +273,7 @@ create table parent_replies (
     emergency_keywords  jsonb not null default '[]'::jsonb,
     ml_flagged          boolean not null default false,
     ml_score            double precision,
+    stt_confidence      double precision,
     raw_payload         jsonb not null default '{}'::jsonb,
     created_at          timestamptz not null default now()
 );
@@ -346,6 +350,7 @@ create table monthly_reports (
     trend_note              text,
     shared_with_care_circle boolean not null default false,
     generated_at            timestamptz not null default now(),
+    details                 jsonb,
     unique (user_id, parent_id, period)
 );
 

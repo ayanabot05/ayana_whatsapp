@@ -4,6 +4,8 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { Loader2 } from "lucide-react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/sonner";
+import { Analytics } from "@vercel/analytics/react";
+
 import { AuthProvider } from "@/context/AuthContext";
 import { LanguageProvider } from "@/context/LanguageContext";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
@@ -12,8 +14,8 @@ import { ProtectedRoute } from "@/components/ProtectedRoute";
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      staleTime: 30_000,       // 30 s — don't refetch too aggressively
-      retry: 1,                // one retry on network errors
+      staleTime: 30_000,           // 30 s — don't refetch too aggressively
+      retry: 1,                    // one retry on network errors
       refetchOnWindowFocus: false, // avoid surprise refetches when switching tabs
     },
   },
@@ -53,35 +55,44 @@ function PageFallback() {
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
-    <div className="App">
-      <AuthProvider>
-        <LanguageProvider>
-        <BrowserRouter>
-          <Suspense fallback={<PageFallback />}>
-            <Routes>
-              <Route path="/" element={<Landing />} />
-              <Route path="/login" element={<Login />} />
-              <Route path="/signup" element={<Signup />} />
-              <Route path="/forgot-password" element={<ForgotPassword />} />
-              <Route path="/privacy" element={<Privacy />} />
-              <Route path="/terms" element={<Terms />} />
-              <Route path="/disclaimer" element={<Disclaimer />} />
-              <Route path="/data-deletion" element={<DataDeletion />} />
-              <Route path="/onboarding" element={<ProtectedRoute><Onboarding /></ProtectedRoute>} />
-              <Route path="/activation" element={<ProtectedRoute><Activation /></ProtectedRoute>} />
-              <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-              <Route path="/admin" element={<ProtectedRoute adminOnly><Admin /></ProtectedRoute>} />
-              {/* Public invite claim — works for logged-in and new users */}
-              <Route path="/invite/:token" element={<InviteClaim />} />
-              <Route path="/payment/success" element={<PaymentSuccess />} />
-              <Route path="/payment/cancel" element={<PaymentCancel />} />
-            </Routes>
-          </Suspense>
-        </BrowserRouter>
-        </LanguageProvider>
-        <Toaster position="top-center" richColors />
-      </AuthProvider>
-    </div>
+      <div className="App">
+        <AuthProvider>
+          <LanguageProvider>
+            <BrowserRouter>
+              <Suspense fallback={<PageFallback />}>
+                <Routes>
+                  <Route path="/" element={<Landing />} />
+                  <Route path="/login" element={<Login />} />
+                  <Route path="/signup" element={<Signup />} />
+                  <Route path="/forgot-password" element={<ForgotPassword />} />
+
+                  <Route path="/privacy" element={<Privacy />} />
+                  <Route path="/terms" element={<Terms />} />
+                  <Route path="/disclaimer" element={<Disclaimer />} />
+                  <Route path="/data-deletion" element={<DataDeletion />} />
+
+                  <Route path="/onboarding" element={<ProtectedRoute><Onboarding /></ProtectedRoute>} />
+                  <Route path="/activation" element={<ProtectedRoute><Activation /></ProtectedRoute>} />
+                  <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+                  <Route path="/admin" element={<ProtectedRoute adminOnly><Admin /></ProtectedRoute>} />
+
+                  {/* Public invite claim — works for both logged-in and new users */}
+                  <Route path="/invite/:token" element={<InviteClaim />} />
+
+                  <Route path="/payment/success" element={<PaymentSuccess />} />
+                  <Route path="/payment/cancel" element={<PaymentCancel />} />
+                </Routes>
+              </Suspense>
+            </BrowserRouter>
+          </LanguageProvider>
+
+          {/* Toast notifications */}
+          <Toaster position="top-center" richColors />
+        </AuthProvider>
+
+        {/* Vercel Analytics */}
+        <Analytics />
+      </div>
     </QueryClientProvider>
   );
 }

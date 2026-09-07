@@ -242,7 +242,7 @@ class ScheduleInput(BaseModel):
     active: bool = True
     recovery_mode: bool = False
     recovery_until: Optional[str] = None
-    reengagement_hours: int = Field(4, ge=1, le=24)
+    reengagement_hours: int = Field(1, ge=1, le=24)
 
     @field_validator("messages")
     @classmethod

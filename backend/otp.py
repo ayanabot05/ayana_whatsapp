@@ -237,6 +237,120 @@ async def send_otp_sms(phone: str, code: str) -> dict:
         return {"status": "failed", "detail": "SMS delivery failed — try again shortly."}
 
 
+# ── WhatsApp OTP delivery (primary channel) ─────────────────────────────────
+# OTP is delivered over WhatsApp FIRST (Meta Cloud API). If that fails for any
+# reason (number not on WhatsApp, no open 24h session / no approved template,
+# network error, Meta rejection) the caller automatically falls back to Twilio
+# SMS. Set WA_OTP_TEMPLATE to an approved WhatsApp *authentication* template
+# name to deliver via template (needed to reach "cold" numbers reliably);
+# otherwise a plain-text message is sent, which only lands inside an open
+# 24-hour session — and simply fails over to SMS when it can't.
+
+def whatsapp_otp_enabled() -> bool:
+    """True when WhatsApp is enabled and Meta Cloud API creds are configured."""
+    return (
+        os.environ.get("WHATSAPP_ENABLED", "false").strip().lower() == "true"
+        and bool(os.environ.get("META_WA_ACCESS_TOKEN", "").strip())
+        and bool(os.environ.get("META_WA_PHONE_NUMBER_ID", "").strip())
+    )
+
+
+async def send_otp_whatsapp(phone: str, code: str) -> dict:
+    """
+    Send the OTP over WhatsApp via the Meta Cloud API.
+
+    Returns:
+      {"status": "sent",      "message_id": "..."}
+      {"status": "simulated", "detail": "..."}   # WhatsApp disabled/not configured
+      {"status": "failed",    "detail": "..."}   # delivery error -> caller falls back to SMS
+
+    IMPORTANT: `code` is NEVER logged — only redacted references appear.
+    """
+    if not whatsapp_otp_enabled():
+        logger.info("[otp] WhatsApp delivery disabled/not configured — will try SMS for %s", phone)
+        return {"status": "simulated", "detail": "WhatsApp disabled"}
+
+    try:
+        import httpx
+
+        token = os.environ.get("META_WA_ACCESS_TOKEN", "").strip()
+        phone_id = os.environ.get("META_WA_PHONE_NUMBER_ID", "").strip()
+        graph_version = os.environ.get("META_WA_GRAPH_VERSION", "v22.0").strip()
+        template = os.environ.get("WA_OTP_TEMPLATE", "").strip()
+        template_lang = os.environ.get("WA_OTP_TEMPLATE_LANG", "en").strip() or "en"
+
+        url = f"https://graph.facebook.com/{graph_version}/{phone_id}/messages"
+
+        if template:
+            # Approved WhatsApp authentication template — the same code fills the
+            # body {{1}} and the one-tap "copy code" URL button.
+            payload = {
+                "messaging_product": "whatsapp",
+                "to": phone,
+                "type": "template",
+                "template": {
+                    "name": template,
+                    "language": {"code": template_lang},
+                    "components": [
+                        {"type": "body", "parameters": [{"type": "text", "text": code}]},
+                        {
+                            "type": "button",
+                            "sub_type": "url",
+                            "index": "0",
+                            "parameters": [{"type": "text", "text": code}],
+                        },
+                    ],
+                },
+            }
+        else:
+            payload = {
+                "messaging_product": "whatsapp",
+                "to": phone,
+                "type": "text",
+                "text": {
+                    "body": (
+                        f"Your AYANA verification code is: {code}. "
+                        f"It expires in {OTP_EXPIRY_MINUTES} minutes. Do not share this code."
+                    )
+                },
+            }
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(
+                url,
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Content-Type": "application/json",
+                },
+                json=payload,
+            )
+
+        if resp.status_code in (200, 201):
+            try:
+                msg_id = resp.json().get("messages", [{}])[0].get("id", "")
+            except Exception:
+                msg_id = ""
+            logger.info("[otp] WhatsApp OTP sent to %s (id=%s)", phone, msg_id)
+            return {"status": "sent", "message_id": msg_id}
+
+        try:
+            err = resp.json().get("error", {})
+            logger.warning(
+                "[otp] WhatsApp OTP failed for %s: HTTP %s code=%s — falling back to SMS",
+                phone, resp.status_code, err.get("code"),
+            )
+        except Exception:
+            logger.warning(
+                "[otp] WhatsApp OTP failed for %s: HTTP %s — falling back to SMS",
+                phone, resp.status_code,
+            )
+        return {"status": "failed", "detail": "WhatsApp delivery failed"}
+
+    except Exception as exc:
+        logger.warning("[otp] WhatsApp OTP error for %s: %s — falling back to SMS", phone, type(exc).__name__)
+        return {"status": "failed", "detail": "WhatsApp delivery error"}
+
+
 # ── Database helpers (phone) ─────────────────────────────────────────────────
 
 def _normalize_phone(phone: str) -> str:
@@ -311,14 +425,29 @@ async def create_and_send_otp(phone: str) -> dict:
             phone, code_hash, expires_at, now, send_count + 1, window_start,
         )
 
-    # ── Deliver ───────────────────────────────────────────────────────────
-    result = await send_otp_sms(phone, code)
+    # ── Deliver: WhatsApp first, SMS fallback ──────────────────────────────
+    wa = await send_otp_whatsapp(phone, code)
+    if wa.get("status") == "sent":
+        result = {"status": "sent", "channel": "whatsapp", "message_id": wa.get("message_id", "")}
+    else:
+        # WhatsApp disabled or failed — fall back to Twilio SMS.
+        sms = await send_otp_sms(phone, code)
+        if sms.get("status") == "sent":
+            result = {"status": "sent", "channel": "sms", "message_sid": sms.get("message_sid", "")}
+        elif sms.get("status") == "simulated" and wa.get("status") == "simulated":
+            # Both channels disabled (local/preview) — simulate + surface code.
+            result = {"status": "simulated", "channel": "none", "detail": "OTP delivery disabled"}
+        elif sms.get("status") == "simulated":
+            result = {"status": "simulated", "channel": "sms", "detail": sms.get("detail")}
+        else:
+            result = {"status": "failed", "channel": "sms", "detail": sms.get("detail", "Delivery failed — try again shortly.")}
+
     result["phone"]      = phone
     result["expires_at"] = expires_at.isoformat()
-    # In simulated mode (SMS delivery disabled) the code is never actually
-    # sent anywhere, so surface it to the caller for local/preview testing.
-    # This branch is impossible once SMS_ENABLED=true in production.
-    if not otp_delivery_enabled():
+    # In simulated mode neither channel actually delivered anywhere, so surface
+    # the code to the caller for local/preview testing. This is impossible once
+    # WhatsApp or SMS delivery is live in production.
+    if result.get("status") == "simulated":
         result["dev_code"] = code
     return result
 

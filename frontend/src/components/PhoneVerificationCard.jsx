@@ -3,6 +3,10 @@ import { ShieldCheck, Loader2, Send, RotateCw } from "lucide-react";
 import { toast } from "sonner";
 import { formatApiError } from "@/lib/api";
 
+// Seconds the "Resend" button stays locked after a code is sent — keeps
+// users from hammering it into the server's 3-sends-per-10-min rate limit.
+const RESEND_COOLDOWN = 30;
+
 // Reusable OTP verification card.
 //
 // Props:
@@ -35,6 +39,7 @@ export function PhoneVerificationCard({
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [resendBusy, setResendBusy] = useState(false);
+  const [cooldown, setCooldown] = useState(0);
 
   // If the phone number changes (edited mid-onboarding) or the parent flips
   // `verified` back to false, don't leave a stale "enter code" box open on
@@ -42,14 +47,41 @@ export function PhoneVerificationCard({
   useEffect(() => {
     setSent(false);
     setCode("");
+    setCooldown(0);
   }, [phone, verified]);
+
+  // Resend cooldown ticker.
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const t = setInterval(() => setCooldown((s) => (s <= 1 ? 0 : s - 1)), 1000);
+    return () => clearInterval(t);
+  }, [cooldown]);
+
+  // Auto-read the OTP on supported mobile browsers (WebOTP API — Chrome on
+  // Android) so the user doesn't have to type it. Only active while the code
+  // box is showing and the number isn't verified yet; silently no-ops
+  // everywhere else (desktop, iOS, WhatsApp-delivered codes).
+  useEffect(() => {
+    if (!sent || verified) return;
+    if (typeof window === "undefined" || !("OTPCredential" in window)) return;
+    const ac = new AbortController();
+    navigator.credentials
+      .get({ otp: { transport: ["sms"] }, signal: ac.signal })
+      .then((otp) => {
+        if (otp?.code) setCode(otp.code.replace(/\D/g, "").slice(0, 6));
+      })
+      .catch(() => {});
+    return () => ac.abort();
+  }, [sent, verified]);
 
   const send = async () => {
     setBusy(true);
     try {
-      await onSend(phone);
+      const res = await onSend(phone);
       setSent(true);
-      toast.success(`SMS code sent to ${phone}`);
+      setCooldown(RESEND_COOLDOWN);
+      const via = res?.channel === "whatsapp" ? "WhatsApp" : res?.channel === "sms" ? "SMS" : "WhatsApp/SMS";
+      toast.success(`Code sent to ${phone} via ${via}`);
     } catch (e) {
       toast.error(formatApiError(e.response?.data?.detail) || "Could not send code.");
     } finally {
@@ -77,6 +109,7 @@ export function PhoneVerificationCard({
     setResendBusy(true);
     try {
       await onResend(phone);
+      setCooldown(RESEND_COOLDOWN);
       toast.success("New code sent.");
       setCode("");
     } catch (e) {
@@ -107,7 +140,7 @@ export function PhoneVerificationCard({
             data-testid={`${testid}-send`}
             className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-ayana-primary text-white text-xs font-medium hover:bg-ayana-primary-hover disabled:opacity-50"
           >
-            {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />} Send SMS code
+            {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />} Send code
           </button>
         ) : null}
       </div>
@@ -119,6 +152,9 @@ export function PhoneVerificationCard({
             onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
             placeholder="6-digit code"
             inputMode="numeric"
+            autoComplete="one-time-code"
+            name="otp"
+            maxLength={6}
             data-testid={`${testid}-code`}
             className="flex-1 px-3.5 py-2.5 rounded-lg border border-ayana-line bg-white text-sm focus:outline-none focus:ring-2 focus:ring-ayana-bright/50 focus:border-ayana-bright transition"
           />
@@ -132,11 +168,12 @@ export function PhoneVerificationCard({
           </button>
           <button
             onClick={resend}
-            disabled={resendBusy}
+            disabled={resendBusy || cooldown > 0}
             data-testid={`${testid}-resend`}
-            className="inline-flex items-center justify-center gap-1.5 px-3 py-2.5 text-xs text-ayana-secondary hover:text-ayana-primary transition-colors"
+            className="inline-flex items-center justify-center gap-1.5 px-3 py-2.5 text-xs text-ayana-secondary hover:text-ayana-primary transition-colors disabled:opacity-50 disabled:hover:text-ayana-secondary"
           >
-            {resendBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RotateCw className="w-3.5 h-3.5" />} Resend
+            {resendBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RotateCw className="w-3.5 h-3.5" />}
+            {cooldown > 0 ? `Resend in ${cooldown}s` : "Resend"}
           </button>
         </div>
       )}

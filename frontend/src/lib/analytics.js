@@ -32,6 +32,18 @@ function send(payload) {
     ts: new Date().toISOString(),
   });
 
+  // Always keep a local trail first — useful while the backend endpoint doesn't exist yet,
+  // and as a fallback if the network call fails. Written before the network dispatch so
+  // it's captured regardless of which path (sendBeacon vs fetch) is taken below.
+  try {
+    const key = "ayana_local_events";
+    const existing = JSON.parse(localStorage.getItem(key) || "[]");
+    existing.push(JSON.parse(body));
+    localStorage.setItem(key, JSON.stringify(existing.slice(-200))); // cap growth
+  } catch {
+    // ignore
+  }
+
   try {
     // Prefer sendBeacon — doesn't block navigation, fires even on page unload
     if (navigator?.sendBeacon && API_BASE) {
@@ -49,17 +61,6 @@ function send(payload) {
     }
   } catch {
     // Analytics must never break the app. Swallow and move on.
-  }
-
-  // Always keep a local trail too — useful while the backend endpoint doesn't exist yet,
-  // and as a fallback if the network call fails.
-  try {
-    const key = "ayana_local_events";
-    const existing = JSON.parse(localStorage.getItem(key) || "[]");
-    existing.push(JSON.parse(body));
-    localStorage.setItem(key, JSON.stringify(existing.slice(-200))); // cap growth
-  } catch {
-    // ignore
   }
 }
 

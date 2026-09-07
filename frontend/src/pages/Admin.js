@@ -15,6 +15,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import { PaginationBar } from "@/components/ui/PaginationBar";
+import { DeliveryFunnel } from "@/components/DeliveryFunnel";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 const USERS_PER_PAGE = 50;
@@ -43,6 +44,7 @@ function StatCard({ icon: Icon, label, value, sub, color = "primary", trend }) {
     sky:      "text-ayana-sky bg-ayana-sky/10",
     coral:    "text-ayana-coral bg-ayana-coral/10",
     danger:   "text-red-500 bg-red-50",
+    muted:    "text-ayana-muted bg-ayana-alt",
   };
   return (
     <div className="bg-white rounded-2xl border border-ayana-line p-5 flex flex-col gap-3">
@@ -63,6 +65,7 @@ export default function Admin() {
   const [stats,       setStats]       = useState(null);
   const [loading,     setLoading]     = useState(true);
   const [emergencies, setEmergencies] = useState([]);
+  const [deliveryHealth, setDeliveryHealth] = useState(null);
 
   // Paginated: users
   const [users,      setUsers]      = useState([]);
@@ -87,7 +90,8 @@ export default function Admin() {
       api.get(`/admin/messages?skip=0&limit=${MSGS_PER_PAGE}`),
       api.get("/admin/emergencies"),
       api.get(`/admin/schedules?skip=0&limit=${USERS_PER_PAGE}`),
-    ]).then(([s, u, m, e, sc]) => {
+      api.get("/admin/delivery-health?days=7"),
+    ]).then(([s, u, m, e, sc, dh]) => {
       setStats(s.data);
       setUsers(u.data.items ?? u.data);
       setUsersTotal(u.data.total ?? (u.data.items ?? u.data).length);
@@ -96,6 +100,7 @@ export default function Admin() {
       setEmergencies(e.data);
       setSchedules(sc.data.items ?? sc.data);
       setSchedulesTotal(sc.data.total ?? (sc.data.items ?? sc.data).length);
+      setDeliveryHealth(dh.data);
     }).finally(() => setLoading(false));
   }, []);
 
@@ -120,6 +125,11 @@ export default function Admin() {
     setSchedulesSkip(skip);
   }, []);
 
+  const fetchDeliveryHealth = useCallback(async (days) => {
+    const { data } = await api.get(`/admin/delivery-health?days=${days}`);
+    setDeliveryHealth(data);
+  }, []);
+
   if (loading) {
     return (
       <div className="min-h-screen bg-ayana-bg">
@@ -139,7 +149,7 @@ export default function Admin() {
     { icon: Activity,      label: "Activated circles",    value: stats.activated            },
     { icon: CalendarHeart, label: "Paying users",         value: stats.paying_users ?? 0     },
     { icon: CalendarHeart, label: "Active schedules",     value: stats.active_schedules     },
-    { icon: MessageCircle, label: "Messages delivered",   value: stats.messages_delivered   },
+    { icon: MessageCircle, label: "Messages sent",        value: stats.messages_delivered   },
     { icon: AlertTriangle, label: "Open emergencies",     value: stats.open_emergencies     },
   ];
 
@@ -161,7 +171,7 @@ export default function Admin() {
           </span>
         </div>
 
-        <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 mb-10" data-testid="admin-stats">
+        <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 mb-6" data-testid="admin-stats">
           {cards.map((c) => (
             <div key={c.label} className="bg-white rounded-xl border border-ayana-line p-5">
               <c.icon className="w-5 h-5 text-ayana-primary mb-3" strokeWidth={1.5} />
@@ -171,10 +181,17 @@ export default function Admin() {
           ))}
         </div>
 
+        {stats.delivery_funnel && (
+          <div className="mb-10">
+            <DeliveryFunnel funnel={stats.delivery_funnel} testid="admin-delivery-funnel" />
+          </div>
+        )}
+
         <Tabs defaultValue="users">
           <TabsList className="bg-ayana-alt">
             <TabsTrigger value="users"       data-testid="admin-tab-users">Users</TabsTrigger>
             <TabsTrigger value="messages"    data-testid="admin-tab-messages">Deliveries</TabsTrigger>
+            <TabsTrigger value="delivery-health" data-testid="admin-tab-delivery-health">Delivery health</TabsTrigger>
             <TabsTrigger value="schedules"   data-testid="admin-tab-schedules">Schedules</TabsTrigger>
             <TabsTrigger value="emergencies" data-testid="admin-tab-emergencies">Emergencies</TabsTrigger>
           </TabsList>
@@ -265,6 +282,10 @@ export default function Admin() {
             </div>
           </TabsContent>
 
+          <TabsContent value="delivery-health" className="mt-6" data-testid="admin-delivery-health-tab">
+            <DeliveryHealthTab data={deliveryHealth} onRangeChange={fetchDeliveryHealth} />
+          </TabsContent>
+
           <TabsContent value="schedules" className="mt-6">
             <div className="bg-white rounded-2xl border border-ayana-line overflow-x-auto" data-testid="admin-schedules-table">
               <Table>
@@ -342,6 +363,160 @@ export default function Admin() {
           </TabsContent>
         </Tabs>
       </main>
+    </div>
+  );
+}
+
+// ─── Delivery health ─────────────────────────────────────────────────────────
+// Backed by /admin/delivery-health, which reads delivered_at/read_at/failed_at
+// on message_logs — populated by the WhatsApp webhook's status callbacks (see
+// _apply_wa_delivery_status() in server.py). Before that wiring existed,
+// message_logs.status just froze at "sent" forever regardless of what Meta
+// actually did with the message, so this is the first place in the app that
+// shows real delivered/read/failed outcomes rather than send attempts.
+const DAY_RANGES = [7, 14, 30];
+
+function pct(n) {
+  return n == null ? "—" : `${Math.round(n * 100)}%`;
+}
+
+function DeliveryHealthTab({ data, onRangeChange }) {
+  const [days, setDays] = useState(7);
+  const [rangeLoading, setRangeLoading] = useState(false);
+
+  const changeDays = async (d) => {
+    setDays(d);
+    setRangeLoading(true);
+    try {
+      await onRangeChange(d);
+    } finally {
+      setRangeLoading(false);
+    }
+  };
+
+  if (!data) {
+    return (
+      <div className="flex justify-center py-16">
+        <Loader2 className="w-6 h-6 animate-spin text-ayana-primary" />
+      </div>
+    );
+  }
+
+  const { overall, daily, stuck_sends: stuckSends } = data;
+
+  const funnelData = [
+    { name: "Sent",      value: overall.total,     fill: CHART_COLORS.muted },
+    { name: "Delivered", value: overall.delivered, fill: CHART_COLORS.sky },
+    { name: "Read",      value: overall.read,      fill: CHART_COLORS.whatsapp },
+  ];
+
+  const dailyChartData = [...daily].reverse().map((d) => ({
+    day: d.day_key?.slice(5) || d.day_key, // MM-DD
+    Delivered: d.delivered,
+    Read: d.read,
+    Failed: d.failed,
+  }));
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-ayana-secondary">
+          Delivery confirmations from WhatsApp's own status callbacks — not just what we attempted to send.
+        </p>
+        <div className="flex gap-1.5" data-testid="delivery-health-range">
+          {DAY_RANGES.map((d) => (
+            <button
+              key={d}
+              onClick={() => changeDays(d)}
+              disabled={rangeLoading}
+              data-testid={`delivery-health-range-${d}`}
+              className={`text-xs px-3 py-1.5 rounded-full border transition-colors ${
+                days === d
+                  ? "bg-ayana-primary text-white border-ayana-primary"
+                  : "border-ayana-line text-ayana-secondary hover:bg-ayana-alt"
+              }`}
+            >
+              {d}d
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4" data-testid="delivery-health-stats">
+        <StatCard icon={MessageCircle} label="Sent" value={overall.total} color="muted" />
+        <StatCard icon={CheckCircle2} label="Delivered" value={overall.delivered} sub={pct(overall.delivery_rate)} color="sky" />
+        <StatCard icon={CheckCircle2} label="Read" value={overall.read} sub={pct(overall.read_rate)} color="whatsapp" />
+        <StatCard icon={AlertTriangle} label="Failed" value={overall.failed} sub={pct(overall.failure_rate)} color="danger" />
+        <StatCard icon={Activity} label="Pending" value={overall.pending} sub="no confirmation yet" color="gold" />
+      </div>
+
+      <div className="grid lg:grid-cols-2 gap-4">
+        <div className="bg-white rounded-2xl border border-ayana-line p-5">
+          <h3 className="font-display text-sm font-medium text-ayana-text mb-3">Delivery funnel</h3>
+          <ResponsiveContainer width="100%" height={240}>
+            <FunnelChart>
+              <Tooltip />
+              <Funnel dataKey="value" data={funnelData} isAnimationActive>
+                <LabelList position="right" fill="#2C2C2C" stroke="none" dataKey="name" />
+              </Funnel>
+            </FunnelChart>
+          </ResponsiveContainer>
+        </div>
+
+        <div className="bg-white rounded-2xl border border-ayana-line p-5">
+          <h3 className="font-display text-sm font-medium text-ayana-text mb-3">Daily outcomes</h3>
+          <ResponsiveContainer width="100%" height={240}>
+            <AreaChart data={dailyChartData}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#EEE" />
+              <XAxis dataKey="day" fontSize={11} />
+              <YAxis fontSize={11} allowDecimals={false} />
+              <Tooltip />
+              <Legend />
+              <Area type="monotone" dataKey="Delivered" stackId="1" stroke={CHART_COLORS.sky} fill={CHART_COLORS.sky} fillOpacity={0.4} />
+              <Area type="monotone" dataKey="Read" stackId="2" stroke={CHART_COLORS.whatsapp} fill={CHART_COLORS.whatsapp} fillOpacity={0.4} />
+              <Area type="monotone" dataKey="Failed" stackId="3" stroke={CHART_COLORS.danger} fill={CHART_COLORS.danger} fillOpacity={0.4} />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-2xl border border-ayana-line overflow-x-auto" data-testid="delivery-health-stuck">
+        <div className="p-5 pb-0">
+          <h3 className="font-display text-sm font-medium text-ayana-text">
+            Stuck sends <span className="text-ayana-muted font-normal">— sent 2h+ ago, no delivery confirmation or failure yet</span>
+          </h3>
+        </div>
+        {stuckSends.length === 0 ? (
+          <p className="p-5 text-sm text-ayana-muted">None — every recent send has resolved to delivered, read, or failed.</p>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Parent</TableHead>
+                <TableHead>Category</TableHead>
+                <TableHead>Sent</TableHead>
+                <TableHead>Has message ID</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {stuckSends.map((s) => (
+                <TableRow key={s.id}>
+                  <TableCell className="font-medium">{s.parent_name}</TableCell>
+                  <TableCell>{s.category}</TableCell>
+                  <TableCell>{new Date(s.created_at).toLocaleString()}</TableCell>
+                  <TableCell>
+                    {s.has_sid ? (
+                      <span className="text-ayana-muted text-xs">yes — waiting on Meta</span>
+                    ) : (
+                      <span className="text-red-600 text-xs">no — send likely never reached Meta</span>
+                    )}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </div>
     </div>
   );
 }
