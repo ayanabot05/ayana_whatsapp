@@ -23,6 +23,10 @@ from templates_data import (
 logger = logging.getLogger("ayana.whatsapp")
 
 _GRAPH_VERSION = os.environ.get("META_WA_GRAPH_VERSION", "v22.0").strip()
+logger.info("[wa] Using Graph API version: %s (from %s)", _GRAPH_VERSION,
+            "META_WA_GRAPH_VERSION env var" if os.environ.get("META_WA_GRAPH_VERSION")
+            else "code default")
+
 _SEND_TIMEOUT = 30.0
 
 MAX_SEND_RETRIES = int(os.environ.get("WA_MAX_SEND_RETRIES", "3"))
@@ -32,6 +36,9 @@ MAX_BUTTON_TITLE_LEN = int(os.environ.get("WA_MAX_BUTTON_TITLE_LEN", "20"))
 SESSION_WINDOW_HOURS = int(os.environ.get("WA_SESSION_WINDOW_HOURS", "24"))
 
 DELIVERY_RECHECK_MIN = int(os.environ.get("WA_DELIVERY_RECHECK_MIN", "5"))
+# NOTE: no longer used to gate a plain-text fallback for failed template
+# sends — see _send_content_template_with_retry for why that fallback was
+# removed. Kept only in case some other caller still reads this env var.
 DELIVERY_FALLBACK_ENABLED = os.environ.get("WA_DELIVERY_FALLBACK", "true").strip().lower() == "true"
 
 _CATEGORY_TEMPLATE_NAME = {
@@ -47,7 +54,17 @@ TEMPLATE_LANG_CODE_MAP = {"en": "en_US", "te": "te", "hi": "hi"}
 
 
 def whatsapp_enabled() -> bool:
-    return os.environ.get("WHATSAPP_ENABLED", "false").strip().lower() == "true"
+    """Explicit WHATSAPP_ENABLED flag always wins. When the flag is UNSET,
+    auto-enable if Meta credentials are present — configuring the credentials
+    is a clear signal that real sends are wanted (fixes "Simulated (test
+    mode)" showing up in environments where only the creds were set)."""
+    flag = os.environ.get("WHATSAPP_ENABLED", "").strip().lower()
+    if flag in ("false", "0", "no", "off"):
+        return False
+    if flag in ("true", "1", "yes", "on"):
+        return True
+    token, phone_id = _creds()
+    return bool(token and phone_id)
 
 
 def _creds() -> Tuple[str, str]:
@@ -81,6 +98,28 @@ def _extract_message_id(resp_json: Dict[str, Any]) -> str:
         return ""
 
 
+def _log_meta_error(resp: "httpx.Response", context: str) -> None:
+    """Best-effort extraction + logging of Meta's structured error body.
+    Call this BEFORE resp.raise_for_status() so the real reason (bad
+    template name, language mismatch, disabled template, permission
+    issue, etc.) is captured instead of being discarded by the exception."""
+    try:
+        body = resp.json()
+        err = body.get("error", {})
+        logger.error(
+            "[wa] Meta API error (%s): http=%s code=%s subcode=%s type=%s message=%s trace_id=%s",
+            context,
+            resp.status_code,
+            err.get("code"),
+            err.get("error_subcode"),
+            err.get("type"),
+            err.get("message"),
+            err.get("fbtrace_id"),
+        )
+    except Exception:
+        logger.error("[wa] Meta API error (%s): http=%s body=%.500s", context, resp.status_code, resp.text)
+
+
 def send_whatsapp(to_phone: str, body: str) -> Dict[str, Any]:
     token, phone_id = _creds()
     if not whatsapp_enabled() or not token or not phone_id:
@@ -99,6 +138,8 @@ def send_whatsapp(to_phone: str, body: str) -> Dict[str, Any]:
             json=payload,
             timeout=_SEND_TIMEOUT,
         )
+        if resp.status_code >= 400:
+            _log_meta_error(resp, f"plain_text to={to_phone}")
         resp.raise_for_status()
         msg_id = _extract_message_id(resp.json())
         logger.info("[wa] Plain text sent to %s id=%s", to_phone, msg_id)
@@ -139,6 +180,8 @@ def _send_content_template_once(
         json=payload,
         timeout=_SEND_TIMEOUT,
     )
+    if resp.status_code >= 400:
+        _log_meta_error(resp, f"template={template_name} lang={language} to={to_phone}")
     resp.raise_for_status()
     msg_id = _extract_message_id(resp.json())
     return {"status": "sent", "sid": msg_id, "template_type": template_key}
@@ -165,12 +208,31 @@ async def _send_content_template_with_retry(
             if attempt < MAX_SEND_RETRIES:
                 await asyncio.sleep(RETRY_BACKOFF_SECONDS * attempt)
 
-    if DELIVERY_FALLBACK_ENABLED:
-        logger.warning("[wa] Template %s failed for %s — falling back to plain text send", template_key, to_phone)
-        body_text = content_variables.get("2") or content_variables.get("1") or "Hello from AYANA 💛"
-        return send_whatsapp(to_phone, body_text)
-
-    logger.error("[wa] All %s send attempts failed (type=%s) to %s: %s", MAX_SEND_RETRIES, template_key, to_phone, last_error)
+    # NOTE: we deliberately do NOT fall back to plain text here anymore.
+    # _send_content_template_with_retry is only ever called when the 24h
+    # session is CLOSED (send_template_for_category routes to the quick-reply
+    # path instead whenever the session is open) — and Meta rejects plain
+    # text outside that same window for the exact reason templates exist.
+    # The old fallback returned a fake "sent" status (Meta's /messages
+    # endpoint accepts the HTTP call with 200 OK) while the actual delivery
+    # silently failed later via webhook (131047 Re-engagement message),
+    # which nobody was watching in real time. Paying customers rely on this
+    # arriving every day, so an honest "failed" here — which the scheduler
+    # now retries every minute until it succeeds (see scheduler.py) — beats
+    # a comforting lie that quietly drops the message.
+    logger.error(
+        "[wa] All %s template send attempts failed (type=%s) to %s: %s — "
+        "will be retried automatically by the scheduler",
+        MAX_SEND_RETRIES, template_key, to_phone, last_error,
+    )
+    try:
+        import sentry_sdk
+        sentry_sdk.capture_message(
+            f"WhatsApp template delivery failed after retries: {template_key} to {to_phone}: {last_error}",
+            level="error",
+        )
+    except Exception:
+        pass  # Sentry not configured — logging above is still the source of truth
     return {"status": "failed", "detail": str(last_error), "template_type": template_key}
 
 
@@ -223,6 +285,8 @@ async def _send_quick_reply(
             json=payload,
             timeout=_SEND_TIMEOUT,
         )
+        if resp.status_code >= 400:
+            _log_meta_error(resp, f"quick_reply context={context} to={to_phone}")
         resp.raise_for_status()
         msg_id = _extract_message_id(resp.json())
         return {"status": "sent", "sid": msg_id, "context": context}
@@ -458,6 +522,8 @@ async def send_moment(parent: Dict[str, Any], text: str, sender_name: str, image
                     json=payload,
                     timeout=_SEND_TIMEOUT,
                 )
+                if resp.status_code >= 400:
+                    _log_meta_error(resp, f"moment_image idx={idx} to={phone}")
                 resp.raise_for_status()
                 msg_id = _extract_message_id(resp.json())
                 last_result = {"status": "sent", "sid": msg_id, "context": "moment"}
@@ -501,6 +567,8 @@ async def send_audio_link(to_phone: str, audio_link: str) -> Dict[str, Any]:
             json=payload,
             timeout=_SEND_TIMEOUT,
         )
+        if resp.status_code >= 400:
+            _log_meta_error(resp, f"audio to={to_phone}")
         resp.raise_for_status()
         msg_id = _extract_message_id(resp.json())
         logger.info("[wa] Audio sent to %s id=%s", to_phone, msg_id)
@@ -547,6 +615,8 @@ async def resolve_meta_media_url(media_id: str) -> Optional[str]:
         url = f"https://graph.facebook.com/{_GRAPH_VERSION}/{media_id}"
         async with httpx.AsyncClient(timeout=15.0) as client:
             resp = await client.get(url, headers={"Authorization": f"Bearer {token}"})
+        if resp.status_code >= 400:
+            _log_meta_error(resp, f"resolve_media id={media_id}")
         resp.raise_for_status()
         return resp.json().get("url")
     except Exception as e:
@@ -662,11 +732,37 @@ async def send_care_circle_activation_welcome(
     return results
 
 
+# ── Per-parent welcome (Phase 2): fires for EVERY parent added, both sides ──
+_PARENT_WELCOME_TEXT = {
+    "en": "Namaste {parent_name} 💛 This is Ayana. Your child {child_name} asked me to check on you every day. Reply 👍 to say hi.",
+    "te": "నమస్తే {parent_name} 💛 నేను Ayana. మీ పిల్లవాడు {child_name} ప్రతిరోజూ మీ గురించి అడగమన్నారు. హాయ్ చెప్పడానికి 👍 తో రిప్లై చేయండి.",
+    "hi": "नमस्ते {parent_name} 💛 मैं Ayana हूँ। आपके बच्चे {child_name} ने मुझसे हर दिन आपका हाल पूछने को कहा है। हाय कहने के लिए 👍 से जवाब दीजिए।",
+}
+
+_CHILD_PARENT_SETUP_TEXT = "✅ {parent_name} is set up. First check-in tomorrow at 8:00 AM IST. 💛"
+
+
 async def send_welcome_for_new_parent(
     child_user: Dict[str, Any],
     new_parent: Dict[str, Any],
 ) -> Dict[str, Any]:
-    return await send_care_circle_activation_welcome(child_user, [new_parent])
+    """Welcome BOTH sides when a parent is added — per parent, not per account."""
+    child_name = (child_user.get("name") or child_user.get("full_name") or "there").split()[0]
+    child_phone = child_user.get("phone") or child_user.get("whatsapp_number") or child_user.get("phone_number")
+    p_phone = new_parent.get("phone")
+    p_name = new_parent.get("preferred_name") or new_parent.get("name") or "there"
+    p_lang = _lang2(new_parent.get("language"))
+    results: Dict[str, Any] = {}
+    if p_phone:
+        body = _PARENT_WELCOME_TEXT.get(p_lang, _PARENT_WELCOME_TEXT["en"]).format(
+            parent_name=p_name, child_name=child_name,
+        )
+        logger.info("[welcome] parent welcome -> %s (%s)", p_phone, p_name)
+        results["parent"] = send_whatsapp(p_phone, body)
+    if child_phone:
+        logger.info("[welcome] child confirmation -> %s for %s", child_phone, p_name)
+        results["child"] = send_whatsapp(child_phone, _CHILD_PARENT_SETUP_TEXT.format(parent_name=p_name))
+    return results
 
 
 # ── Farewell when a parent is removed (e.g. on plan downgrade) ─────────────

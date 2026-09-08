@@ -18,6 +18,21 @@ FIXES APPLIED (CTO review):
 - P1: _has_reply_since now orders by created_at desc for index efficiency
 - P2: Added proper logging and error boundaries per parent so one bad parent doesn't break loop
 - P2: Ensure birthday compare handles None and string formats
+
+FIXES APPLIED (this pass):
+- P0: Removed `from scheduler import _send_scheduled_message` — scheduler.py
+      does `from escalation import run_care_watch_impl`, so importing back
+      from scheduler.py here created a circular import. That helper also
+      never existed in scheduler.py — send_dynamic_checkin already does
+      correct session-based routing (free-form vs approved template)
+      internally, so it's called directly instead.
+- P0: message_logs insert for escalation retries was missing the `sid`
+      column entirely. Meta's delivery-status webhook (_persist_delivery_status
+      in server.py) matches incoming callbacks by sid — any row inserted
+      without one can NEVER have its delivery_status updated later, so it
+      stays stuck showing "Waiting" on the dashboard forever even if the
+      message was actually delivered. Now captured from `result.get("sid")`,
+      same as scheduler.py's insert.
 """
 
 import asyncio
@@ -31,15 +46,23 @@ from whatsapp import send_whatsapp, send_medicine_template, send_dynamic_checkin
 
 logger = logging.getLogger("ayana.escalation")
 
-AFTERNOON_HOUR = 14
-RETRY_INTERVAL_MIN = 30
-RETRY_WINDOW_MIN = 120
-MAX_RESEND_ATTEMPTS = RETRY_WINDOW_MIN // RETRY_INTERVAL_MIN
+# Sprint Phase 3: simplified retry policy — ONE gentle nudge at +2 hours if
+# no reply, then stop. No re-firing yesterday's missed messages today (the
+# day_key filter below already scopes retries to the parent's local day).
+NUDGE_AFTER_MIN = 120
+MAX_RESEND_ATTEMPTS = 1
+SILENCE_PING_HOURS = 24
 
 BIRTHDAY_WISH = {
     "en": "🎂💛 Happy Birthday, {name}! Wishing you health, laughter and love today. Your family is thinking of you.",
     "te": "🎂💛 పుట్టినరోజు శుభాకాంక్షలు, {name}! ఈరోజు మీకు ఆరోగ్యం, ఆనందం, ప్రేమ కలగాలని కోరుకుంటున్నాం. మీ కుటుంబం మిమ్మల్ని తలచుకుంటోంది.",
     "hi": "🎂💛 जन्मदिन मुबारक हो, {name}! आज आपको सेहत, हँसी और प्यार मिले। आपका परिवार आपको याद कर रहा है।",
+}
+
+_SILENCE_SOFT_PING = {
+    "en": "{name}, we haven't heard from you today. Everything okay? 💛",
+    "te": "{name}, ఈరోజు మీ వార్త ఏమీ లేదు. అంతా బాగుంది కదా? 💛",
+    "hi": "{name}, आज आपकी कोई ख़बर नहीं मिली। सब ठीक है न? 💛",
 }
 
 FESTIVALS = {
@@ -180,9 +203,6 @@ async def run_care_watch_impl():
                         base = _aware(log["created_at"])
                         if not base:
                             continue
-                        elapsed_min = (now - base).total_seconds() / 60
-                        if elapsed_min > RETRY_WINDOW_MIN:
-                            continue
                         if await _has_reply_since(conn, parent_id, base):
                             continue
                         state = await conn.fetchrow(
@@ -191,7 +211,7 @@ async def run_care_watch_impl():
                         attempts = state["attempts"] if state else 0
                         if attempts >= MAX_RESEND_ATTEMPTS:
                             continue
-                        due_at = base + timedelta(minutes=RETRY_INTERVAL_MIN * (attempts + 1))
+                        due_at = base + timedelta(minutes=NUDGE_AFTER_MIN)
                         if now < due_at:
                             continue
 
@@ -200,9 +220,12 @@ async def run_care_watch_impl():
                         kind = "medicine" if msg_type == "reminder" else "checkin"
 
                         if kind == "medicine":
-                            result = await send_medicine_template(dict(parent), day_index, 7, "")
+                            result = await send_medicine_template(dict(parent), day_index, 7, medicine_name="")
                         else:
-                            result = await send_dynamic_checkin(dict(parent), category, day_index, 7, "")
+                            # send_dynamic_checkin already checks is_session_open() internally
+                            # and routes to the approved template when the 24h window is closed —
+                            # no separate routing helper needed here.
+                            result = await send_dynamic_checkin(dict(parent), category, day_index, 7)
 
                         # P0 FIX: Atomic transaction — state + log must succeed together
                         async with conn.transaction():
@@ -222,49 +245,58 @@ async def run_care_watch_impl():
                             await conn.execute(
                                 """
                                 insert into message_logs (user_id, parent_id, schedule_id, day_key, category,
-                                                           msg_type, status, escalation_of, attempt, kind, created_at)
-                                values ($1, $2, $3, $4, $5, 'escalation', $6, $7, $8, $9, $10)
+                                                           msg_type, status, escalation_of, attempt, kind, sid, created_at)
+                                values ($1, $2, $3, $4, $5, 'escalation', $6, $7, $8, $9, $10, $11)
                                 """,
                                 user_id, parent_id, sched["id"], day_key, category,
-                                (result or {}).get("status"), log["id"], attempts + 1, kind, now,
+                                (result or {}).get("status"), log["id"], attempts + 1, kind,
+                                (result or {}).get("sid"), now,
                             )
                         logger.info("[escalation] %s retry #%d -> %s (%s)", kind, attempts + 1, parent.get("name"), category)
                     except Exception as e:
                         logger.error("[escalation] retry failed for log %s: %s", log.get("id"), e, exc_info=True)
                         continue
 
-                # ---- 2) Afternoon no-response warning ----
-                if local.hour >= AFTERNOON_HOUR:
-                    try:
-                        day_start_local = local.replace(hour=0, minute=0, second=0, microsecond=0)
-                        day_start_utc = day_start_local.astimezone(timezone.utc)
-                        sent_today = await conn.fetchval(
+                # ---- 2) 24h cross-day silence handling ----
+                # Parent replied to NOTHING in 24h -> soft standalone ping to
+                # the parent + alert to the child. Does NOT reschedule
+                # yesterday's specific reminders — tomorrow is a fresh day.
+                # The escalation_daily marker makes this fire at most once/day.
+                try:
+                    sent_last_24h = await conn.fetchval(
+                        """
+                        select count(*) from message_logs
+                        where parent_id = $1 and created_at >= $2
+                          and status in ('sent', 'simulated')
+                        """,
+                        parent_id, now - timedelta(hours=SILENCE_PING_HOURS),
+                    )
+                    last_reply_at = _aware(await conn.fetchval(
+                        "select max(created_at) from parent_replies where parent_id = $1",
+                        parent_id,
+                    ))
+                    silent_24h = last_reply_at is None or (now - last_reply_at) >= timedelta(hours=SILENCE_PING_HOURS)
+                    if sent_last_24h and sent_last_24h > 0 and silent_24h:
+                        marker = f"{parent_id}:{day_key}:silence24h"
+                        inserted = await conn.fetchval(
                             """
-                            select count(*) from message_logs
-                            where parent_id = $1 and day_key = $2 and status in ('sent', 'simulated')
+                            insert into escalation_daily (marker, at) values ($1, now())
+                            on conflict (marker) do nothing
+                            returning marker
                             """,
-                            parent_id, day_key,
+                            marker,
                         )
-                        if sent_today and sent_today > 0 and not await _has_reply_since(conn, parent_id, day_start_utc):
-                            marker = f"{parent_id}:{day_key}:noreply"
-                            inserted = await conn.fetchval(
-                                """
-                                insert into escalation_daily (marker, at) values ($1, now())
-                                on conflict (marker) do nothing
-                                returning marker
-                                """,
-                                marker,
+                        if inserted:
+                            pname = parent.get("name") or "your parent"
+                            soft = _SILENCE_SOFT_PING.get(lang, _SILENCE_SOFT_PING["en"]).format(name=preferred)
+                            await asyncio.to_thread(send_whatsapp, parent.get("phone") or "", soft)
+                            await _notify_child(
+                                conn, user_id, parent,
+                                f"💛 {pname} hasn't replied in 24h. Might be worth a call.",
                             )
-                            if inserted:
-                                pname = parent.get("name") or "your parent"
-                                await _notify_child(
-                                    conn, user_id, parent,
-                                    f"⚠️ {pname} hasn't replied to any of today's check-ins yet. "
-                                    f"You may want to give them a call to make sure all is well. — AYANA 💛",
-                                )
-                                logger.info("[escalation] afternoon no-reply warning sent for %s", pname)
-                    except Exception as e:
-                        logger.error("[escalation] afternoon check failed for parent %s: %s", parent_id, e, exc_info=True)
+                            logger.info("[escalation] 24h silence ping sent for %s", pname)
+                except Exception as e:
+                    logger.error("[escalation] silence check failed for parent %s: %s", parent_id, e, exc_info=True)
 
                 # ---- 3) Birthday + festival auto-wish ----
                 try:

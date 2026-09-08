@@ -257,7 +257,7 @@ export default function Onboarding() {
         setScheduleIds(prev => ({...prev, [savedParent.id]: schedData.id }));
         dropped = dropped || schedData?.medicine_reminders_dropped;
       }
-      toast.success(editingParentId? "Parent updated." : "Parent added!");
+      toast.success(editingParentId? "Parent updated." : `✅ ${savedParent.name} is set up. First check-in tomorrow at 8:00 AM IST. 💛`, { duration: 6000 });
       if (dropped?.length) {
         toast.warning(`Your plan couldn't fit all medicine reminder times — dropped: ${dropped.join(", ")}. Upgrade for more, or adjust times.`, { duration: 8000 });
       }
