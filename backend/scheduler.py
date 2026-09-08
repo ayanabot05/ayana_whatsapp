@@ -6,6 +6,19 @@ Job 1 — _deliver_due_messages (every 1 minute)
     session open -> free in-session quick-reply.
     variants_per_slot comes from the plan (Nitya=3, Bandham/Raksha=7).
 
+    RELIABILITY FIX (this pass): a message slot used to be marked
+    permanently "done" for the day the instant ANY message_logs row
+    existed for it — success or failure. That meant a single transient
+    send failure (Meta hiccup, template version mismatch, etc.) meant
+    the parent got NOTHING for that slot for the rest of the day, with
+    no automatic retry. Paying customers depend on these arriving every
+    day without interruption, so a slot is now only considered "done"
+    once a message_logs row for it shows a SUCCESSFUL status
+    ('sent' or 'simulated'). A failed attempt is retried on every
+    subsequent scheduler tick (once a minute) until it succeeds or the
+    day ends, capped at MAX_RETRY_ATTEMPTS_PER_SLOT to avoid an
+    infinite hot loop against a permanently broken config.
+
 Job 2 — _check_reengagement (every 15 minutes)
     Re-engagement window is now read per-schedule (reengagement_hours,
     user-set) instead of a static env constant — applies the same way
@@ -68,6 +81,27 @@ _scheduler: AsyncIOScheduler | None = None
 # Unique per-process identity so lock ownership is unambiguous in logs.
 _WORKER_ID = f"{socket.gethostname()}:{uuid.uuid4().hex[:8]}"
 
+# Last successful run per job — surfaced by /api/health as the scheduler heartbeat.
+_LAST_RUN: dict[str, str] = {}
+
+# A slot that keeps failing gets retried once a minute, but not forever —
+# past this many failed attempts in one day we stop hammering Meta and rely
+# on Sentry (raised in whatsapp.py) + the admin delivery-health "stuck sends"
+# view to surface it as a real incident instead of silently retrying all day.
+MAX_RETRY_ATTEMPTS_PER_SLOT = int(os.environ.get("WA_MAX_RETRY_ATTEMPTS_PER_SLOT", "30"))
+
+
+def scheduler_heartbeat() -> dict:
+    return {
+        "running": _scheduler is not None and getattr(_scheduler, "running", False),
+        "worker": _WORKER_ID,
+        "last_runs": dict(_LAST_RUN),
+        "jobs": [
+            {"id": j.id, "next_run": j.next_run_time.isoformat() if j.next_run_time else None}
+            for j in (_scheduler.get_jobs() if _scheduler else [])
+        ],
+    }
+
 
 async def _with_lock(job_name: str, ttl_seconds: int, coro_fn) -> None:
     """
@@ -103,6 +137,7 @@ async def _with_lock(job_name: str, ttl_seconds: int, coro_fn) -> None:
 
     try:
         await coro_fn()
+        _LAST_RUN[job_name] = datetime.now(timezone.utc).isoformat()
     finally:
         # Release early so the next tick doesn't wait out the full TTL
         # unnecessarily — best effort, nightly purge job is the real safety net.
@@ -211,16 +246,44 @@ async def _deliver_due_messages_impl():
                 sent_counts = defaultdict(int)
 
                 for idx, msg in enumerate(sched["messages"] or []):
-                    if msg.get("time") != hhmm:
-                        continue
+                    # RELIABILITY FIX: was `!= hhmm` (exact-minute match only,
+                    # so a missed/failed minute meant this slot never fired
+                    # again today). Now: fire on every tick from the scheduled
+                    # time onward, until a SUCCESSFUL send is recorded (see
+                    # the `already_sent` query below) — this is what actually
+                    # makes "no interruption" true rather than just intended.
+                    if msg.get("time") > hhmm:
+                        continue  # not due yet today
                     if msg.get("is_recovery") and not limits.get("recovery_mode"):
                         continue
 
-                    already = await conn.fetchrow(
-                        "select 1 from message_logs where schedule_id = $1 and message_index = $2 and day_key = $3",
+                    # Only a CONFIRMED SUCCESS retires this slot for the day.
+                    # A prior 'failed' row does NOT block retrying — that was
+                    # the actual bug causing silent daily drop-outs.
+                    already_sent = await conn.fetchrow(
+                        """
+                        select 1 from message_logs
+                        where schedule_id = $1 and message_index = $2 and day_key = $3
+                          and status in ('sent', 'simulated')
+                        """,
                         sched["id"], idx, day_key,
                     )
-                    if already:
+                    if already_sent:
+                        continue
+
+                    # Bounded retry: stop hammering a slot that's failed too
+                    # many times today (systemic issue, not a transient one) —
+                    # surfaced via Sentry in whatsapp.py and the admin
+                    # delivery-health "stuck sends" view, not silently forever.
+                    failed_attempts_today = await conn.fetchval(
+                        """
+                        select count(*) from message_logs
+                        where schedule_id = $1 and message_index = $2 and day_key = $3
+                          and status = 'failed'
+                        """,
+                        sched["id"], idx, day_key,
+                    )
+                    if failed_attempts_today and failed_attempts_today >= MAX_RETRY_ATTEMPTS_PER_SLOT:
                         continue
 
                     msg_type = category_type(msg.get("category"))
@@ -256,7 +319,12 @@ async def _deliver_due_messages_impl():
                         variants_per_slot,
                         medicine_name=medicine_name,
                     )
-                    sent_counts[msg_type] += 1
+                    status = result.get("status")
+                    # Only count this slot against the plan's daily quota once
+                    # it actually succeeds — a failed attempt shouldn't burn
+                    # the parent's daily allowance while we keep retrying it.
+                    if status in ("sent", "simulated"):
+                        sent_counts[msg_type] += 1
                     await conn.execute(
                         """
                         insert into message_logs
@@ -266,12 +334,20 @@ async def _deliver_due_messages_impl():
                         """,
                         sched["user_id"], sched["parent_id"], sched["id"], idx, day_key,
                         msg.get("category"), msg.get("custom_text") or f"{msg.get('category')} check-in",
-                        msg_type, result.get("status"), result.get("detail"), result.get("sid"), now_utc,
+                        msg_type, status, result.get("detail"), result.get("sid"), now_utc,
                     )
-                    logger.info(
-                        "Delivered msg (%s) to parent %s: %s",
-                        result.get("status"), parent["name"], msg.get("category"),
-                    )
+                    if status in ("sent", "simulated"):
+                        logger.info(
+                            "Delivered msg (%s) to parent %s: %s",
+                            status, parent["name"], msg.get("category"),
+                        )
+                    else:
+                        logger.warning(
+                            "Scheduler: send FAILED for parent %s category %s (attempt #%d today) — "
+                            "will retry next tick: %s",
+                            parent["name"], msg.get("category"), (failed_attempts_today or 0) + 1,
+                            result.get("detail"),
+                        )
         except Exception as exc:
             logger.error("Scheduler: unhandled error for schedule %s — %s", sched["id"], exc)
 

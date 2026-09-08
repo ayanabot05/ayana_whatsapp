@@ -265,6 +265,23 @@ async def _run_startup_migrations():
         await conn.execute("alter table monthly_reports add column if not exists details jsonb")
         await conn.execute("alter table users add column if not exists password_changed_at timestamptz")
         await conn.execute("alter table users add column if not exists pending_email text")
+        # Sprint Phase 1: raw webhook archive (2-week TTL) + wam_id idempotency
+        await conn.execute("""
+            create table if not exists webhook_debug (
+                id uuid primary key default gen_random_uuid(),
+                direction text not null default 'inbound',
+                payload jsonb not null,
+                created_at timestamptz not null default now()
+            )
+        """)
+        await conn.execute("delete from webhook_debug where created_at < now() - interval '14 days'")
+        await conn.execute("alter table parent_replies add column if not exists wam_id text")
+        await conn.execute("create unique index if not exists idx_parent_replies_wam on parent_replies(wam_id) where wam_id is not null")
+        await conn.execute("create unique index if not exists idx_msglogs_sid_uniq on message_logs(sid) where sid is not null")
+        await conn.execute("alter table moments add column if not exists sid text")
+        await conn.execute("alter table moments add column if not exists delivery_status text")
+        await conn.execute("alter table moments add column if not exists delivery_notified boolean not null default false")
+        await conn.execute("create index if not exists idx_moments_sid on moments(sid) where sid is not null")
         # Images are uploaded before the moment row exists, so moment_id must be nullable.
         await conn.execute("alter table moment_images alter column moment_id drop not null")
         # Link replies that arrived from Meta as '91xxxxxxxxxx' to parents stored as '+91xxxxxxxxxx'.
@@ -440,18 +457,29 @@ async def root():
 
 @api.get("/health")
 async def health():
-    """Deep health check for Railway/uptime monitors.
+    """Self-observability (Phase 5): DB latency, Redis reachability, scheduler
+    heartbeat, last inbound webhook, last outbound WhatsApp send.
 
-    Returns HTTP 200 only if the app can talk to Postgres AND has valid
-    Meta WhatsApp credentials configured. Returns 503 otherwise so
-    Railway will roll the deploy back / an uptime monitor pages you.
+    200 when Postgres is reachable; 503 only when the DB is down (WhatsApp
+    disabled in test mode is reported, not treated as unhealthy).
     """
     problems = []
 
-    # 1. Postgres reachability
+    # 1. Postgres reachability + latency + activity timestamps
+    last_inbound = None
+    last_outbound = None
+    db_latency_ms = None
     try:
+        t0 = datetime.now(timezone.utc)
         async with get_pool().acquire() as conn:
             await conn.fetchval("select 1")
+            db_latency_ms = round((datetime.now(timezone.utc) - t0).total_seconds() * 1000, 1)
+            last_inbound = await conn.fetchval("select max(created_at) from webhook_debug")
+            if not last_inbound:
+                last_inbound = await conn.fetchval("select max(created_at) from parent_replies")
+            last_outbound = await conn.fetchval(
+                "select max(created_at) from message_logs where status in ('sent','simulated')"
+            )
         pg_ok = True
     except Exception as e:
         problems.append(f"postgres:{type(e).__name__}")
@@ -460,35 +488,49 @@ async def health():
     # 2. Meta WhatsApp credentials sanity (presence + shape, not a live send)
     meta_token = os.environ.get("META_WA_ACCESS_TOKEN", "").strip()
     meta_phone_id = os.environ.get("META_WA_PHONE_NUMBER_ID", "").strip()
-    meta_ok = bool(meta_token) and bool(meta_phone_id) and whatsapp_enabled()
-    if not meta_ok:
-        if not whatsapp_enabled():
-            problems.append("meta:disabled")
-        else:
+    if whatsapp_enabled():
+        meta_state = "configured" if (meta_token and meta_phone_id) else "missing_creds"
+        if meta_state != "configured":
             problems.append("meta:missing_creds")
-
-    status_code = 200 if (pg_ok and meta_ok) else 503
+    else:
+        meta_state = "disabled"
     webhook_secret_ok = bool((os.environ.get("META_WA_APP_SECRET") or os.environ.get("META_APP_SECRET") or "").strip())
-    if not webhook_secret_ok:
+    if whatsapp_enabled() and not webhook_secret_ok:
         problems.append("webhook:app_secret_missing (inbound WhatsApp replies will be rejected)")
-    last_inbound = None
-    if pg_ok:
-        try:
-            async with get_pool().acquire() as conn:
-                last_inbound = await conn.fetchval("select max(created_at) from parent_replies")
-        except Exception:
-            pass
+
+    # 3. Redis reachability (optional — rate limits degrade gracefully)
+    redis_ok = False
+    try:
+        from rate_limit import get_redis
+        r = await get_redis()
+        if r is not None:
+            await r.ping()
+            redis_ok = True
+    except Exception:
+        pass
+
+    # 4. APScheduler heartbeat
+    from scheduler import scheduler_heartbeat
+    sched = scheduler_heartbeat()
+    if os.environ.get("SCHEDULER_ENABLED", "true").strip().lower() == "true" and not sched["running"]:
+        problems.append("scheduler:not_running")
+
     body = {
         "status": "healthy" if not problems else "unhealthy",
         "postgres": "up" if pg_ok else "down",
-        "meta": "configured" if meta_ok else "not_configured",
+        "db_latency_ms": db_latency_ms,
+        "redis": "up" if redis_ok else "down",
+        "scheduler": sched,
+        "meta": meta_state,
         "webhook_secret": "configured" if webhook_secret_ok else "missing",
-        "last_inbound_reply_at": last_inbound.isoformat() if last_inbound else None,
+        "last_inbound_webhook_at": last_inbound.isoformat() if last_inbound else None,
+        "last_outbound_send_at": last_outbound.isoformat() if last_outbound else None,
         "storage": "enabled" if storage_enabled() else "disabled",
+        "otp_mode": os.environ.get("OTP_MODE", "onscreen"),
         "problems": problems,
         "release": os.environ.get("SENTRY_RELEASE") or os.environ.get("RAILWAY_GIT_COMMIT_SHA") or "local",
     }
-    if status_code == 503:
+    if not pg_ok:
         raise HTTPException(status_code=503, detail=body)
     return body
 
@@ -1013,6 +1055,7 @@ async def create_parent(payload: ParentInput, background_tasks: BackgroundTasks,
             )
         await _assert_phone_role_available(conn, user, payload.phone)
         doc = payload.model_dump()
+        doc["phone"] = _normalize_phone(doc["phone"])  # store digits in canonical +E164 form
         values, cols, placeholders = _parent_insert_values(doc)
         values.append(uid)
         try:
@@ -1029,16 +1072,17 @@ async def create_parent(payload: ParentInput, background_tasks: BackgroundTasks,
         await conn.execute(
             "update users set onboarding_step = greatest(onboarding_step, 3) where id = $1", user["id"]
         )
-        # Check if already activated -> this is upgrade flow
-        activation = await conn.fetchrow("select whatsapp_activated from activation_state where user_id = $1", uid)
 
     await audit(user["id"], "create_parent", {"parent_id": str(row["id"])})
 
-    # NEW: If care circle already active, welcome new parent + child again
-    if activation and activation["whatsapp_activated"]:
-        background_tasks.add_task(send_welcome_for_new_parent, dict(user), dict(row))
+    # Sprint fix ("welcome to mom didn't fire"): welcome fires for EVERY parent
+    # added — per parent, not once per account. Both sides: warm bilingual
+    # WhatsApp to the parent + setup confirmation to the child.
+    background_tasks.add_task(send_welcome_for_new_parent, dict(user), dict(row))
 
-    return serialize(row)
+    out = serialize(row)
+    out["welcome_sent"] = True
+    return out
 
 @api.put("/parents/{parent_id}")
 async def update_parent(parent_id: str, payload: ParentInput, user: dict = Depends(get_current_user), _csrf: None = Depends(validate_csrf_token)):
@@ -1209,14 +1253,14 @@ async def upload_moment_image(file: UploadFile = File(...), user: dict = Depends
             status_code=501,
             detail="Photo sharing is temporarily unavailable — we're setting up secure image hosting. Text moments still work.",
         )
-    MAX_SIZE = 5 * 1024 * 1024
+    MAX_SIZE = int(4.5 * 1024 * 1024)  # Meta ceiling is 5MB — hard cap below it
     ALLOWED_TYPES = {"image/jpeg", "image/png", "image/webp"}
-    MAX_DIMENSION = 1200
+    MAX_DIMENSION = 2400  # lighter compression: was 1200px
 
     content_type = file.content_type or "application/octet-stream"
     contents = await file.read()
     if len(contents) > MAX_SIZE:
-        raise HTTPException(status_code=413, detail="Image too large. Maximum 5 MB per image.")
+        raise HTTPException(status_code=413, detail="Image too large. Maximum 4.5 MB per image.")
 
     if content_type not in ALLOWED_TYPES:
         try:
@@ -1240,7 +1284,7 @@ async def upload_moment_image(file: UploadFile = File(...), user: dict = Depends
             img = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
 
         buffer = BytesIO()
-        img.save(buffer, format="JPEG", quality=80, optimize=True)
+        img.save(buffer, format="JPEG", quality=92, optimize=True)
         contents = buffer.getvalue()
 
         content_type = "image/jpeg"
@@ -1364,12 +1408,12 @@ async def send_moment_api(payload: MomentInput, user: dict = Depends(get_current
     async with get_pool().acquire() as conn:
         moment_row = await conn.fetchrow(
             """
-            insert into moments (user_id, parent_id, sender_name, text, image_url, image_urls, status, created_at)
-            values ($1, $2, $3, $4, $5, $6::jsonb, $7, now())
+            insert into moments (user_id, parent_id, sender_name, text, image_url, image_urls, status, sid, created_at)
+            values ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, now())
             returning *
             """,
             scope(user), parent["id"], sender_name, payload.text, payload.image_url,
-            json.dumps(payload.image_urls), (result or {}).get("status"),
+            json.dumps(payload.image_urls), (result or {}).get("status"), (result or {}).get("sid"),
         )
     remaining = max(MOMENTS_PER_MONTH - (used + 1), 0)
     return {"ok": True, "status": (result or {}).get("status"), "moment": serialize(moment_row), "remaining": remaining, "limit": MOMENTS_PER_MONTH}
@@ -2106,12 +2150,34 @@ async def get_monthly_report(parent_id: str, period: str, user: dict = Depends(g
             "select * from parents where id = $1::uuid and user_id = $2 and deleted_at is null",
             parent_id, scope(user),
         )
-        if not parent:
-            raise HTTPException(status_code=404, detail="Parent not found")
         report = await conn.fetchrow(
             "select * from monthly_reports where user_id = $1 and parent_id = $2::uuid and period = $3",
             scope(user), parent_id, period,
         )
+    if not parent:
+        raise HTTPException(status_code=404, detail="Parent not found")
+
+    # "Month so far" must be live: the current month's report is a snapshot
+    # that goes stale the moment a check-in goes out or a reply lands (a
+    # parent replying at 21:44 was invisible in a report generated at 21:28).
+    # Auto-regenerate the CURRENT period when missing or older than 15 min.
+    current_period = datetime.now(timezone.utc).strftime("%Y-%m")
+    if period == current_period:
+        gen_at = report["generated_at"] if report else None
+        if gen_at is not None and gen_at.tzinfo is None:
+            gen_at = gen_at.replace(tzinfo=timezone.utc)
+        is_stale = gen_at is None or gen_at < datetime.now(timezone.utc) - timedelta(minutes=15)
+        if is_stale:
+            try:
+                year, month = (int(x) for x in period.split("-"))
+                plan_id = await _get_plan_id(user)
+                fresh = await generate_monthly_report(scope(user), parent["id"], plan_id, year, month)
+                fresh["found"] = True
+                return fresh
+            except Exception as e:
+                logger.error("[reports] current-month auto-refresh failed: %s", e, exc_info=True)
+                # fall through to the stored snapshot rather than failing the view
+
     if not report:
         return {"found": False, "parent_id": parent_id, "period": period}
     out = serialize(report)
@@ -2202,7 +2268,29 @@ def _prompt_label(last_log) -> str:
     return "Check-in"
 
 
-async def _notify_family(owner_id, parent, feeling: str | None, is_voice: bool, body: str, keywords: list, ml_flagged: bool = False, media_url: str = None, transcription: str | None = None, stt_confidence: float | None = None):
+def _reply_context_line(intent: str | None, pname: str, subj: str, poss: str) -> str | None:
+    """Context-aware one-liner shown under each reply (Phase 2 emotional UX)."""
+    if not intent:
+        return None
+    action, _, category = intent.partition(":")
+    if action == "done" and category in _REMINDER_CATEGORIES:
+        what = {
+            "medicine": f"took {poss} medicine",
+            "bp_check": f"did {poss} BP check",
+            "sugar_check": f"did {poss} sugar check",
+            "water": f"had {poss} water",
+            "health_check": f"did {poss} health check",
+        }.get(category, "confirmed it")
+        return f"{pname} {what}. One less thing to worry about. 💊"
+    if action == "skip" and category in _MEAL_CATEGORIES:
+        meal = category if category in ("breakfast", "lunch", "dinner") else "this one"
+        return f"{pname} skipped {meal}. Maybe give {poss} a call this evening?"
+    if action == "feeling" and category == "not_well":
+        return f"{pname} isn't feeling great today. {subj} might need to hear your voice."
+    return None
+
+
+async def _notify_family(owner_id, parent, feeling: str | None, is_voice: bool, body: str, keywords: list, ml_flagged: bool = False, media_url: str = None, transcription: str | None = None, stt_confidence: float | None = None, intent: str | None = None):
     async with get_pool().acquire() as conn:
         owner = await conn.fetchrow("select * from users where id = $1::uuid", owner_id)
         members = await conn.fetch(
@@ -2217,6 +2305,15 @@ async def _notify_family(owner_id, parent, feeling: str | None, is_voice: bool, 
     recipients = ([owner] if owner else []) + list(members)
     pname = parent["name"] if parent else "Your parent"
     prompt = _prompt_label(last_log)
+    prompt_l = prompt[:1].lower() + prompt[1:]
+    subj, poss = ("He", "his") if parent and (parent.get("relationship") or "") == "father" else ("She", "her")
+    try:
+        tz = ZoneInfo((parent.get("timezone") if parent else None) or "Asia/Kolkata")
+    except Exception:
+        tz = ZoneInfo("Asia/Kolkata")
+    when = datetime.now(timezone.utc).astimezone(tz).strftime("%I:%M %p").lstrip("0")
+    city = (parent.get("city") if parent else "") or ""
+    where = f"{when} · {city}" if city else when
 
     # --- VOICE FORWARD LOGIC with confidence (Issue #1 + #2) ---
     if is_voice and media_url:
@@ -2245,29 +2342,32 @@ async def _notify_family(owner_id, parent, feeling: str | None, is_voice: bool, 
             if hosted_audio_url:
                 await send_audio_link(r["phone"], hosted_audio_url)
             if is_clear and conf_label == "high":
-                text = f"🎤 {pname} · {prompt}\n\n“{translated_text}”"
+                text = f"🎤 {pname} sent you a voice note · {prompt}\n\nTranscript: “{translated_text}”"
             elif is_clear and conf_label == "medium":
-                text = f"🎤 {pname} · {prompt}\n\nWe think she said{pct} — please listen to confirm:\n“{translated_text}”"
+                text = f"🎤 {pname} sent you a voice note · {prompt}\n\nWe think {subj.lower()} said{pct} — please listen to confirm:\n“{translated_text}”"
             elif is_clear:  # low confidence but we got some words
-                text = f"🎤 {pname} · {prompt}\n\nRough transcription{pct}, may be inaccurate — please listen:\n“{translated_text}”"
+                text = f"🎤 {pname} sent you a voice note · {prompt}\n\nRough transcription{pct}, may be inaccurate — please listen:\n“{translated_text}”"
             else:
-                text = f"🎤 {pname} · {prompt}\n\nWe couldn't transcribe this voice note clearly — please listen 💛"
+                text = f"🎤 {pname} sent you a voice note · {prompt}\n\nWe couldn't transcribe it clearly — please listen 💛"
             send_whatsapp(r["phone"], text)
         return
 
-    # --- Text / button replies (Issue #2: clean, contextual message) ---
+    # --- Text / button replies (Phase 2: emotional, contextual format) ---
     if keywords:
-        head = f"🚨 {pname} · {prompt}\nMay need attention — they said: “{body}”"
+        head = f"🚨 {pname} replied to your {prompt_l} — “{body}”\nMay need attention.\n{where}"
     elif ml_flagged:
-        head = f"💛 {pname} · {prompt}\nWorth checking in — something in their voice note stood out."
+        head = f"💛 {pname} sent you a voice note\nWorth checking in — something in it stood out.\n{where}"
     elif is_voice:
-        head = f"🎤 {pname} · {prompt}\nSent a voice note on WhatsApp. Open the chat to listen 💛"
+        head = f"🎤 {pname} sent you a voice note — transcript: “{body}”\n{where}"
     elif feeling:
         f = FEELING_MAP.get(feeling, {})
         reply_txt = f"{f.get('emoji','')} {f.get('label',{}).get('en', feeling)}".strip()
-        head = f"💬 {pname} · {prompt}\nReplied: {reply_txt}"
+        head = f"💛 {pname} replied to your {prompt_l} — “{reply_txt}”\n{where}"
     else:
-        head = f"💬 {pname} · {prompt}\nReplied: “{body}”"
+        head = f"💛 {pname} replied to your {prompt_l} — “{body}”\n{where}"
+    ctx = _reply_context_line(intent or (f"feeling:{feeling}" if feeling else None), pname, subj, poss)
+    if ctx:
+        head = f"{head}\n{ctx}"
     for r in recipients:
         if r and r["phone"]:
             send_whatsapp(r["phone"], head)
@@ -2380,7 +2480,7 @@ _PARENT_BY_PHONE_SQL = """
 """
 
 
-async def _record_reply(from_number: str, body_text: str, num_media: int = 0, parent=None, button_payload: str | None = None, media_url: str | None = None, media_content_type: str | None = None, raw_payload: dict | None = None):
+async def _record_reply(from_number: str, body_text: str, num_media: int = 0, parent=None, button_payload: str | None = None, media_url: str | None = None, media_content_type: str | None = None, raw_payload: dict | None = None, wam_id: str | None = None):
     async with get_pool().acquire() as conn:
         if parent is None:
             parent = await conn.fetchrow(_PARENT_BY_PHONE_SQL, from_number)
@@ -2454,19 +2554,25 @@ async def _record_reply(from_number: str, body_text: str, num_media: int = 0, pa
     feeling = intent.split(":")[1] if intent and ":" in intent else intent
 
     async with get_pool().acquire() as conn:
-        reply_row = await conn.fetchrow(
-            """
-            insert into parent_replies
-                (from_phone, parent_id, user_id, body, button_payload, intent, feeling,
-                 is_voice, transcription, media_url, emergency_keywords, ml_flagged, ml_score,
-                 stt_confidence, raw_payload, created_at)
-            values ($1, $2::uuid, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12, $13, $14, $15::jsonb, now())
-            returning *
-            """,
-            from_number, parent["id"] if parent else None, owner_id, body_text, button_payload,
-            intent, feeling, is_voice, transcription, media_url, json.dumps(keywords),
-            ml_flagged, ml_score, stt_confidence, json.dumps(raw_payload or {}),
-        )
+        try:
+            reply_row = await conn.fetchrow(
+                """
+                insert into parent_replies
+                    (from_phone, parent_id, user_id, body, button_payload, intent, feeling,
+                     is_voice, transcription, media_url, emergency_keywords, ml_flagged, ml_score,
+                     stt_confidence, raw_payload, wam_id, created_at)
+                values ($1, $2::uuid, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12, $13, $14, $15::jsonb, $16, now())
+                returning *
+                """,
+                from_number, parent["id"] if parent else None, owner_id, body_text, button_payload,
+                intent, feeling, is_voice, transcription, media_url, json.dumps(keywords),
+                ml_flagged, ml_score, stt_confidence, json.dumps(raw_payload or {}), wam_id or None,
+            )
+        except asyncpg.UniqueViolationError:
+            # Meta retries deliveries — the wam_id unique index makes this idempotent.
+            logger.info("[webhook] Duplicate Meta delivery ignored (wam_id=%s)", wam_id)
+            return {"ignored": True, "duplicate": True, "wam_id": wam_id, "from_phone": from_number,
+                    "parent_id": str(parent["id"]) if parent else None, "intent": None}
         if keywords and parent:
             await conn.execute(
                 """
@@ -2476,7 +2582,7 @@ async def _record_reply(from_number: str, body_text: str, num_media: int = 0, pa
                 owner_id, parent["id"], from_number, body_text, json.dumps(keywords), intent, is_voice,
             )
     if parent and owner_id:
-        await _notify_family(owner_id, parent, feeling, is_voice, body_text, keywords, ml_flagged, media_url=media_url, transcription=transcription or body_text, stt_confidence=stt_confidence)
+        await _notify_family(owner_id, parent, feeling, is_voice, body_text, keywords, ml_flagged, media_url=media_url, transcription=transcription or body_text, stt_confidence=stt_confidence, intent=intent)
     return dict(reply_row)
 
 
@@ -2831,6 +2937,18 @@ async def _persist_delivery_status(status: dict) -> None:
                        where sid = $1""",
                     sid, detail,
                 )
+            # Phase 4: "Amma got your photo 📸" — moment delivery confirmation.
+            if st in ("sent", "delivered", "read", "failed"):
+                moment = await conn.fetchrow("select * from moments where sid = $1", sid)
+                if moment:
+                    await conn.execute("update moments set delivery_status = $2 where id = $1", moment["id"], st)
+                    if st in ("delivered", "read") and not moment["delivery_notified"]:
+                        await conn.execute("update moments set delivery_notified = true where id = $1", moment["id"])
+                        parent = await conn.fetchrow("select * from parents where id = $1", moment["parent_id"])
+                        owner = await conn.fetchrow("select * from users where id = $1", moment["user_id"])
+                        if owner and owner["phone"]:
+                            pname = (parent["name"] if parent else None) or "your parent"
+                            send_whatsapp(owner["phone"], f"📸 {pname} got your photo 💛")
     except Exception as e:
         logger.warning("[webhook] Failed to persist delivery status %s for %s: %s", st, sid, e)
 
@@ -2898,6 +3016,28 @@ async def whatsapp_webhook(request: Request):
     except Exception:
         return Response(status_code=200, content="ok")
 
+    # Never guess again: persist every raw Meta webhook payload (2-week TTL —
+    # purged at startup in _run_startup_migrations and by nightly retention).
+    try:
+        async with get_pool().acquire() as conn:
+            await conn.execute(
+                "insert into webhook_debug (direction, payload, created_at) values ('inbound', $1::jsonb, now())",
+                json.dumps(payload),
+            )
+    except Exception as e:
+        logger.warning("[webhook] webhook_debug persist failed: %s", e)
+
+    try:
+        await _process_meta_payload(payload)
+    except Exception as e:
+        # Always HTTP 200 to Meta — even on internal errors. Log and swallow;
+        # a 5xx makes Meta retry the same event for hours and starves new ones.
+        logger.error("[webhook] Unhandled processing error: %s", e, exc_info=True)
+
+    return Response(status_code=200, content="ok")
+
+
+async def _process_meta_payload(payload: dict) -> None:
     for entry in payload.get("entry", []):
         for change in entry.get("changes", []):
             value = change.get("value", {})
@@ -2918,6 +3058,7 @@ async def whatsapp_webhook(request: Request):
                 continue
             for message in value.get("messages", []):
                 from_number = message.get("from", "")
+                wam_id = message.get("id", "")
                 msg_type = message.get("type", "")
                 body_text = ""
                 button_payload = None
@@ -2964,6 +3105,7 @@ async def whatsapp_webhook(request: Request):
                         media_url=media_url,
                         media_content_type=media_content_type,
                         raw_payload=message,
+                        wam_id=wam_id,
                     )
                     if button_payload and reply.get("parent_id"):
                         await _apply_button_tap_effects(reply)
@@ -2972,7 +3114,6 @@ async def whatsapp_webhook(request: Request):
                     # message for hours and never delivers newer replies.
                     logger.error("[webhook] Failed to process inbound from %s: %s", from_number, e, exc_info=True)
 
-    return Response(status_code=200, content="ok")
 
 # ---------------- Account ----------------
 @api.delete("/account")

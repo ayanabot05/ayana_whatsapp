@@ -20,7 +20,6 @@ import { Switch } from "@/components/ui/switch";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { CareTab } from "@/components/CareTab";
-import { DeliveryFunnel } from "@/components/DeliveryFunnel";
 import { PricingCards } from "@/components/PricingCards";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { MonthlyReportView } from "@/components/MonthlyReportView";
@@ -39,6 +38,20 @@ function TabBoundary({ tab, onRetry, children }) {
       {children}
     </ErrorBoundary>
   );
+}
+
+// Phase 2: context-aware one-liner shown under each reply in the Check-ins tab.
+function replyContextLine(intent, parentName) {
+  if (!intent) return null;
+  const [action, category] = intent.split(":");
+  const name = parentName || "They";
+  if (action === "done" && ["medicine", "bp_check", "sugar_check", "water", "health_check"].includes(category))
+    return `${name} confirmed it. One less thing to worry about. 💊`;
+  if (action === "skip" && ["breakfast", "lunch", "dinner"].includes(category))
+    return `${name} skipped ${category}. Maybe give them a call this evening?`;
+  if (action === "feeling" && category === "not_well")
+    return `${name} isn't feeling great today. They might need to hear your voice.`;
+  return null;
 }
 
 const smInputCls = "w-full px-3 py-2 rounded-lg border border-ayana-line bg-white text-sm focus:outline-none focus:ring-2 focus:ring-ayana-bright/40 focus:border-ayana-bright transition";
@@ -358,11 +371,6 @@ export default function Dashboard() {
           </TabBoundary></TabsContent>
 
           <TabsContent value="checkins" className="mt-6"><TabBoundary tab="checkins" onRetry={load}>
-            {boot?.delivery_funnel && (
-              <div className="mb-6">
-                <DeliveryFunnel funnel={boot.delivery_funnel} testid="dashboard-delivery-funnel" />
-              </div>
-            )}
             <CheckinsTab
               parents={parents}
               data={checkinsData}
@@ -684,7 +692,7 @@ function CheckinsTab({ parents, data, catByKey, revealedReplies, setRevealedRepl
                         {isOpen && (
                           <div className="border-t border-ayana-line divide-y divide-ayana-line">
                             {d.messages.map((m) => (
-                              <div key={m.id} className="px-4 py-2.5 flex items-center gap-3 text-xs">
+                              <div key={m.id} className="px-4 py-2.5 flex items-center flex-wrap gap-3 text-xs">
                                 <span className="text-ayana-muted w-12 shrink-0">{m.time}</span>
                                 <span className="flex-1 text-ayana-text">{catByKey[m.category]?.label || m.category}</span>
                                 <span className={`px-2 py-0.5 rounded-full ${m.status === "sent" || m.status === "simulated" ? "bg-ayana-whatsapp/15 text-ayana-whatsapp" : "bg-red-100 text-red-600"}`}>
@@ -708,8 +716,19 @@ function CheckinsTab({ parents, data, catByKey, revealedReplies, setRevealedRepl
                                 ) : (
                                   <span className="px-2 py-0.5 rounded-full bg-ayana-muted/15 text-ayana-muted">no reply</span>
                                 )}
-                                {m.replied && revealedReplies.has(m.id) && m.reply?.body && (
-                                  <span className="text-ayana-secondary italic truncate max-w-[160px]">&#8220;{m.reply.body}&#8221;</span>
+                                {m.replied && revealedReplies.has(m.id) && (
+                                  <div className="basis-full mt-1 rounded-lg bg-ayana-alt/70 px-3 py-2" data-testid={`reply-card-${m.id}`}>
+                                    <p className="text-ayana-text">
+                                      💛 {pd.name} replied to your {(catByKey[m.category]?.label || "check-in").toLowerCase()} — &#8220;{m.reply?.body || m.reply?.intent || ""}&#8221;
+                                    </p>
+                                    <p className="text-ayana-muted mt-0.5">
+                                      {m.reply?.created_at ? new Date(m.reply.created_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : ""}
+                                      {m.reply?.is_voice ? " · 🎤 voice note" : ""}
+                                    </p>
+                                    {replyContextLine(m.reply?.intent, pd.name) && (
+                                      <p className="text-ayana-secondary mt-0.5">{replyContextLine(m.reply?.intent, pd.name)}</p>
+                                    )}
+                                  </div>
                                 )}
                               </div>
                             ))}
@@ -852,7 +871,7 @@ function ParentDialog({ parent, config, limits, plan, schedules = [], onSaved, t
         await api.post("/schedules", schedPayload);
       }
 
-      toast.success("Saved.");
+      toast.success(targetId ? "Saved." : `✅ ${payload.name} is set up. First check-in tomorrow at 8:00 AM IST. 💛`, { duration: 6000 });
       if (data?.medicine_reminders_dropped?.length) {
         toast.warning(`Your plan couldn't fit all medicine reminder times — dropped: ${data.medicine_reminders_dropped.join(", ")}. Upgrade for more, or adjust times.`, { duration: 8000 });
       }

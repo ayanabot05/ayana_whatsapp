@@ -50,13 +50,30 @@ logger = logging.getLogger("ayana.otp")
 
 OTP_LENGTH          = 6
 OTP_EXPIRY_MINUTES  = 5
-MAX_ATTEMPTS        = 3  # Reduced from 5 — with 3 sends per 10 min, 5 attempts = 15 total tries
+MAX_ATTEMPTS        = 5  # Sprint: back to 5 attempts for family testers
 MAX_SENDS_PER_WINDOW = 3
 SEND_WINDOW_MINUTES  = 10
 # Global rate limit on OTP verification attempts (Redis-backed, per phone/email)
 MAX_VERIFY_ATTEMPTS_PER_WINDOW = 10  # Max verify attempts in 15-min window
 VERIFY_WINDOW_MINUTES = 15  # Window in minutes for verify rate limit
 BCRYPT_ROUNDS        = 12
+
+# ── On-screen OTP mode (OTP_MODE=onscreen) ──────────────────────────────────
+# Kills the Twilio / WhatsApp-OTP dependency for soft launch: the code is
+# generated + hashed as usual, but instead of being sent anywhere it is
+# returned to the frontend (dev_code) and shown on screen. The real delivery
+# paths (send_otp_whatsapp / send_otp_sms / Resend) stay intact behind the flag.
+
+def otp_mode() -> str:
+    return os.environ.get("OTP_MODE", "onscreen").strip().lower()
+
+
+def onscreen_otp() -> bool:
+    return otp_mode() == "onscreen"
+
+
+# Resend cooldown: 8m26s -> 3 minutes per sprint spec.
+RESEND_COOLDOWN_SECONDS = int(os.environ.get("OTP_RESEND_COOLDOWN_SECONDS", "180"))
 
 # ── Redis connection ───────────────────────────────────────────────────────────
 # Unchanged — Redis was never Mongo, nothing to migrate here.
@@ -65,12 +82,25 @@ _redis_available = True
 
 
 async def get_redis():
-    """Get or create Redis connection. Returns None if Redis unavailable."""
+    """Get or create Redis connection. Returns None if Redis unavailable.
+
+    Distinguishes "REDIS_URL never configured" from "REDIS_URL set but
+    unreachable" — previously both cases fell through to the same
+    localhost:6379 default and produced an identical generic warning,
+    which silently masked a missing env var in production.
+    """
     global _redis_client, _redis_available
     if not _redis_available:
         return None
     if _redis_client is None:
-        redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
+        redis_url = os.environ.get("REDIS_URL", "").strip()
+        if not redis_url:
+            logger.warning(
+                "[otp] REDIS_URL is not set — falling back to localhost:6379, which will "
+                "fail in production. Set REDIS_URL to your Railway Redis add-on's connection "
+                "string to enable OTP verify-attempt rate limiting."
+            )
+            redis_url = "redis://localhost:6379/0"
         try:
             _redis_client = redis.from_url(
                 redis_url,
@@ -80,6 +110,7 @@ async def get_redis():
                 socket_timeout=2,
             )
             await _redis_client.ping()
+            logger.info("[otp] Redis connected successfully")
         except Exception as e:
             logger.warning("Redis unavailable, OTP verify rate limiting disabled: %s", e)
             _redis_client = None
@@ -336,13 +367,14 @@ async def send_otp_whatsapp(phone: str, code: str) -> dict:
         try:
             err = resp.json().get("error", {})
             logger.warning(
-                "[otp] WhatsApp OTP failed for %s: HTTP %s code=%s — falling back to SMS",
-                phone, resp.status_code, err.get("code"),
+                "[otp] WhatsApp OTP failed for %s: HTTP %s code=%s subcode=%s type=%s message=%s trace_id=%s — falling back to SMS",
+                phone, resp.status_code, err.get("code"), err.get("error_subcode"),
+                err.get("type"), err.get("message"), err.get("fbtrace_id"),
             )
         except Exception:
             logger.warning(
-                "[otp] WhatsApp OTP failed for %s: HTTP %s — falling back to SMS",
-                phone, resp.status_code,
+                "[otp] WhatsApp OTP failed for %s: HTTP %s body=%.300s — falling back to SMS",
+                phone, resp.status_code, resp.text,
             )
         return {"status": "failed", "detail": "WhatsApp delivery failed"}
 
@@ -402,6 +434,20 @@ async def create_and_send_otp(phone: str) -> dict:
             window_start = now
             send_count   = 0
 
+        # ── Resend cooldown (3 minutes) ───────────────────────────────────
+        if existing and existing["created_at"]:
+            last_sent = existing["created_at"]
+            if last_sent.tzinfo is None:
+                last_sent = last_sent.replace(tzinfo=timezone.utc)
+            since_last = (now - last_sent).total_seconds()
+            if since_last < RESEND_COOLDOWN_SECONDS:
+                retry = int(RESEND_COOLDOWN_SECONDS - since_last) + 1
+                return {
+                    "status": "rate_limited",
+                    "detail": f"Please wait {retry} seconds before requesting a new code.",
+                    "retry_after_seconds": retry,
+                }
+
         # ── Generate + hash ───────────────────────────────────────────────
         code       = generate_otp()          # plaintext — used only here, never stored
         code_hash  = hash_otp(code)
@@ -425,29 +471,33 @@ async def create_and_send_otp(phone: str) -> dict:
             phone, code_hash, expires_at, now, send_count + 1, window_start,
         )
 
-    # ── Deliver: WhatsApp first, SMS fallback ──────────────────────────────
-    wa = await send_otp_whatsapp(phone, code)
-    if wa.get("status") == "sent":
-        result = {"status": "sent", "channel": "whatsapp", "message_id": wa.get("message_id", "")}
+    # ── Deliver: on-screen mode short-circuits real channels ─────────────
+    if onscreen_otp():
+        result = {"status": "simulated", "channel": "onscreen", "detail": "On-screen OTP mode (OTP_MODE=onscreen)"}
     else:
-        # WhatsApp disabled or failed — fall back to Twilio SMS.
-        sms = await send_otp_sms(phone, code)
-        if sms.get("status") == "sent":
-            result = {"status": "sent", "channel": "sms", "message_sid": sms.get("message_sid", "")}
-        elif sms.get("status") == "simulated" and wa.get("status") == "simulated":
-            # Both channels disabled (local/preview) — simulate + surface code.
-            result = {"status": "simulated", "channel": "none", "detail": "OTP delivery disabled"}
-        elif sms.get("status") == "simulated":
-            result = {"status": "simulated", "channel": "sms", "detail": sms.get("detail")}
+        # WhatsApp first, SMS fallback.
+        wa = await send_otp_whatsapp(phone, code)
+        if wa.get("status") == "sent":
+            result = {"status": "sent", "channel": "whatsapp", "message_id": wa.get("message_id", "")}
         else:
-            result = {"status": "failed", "channel": "sms", "detail": sms.get("detail", "Delivery failed — try again shortly.")}
+            # WhatsApp disabled or failed — fall back to Twilio SMS.
+            sms = await send_otp_sms(phone, code)
+            if sms.get("status") == "sent":
+                result = {"status": "sent", "channel": "sms", "message_sid": sms.get("message_sid", "")}
+            elif sms.get("status") == "simulated" and wa.get("status") == "simulated":
+                # Both channels disabled (local/preview) — simulate + surface code.
+                result = {"status": "simulated", "channel": "none", "detail": "OTP delivery disabled"}
+            elif sms.get("status") == "simulated":
+                result = {"status": "simulated", "channel": "sms", "detail": sms.get("detail")}
+            else:
+                result = {"status": "failed", "channel": "sms", "detail": sms.get("detail", "Delivery failed — try again shortly.")}
 
     result["phone"]      = phone
     result["expires_at"] = expires_at.isoformat()
     # In simulated mode neither channel actually delivered anywhere, so surface
     # the code to the caller for local/preview testing. This is impossible once
     # WhatsApp or SMS delivery is live in production.
-    if result.get("status") == "simulated":
+    if result.get("status") == "simulated" or onscreen_otp():
         result["dev_code"] = code
     return result
 
@@ -615,14 +665,17 @@ async def create_and_send_email_otp(email: str) -> dict:
             email, code_hash, expires_at, now, send_count + 1, window_start,
         )
 
-    from email_sender import send_otp_email
-    result = await send_otp_email(email, code)
+    if onscreen_otp():
+        result = {"status": "simulated", "channel": "onscreen", "detail": "On-screen OTP mode"}
+    else:
+        from email_sender import send_otp_email
+        result = await send_otp_email(email, code)
     result["email"] = email
     result["expires_at"] = expires_at.isoformat()
     # In simulated mode (email delivery disabled) the code is never
     # actually sent, so surface it for local/preview testing — same
     # convention as create_and_send_otp's dev_code.
-    if not email_otp_delivery_enabled():
+    if onscreen_otp() or not email_otp_delivery_enabled():
         result["dev_code"] = code
     return result
 

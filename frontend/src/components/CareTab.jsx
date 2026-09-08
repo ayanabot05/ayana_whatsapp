@@ -150,7 +150,7 @@ const optimizeImage = (file) => {
     const url = URL.createObjectURL(file);
     img.onload = () => {
       const canvas = document.createElement("canvas");
-      const MAX_DIMENSION = 1200;
+      const MAX_DIMENSION = 2400;
       let { width, height } = img;
       if (width > height && width > MAX_DIMENSION) {
         height = (height * MAX_DIMENSION) / width;
@@ -163,7 +163,7 @@ const optimizeImage = (file) => {
       canvas.height = height;
       const ctx = canvas.getContext("2d");
       ctx.drawImage(img, 0, 0, width, height);
-      const optimized = canvas.toDataURL("image/jpeg", 0.8);
+      const optimized = canvas.toDataURL("image/jpeg", 0.92);
       URL.revokeObjectURL(url);
       resolve(optimized);
     };
@@ -200,8 +200,8 @@ function MomentComposer({ parents, moments, quota, onMomentSent }) {
         toast.error("Only image files are allowed.");
         return;
       }
-      if (f.size > 5 * 1024 * 1024) {
-        toast.error("Each image must be under 5 MB.");
+      if (f.size > 4.5 * 1024 * 1024) {
+        toast.error("Each image must be under 4.5 MB.");
         return;
       }
       const optimized = await optimizeImage(f);
@@ -334,6 +334,9 @@ function MomentComposer({ parents, moments, quota, onMomentSent }) {
                     </div>
                   )}
                   <p className="text-ayana-muted">to {parentName(m.parent_id)}</p>
+                  {(m.delivery_status === "delivered" || m.delivery_status === "read") && (
+                    <p className="text-xs text-ayana-primary font-medium" data-testid={`moment-delivered-${m.id}`}>📸 {parentName(m.parent_id)} got your photo</p>
+                  )}
                 </div>
               </div>
             ))}

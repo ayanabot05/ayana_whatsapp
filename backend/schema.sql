@@ -50,6 +50,7 @@ create table users (
     phone_verified_number text,
     preferences           jsonb not null default '{}'::jsonb,
     password_changed_at   timestamptz,
+    pending_email         text,
     city                  text,
     timezone              text not null default 'Asia/Kolkata',
     household_owner_id    uuid references users(id),
@@ -148,6 +149,18 @@ create table message_logs (
 create index idx_msglogs_sched_idx_day on message_logs(schedule_id, message_index, day_key);
 create index idx_msglogs_parent_day on message_logs(parent_id, day_key);
 create index idx_msglogs_sid on message_logs(sid) where sid is not null;
+create unique index idx_msglogs_sid_uniq on message_logs(sid) where sid is not null;  -- idempotency on Meta wam ids
+
+-- ============================================================================
+-- WEBHOOK_DEBUG  — every raw Meta webhook payload, 2-week TTL
+-- ============================================================================
+create table webhook_debug (
+    id          uuid primary key default gen_random_uuid(),
+    direction   text not null default 'inbound',
+    payload     jsonb not null,
+    created_at  timestamptz not null default now()
+);
+create index idx_webhook_debug_created on webhook_debug(created_at desc);
 
 -- ============================================================================
 -- ESCALATION_STATE + ESCALATION_DAILY
@@ -224,7 +237,7 @@ create table circle_invites (
     id            uuid primary key default gen_random_uuid(),
     owner_id      uuid references users(id) on delete cascade,
     user_id       uuid references users(id) on delete cascade,   -- legacy, nullable
-    member_id     uuid references users(id) on delete set null,
+    member_id     uuid references parents(id) on delete set null,
     parent_id     uuid references parents(id) on delete set null,
     email         text not null,
     token         text not null unique,
@@ -275,11 +288,13 @@ create table parent_replies (
     ml_score            double precision,
     stt_confidence      double precision,
     raw_payload         jsonb not null default '{}'::jsonb,
+    wam_id              text,                 -- Meta message id — idempotency key (Meta retries must not duplicate)
     created_at          timestamptz not null default now()
 );
 create index idx_parentreplies_parent_created on parent_replies(parent_id, created_at);
 create index idx_parentreplies_intent on parent_replies(parent_id, intent);
 create index idx_parentreplies_user_created on parent_replies(user_id, created_at desc);
+create unique index idx_parent_replies_wam on parent_replies(wam_id) where wam_id is not null;
 
 -- ============================================================================
 -- EMERGENCY_EVENTS
@@ -317,9 +332,13 @@ create table moments (
     image_urls   jsonb not null default '[]'::jsonb,
     sender_name  text,
     status       text not null default 'pending',
+    sid          text,                            -- Meta wam id of the photo send (delivery confirmation)
+    delivery_status text,                         -- Meta callback: sent|delivered|read|failed
+    delivery_notified boolean not null default false,
     created_at   timestamptz not null default now()
 );
 create index idx_moments_parent on moments(parent_id, created_at desc);
+create index idx_moments_sid on moments(sid) where sid is not null;
 
 create table moment_images (
     id           uuid primary key default gen_random_uuid(),
@@ -470,6 +489,7 @@ begin
     delete from circle_invites  where expires_at < now();
     delete from jwt_blacklist   where expires_at < now();
     delete from scheduler_locks where expires_at < now();
+    delete from webhook_debug   where created_at < now() - interval '14 days';
 
     delete from message_logs
     where created_at < now() - interval '6 months'

@@ -3,9 +3,9 @@ import { ShieldCheck, Loader2, Send, RotateCw } from "lucide-react";
 import { toast } from "sonner";
 import { formatApiError } from "@/lib/api";
 
-// Seconds the "Resend" button stays locked after a code is sent — keeps
-// users from hammering it into the server's 3-sends-per-10-min rate limit.
-const RESEND_COOLDOWN = 30;
+// Seconds the "Resend" button stays locked after a code is sent — sprint
+// spec: 3 minutes (was effectively 8m26s via the server window math).
+const RESEND_COOLDOWN = 180;
 
 // Reusable OTP verification card.
 //
@@ -37,6 +37,7 @@ export function PhoneVerificationCard({
 }) {
   const [sent, setSent] = useState(false);
   const [code, setCode] = useState("");
+  const [shownCode, setShownCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [resendBusy, setResendBusy] = useState(false);
   const [cooldown, setCooldown] = useState(0);
@@ -47,6 +48,7 @@ export function PhoneVerificationCard({
   useEffect(() => {
     setSent(false);
     setCode("");
+    setShownCode("");
     setCooldown(0);
   }, [phone, verified]);
 
@@ -80,8 +82,9 @@ export function PhoneVerificationCard({
       const res = await onSend(phone);
       setSent(true);
       setCooldown(RESEND_COOLDOWN);
-      const via = res?.channel === "whatsapp" ? "WhatsApp" : res?.channel === "sms" ? "SMS" : "WhatsApp/SMS";
-      toast.success(`Code sent to ${phone} via ${via}`);
+      if (res?.dev_code) setShownCode(res.dev_code);
+      const via = res?.channel === "onscreen" ? null : res?.channel === "whatsapp" ? "WhatsApp" : res?.channel === "sms" ? "SMS" : "WhatsApp/SMS";
+      if (via) toast.success(`Code sent to ${phone} via ${via}`);
     } catch (e) {
       toast.error(formatApiError(e.response?.data?.detail) || "Could not send code.");
     } finally {
@@ -108,9 +111,10 @@ export function PhoneVerificationCard({
   const resend = async () => {
     setResendBusy(true);
     try {
-      await onResend(phone);
+      const res = await onResend(phone);
       setCooldown(RESEND_COOLDOWN);
-      toast.success("New code sent.");
+      if (res?.dev_code) setShownCode(res.dev_code);
+      if (!res?.dev_code) toast.success("New code sent.");
       setCode("");
     } catch (e) {
       toast.error(formatApiError(e.response?.data?.detail) || "Could not resend code.");
@@ -144,6 +148,13 @@ export function PhoneVerificationCard({
           </button>
         ) : null}
       </div>
+
+      {!verified && sent && shownCode && (
+        <div className="mt-4 rounded-lg border border-ayana-gold/40 bg-ayana-gold/10 px-4 py-3" data-testid={`${testid}-onscreen-code`}>
+          <p className="text-xs text-ayana-muted">Your verification code (shown on screen — demo mode)</p>
+          <p className="text-xl font-bold tracking-[0.35em] text-ayana-text mt-0.5">{shownCode}</p>
+        </div>
+      )}
 
       {!verified && sent && (
         <div className="mt-4 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
