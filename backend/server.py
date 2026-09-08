@@ -68,7 +68,7 @@ if _SENTRY_DSN:
     )
 
 from fastapi import Depends, FastAPI, APIRouter, HTTPException, Query, Request, Response, File, UploadFile, Form, BackgroundTasks
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional, List, Any, Tuple
 from rate_limit import (
     api_rate_limit_dependency,
@@ -93,27 +93,14 @@ from models import (
     ScheduleInput, PreferencesInput, ConsentInput,
     EmergencyContactsInput, MomentInput, RecoveryStartInput,
     MEDICINE_SHAPES, MEDICINE_COLORS, MEDICINE_TIMINGS,
+    CheckoutInput, SendTestInput, PreviewInput, InviteInput,
+    AnalyticsEventInput, OtpSendInput, OtpVerifyInput, VacationInput,
+    EmergencyEventUpdate, SiblingOtpInput, SiblingVerifyInput,
+    MarkRepliesReadInput, SimulateReplyInput,
 )
 from medicine_sync import sync_medicine_reminders
 from storage import init_storage, put_object, get_object, signed_url as storage_signed_url, is_enabled as storage_enabled, APP_NAME as STORAGE_APP_NAME
 from otp import create_and_send_otp, verify_otp_code, create_and_send_email_otp, verify_email_otp_code, _normalize_phone
-
-class CheckoutInput(BaseModel):
-    plan: str = Field("nitya", pattern="^(nitya|bandham|raksha|basic|care_plus)$")
-    billing: str = Field("month", pattern="^(month|year)$")
-    origin_url: str = ""
-
-class SendTestInput(BaseModel):
-    parent_id: str
-    category: str = "how_feeling"
-
-class PreviewInput(BaseModel):
-    parent_id: str
-    category: str = "how_feeling"
-
-class InviteInput(BaseModel):
-    email: str
-    parent_id: str = ""
 
 from auth import (
     token_still_valid,
@@ -156,6 +143,8 @@ from whatsapp import (
     send_child_welcome,                   # NEW: welcome new account owner
     send_parent_removed_child_notice,     # NEW: tell child a parent was removed
     send_member_removed_notice,           # NEW: tell removed circle member
+    send_sibling_welcome,                 # NEW: welcome a newly added sibling (#11)
+    send_sibling_added_notice,            # NEW: tell owner a sibling joined (#11)
 )
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -317,6 +306,27 @@ async def _run_startup_migrations():
         # Reply Alerts: track which parent replies the child has seen in-app.
         await conn.execute("alter table parent_replies add column if not exists read_at timestamptz")
         await conn.execute("create index if not exists idx_parentreplies_user_unread on parent_replies(user_id) where read_at is null")
+        # #9 Vacation / holiday mode: a paused date range (YYYY-MM-DD, parent-local)
+        # during which the scheduler skips ALL sends and auto-resumes after.
+        await conn.execute("alter table parents add column if not exists vacation_start text")
+        await conn.execute("alter table parents add column if not exists vacation_end text")
+        # #11 Care-circle siblings: phone + OTP verified, forwarded the exact same
+        # replies/voice the account owner receives (max 2, plan-gated). Replaces
+        # the email-invite path in the UI (email delivery was the crash source).
+        await conn.execute("""
+            create table if not exists care_circle_siblings (
+                id          uuid primary key default gen_random_uuid(),
+                owner_id    uuid not null references users(id) on delete cascade,
+                name        text not null,
+                phone       text not null,
+                language    text not null default 'en',
+                relation    text not null default 'sibling',
+                verified    boolean not null default false,
+                created_at  timestamptz not null default now()
+            )
+        """)
+        await conn.execute("create index if not exists idx_ccsiblings_owner on care_circle_siblings(owner_id)")
+        await conn.execute("create unique index if not exists idx_ccsiblings_owner_phone on care_circle_siblings(owner_id, phone)")
 
 def _parse_jsonb_field(value, default=None):
     """Safe parser for jsonb columns that may come back as str, dict/list, or None after Mongo->Postgres migration."""
@@ -396,6 +406,7 @@ async def _plan_usage(owner_id) -> dict:
               (select count(*) from parents where user_id = $1 and deleted_at is null) as parents,
               (select count(*) from users where household_owner_id = $1 and deleted_at is null) as members,
               (select count(*) from circle_invites where owner_id = $2 and status = 'pending') as pending_invites,
+              (select count(*) from care_circle_siblings where owner_id = $1 and verified = true) as siblings,
               (select count(*) from schedules where user_id = $1 and deleted_at is null and recovery_mode = true) as recovery_schedules
             """,
             owner_id, str(owner_id),
@@ -404,8 +415,8 @@ async def _plan_usage(owner_id) -> dict:
             "select id, messages, recovery_mode from schedules where user_id = $1 and deleted_at is null", owner_id
         ),
     )
-    parents, members, pending_invites, recovery_schedules = (
-        counts["parents"], counts["members"], counts["pending_invites"], counts["recovery_schedules"],
+    parents, members, pending_invites, siblings, recovery_schedules = (
+        counts["parents"], counts["members"], counts["pending_invites"], counts["siblings"], counts["recovery_schedules"],
     )
 
     schedule_violations = []
@@ -425,7 +436,11 @@ async def _plan_usage(owner_id) -> dict:
         "parents": parents,
         "members": members,
         "pending_invites": pending_invites,
-        "family_members_used": members + pending_invites,
+        "siblings": siblings,
+        # Everything that counts toward the plan's family_members limit —
+        # legacy email members/invites AND the new phone-verified siblings —
+        # so a downgrade correctly warns to remove them first (#11).
+        "family_members_used": members + pending_invites + siblings,
         "recovery_schedules": recovery_schedules,
         "schedules": schedule_violations,
     }
@@ -595,11 +610,7 @@ async def public_config():
     }
 
 # ---------------- Product analytics (public beacon) ----------------
-class AnalyticsEventInput(BaseModel):
-    type: Optional[str] = None
-    name: Optional[str] = None
-    page: Optional[str] = None
-    path: Optional[str] = None
+
     lang: Optional[str] = None
     session_id: Optional[str] = None
     meta: Optional[dict] = None
@@ -817,12 +828,7 @@ async def refresh_token(request: Request, response: Response):
     return {"access_token": new_access, "refresh_token": new_refresh, "user": serialize(user)}
 
 # ---------------- Phone OTP verification (account owner's own number) ----------------
-class OtpSendInput(BaseModel):
-    phone: str = Field(..., min_length=6, max_length=20)
 
-class OtpVerifyInput(BaseModel):
-    phone: str = Field(..., min_length=6, max_length=20)
-    code: str = Field(..., min_length=4, max_length=8)
 
 @api.post("/auth/otp/send")
 @api.post("/auth/otp/resend")
@@ -1013,7 +1019,7 @@ _PARENT_FIELDS = [
     "name", "preferred_name", "relationship", "language", "city", "timezone",
     "birthday", "other_parent_name", "phone", "nicknames", "habits", "stories",
     "medicine_list", "emergency_contacts", "activity_window_start", "activity_window_end",
-    "auto_activity_detection",
+    "auto_activity_detection", "vacation_start", "vacation_end",
 ]
 _PARENT_JSONB_FIELDS = {"nicknames", "habits", "stories", "medicine_list", "emergency_contacts"}
 
@@ -1215,6 +1221,34 @@ async def delete_parent(parent_id: str, background_tasks: BackgroundTasks, user:
             background_tasks.add_task(send_parent_removed_child_notice, user.get("phone"), "en", parent["name"])
     return {"ok": True}
 
+
+# ── #9 Vacation / holiday mode ──────────────────────────────────────────────
+
+
+
+@api.put("/parents/{parent_id}/vacation")
+async def set_vacation(parent_id: str, payload: VacationInput, user: dict = Depends(get_current_user), _csrf: None = Depends(validate_csrf_token)):
+    """Pause (or clear) daily sends for a date range. The scheduler skips all
+    sends while today (parent-local) is within [start, end] and auto-resumes."""
+    start, end = payload.start, payload.end
+    if bool(start) != bool(end):
+        raise HTTPException(status_code=400, detail="Set both a start and end date, or clear both.")
+    if start and end and start > end:
+        raise HTTPException(status_code=400, detail="Vacation start date must be on or before the end date.")
+    async with get_pool().acquire() as conn:
+        parent = await conn.fetchrow(
+            "select * from parents where id = $1::uuid and user_id = $2 and deleted_at is null",
+            parent_id, scope(user),
+        )
+        if not parent:
+            raise HTTPException(status_code=404, detail="Parent not found")
+        await conn.execute(
+            "update parents set vacation_start = $1, vacation_end = $2 where id = $3::uuid",
+            start, end, parent_id,
+        )
+    await audit(user["id"], "set_vacation", {"parent_id": parent_id, "start": start, "end": end})
+    return {"ok": True, "vacation_start": start, "vacation_end": end}
+
 # ---------------- Emergency contacts (distinct from Care Circle) ----------------
 @api.get("/parents/{parent_id}/emergency-contacts")
 async def get_emergency_contacts(parent_id: str, user: dict = Depends(get_current_user)):
@@ -1261,9 +1295,7 @@ async def get_emergency_events(parent_id: str, user: dict = Depends(get_current_
         )
     return [serialize(e) for e in events]
 
-class EmergencyEventUpdate(BaseModel):
-    status: str = Field(..., pattern="^(open|reviewed|resolved|false_positive)$")
-    resolution_note: Optional[str] = None
+
 
 @api.put("/emergency-events/{event_id}")
 async def update_emergency_event(event_id: str, payload: EmergencyEventUpdate, user: dict = Depends(get_current_user)):
@@ -2014,12 +2046,20 @@ async def get_circle(user: dict = Depends(get_current_user)):
             ),
         )
         max_members = plan_limits(plan_id).get("family_members", 1)
+        siblings = await get_pool().fetch(
+            "select * from care_circle_siblings where owner_id = $1 order by created_at", str(uid)
+        )
     return {
         "role": "owner",
         "plan": plan_id,
         "max_members": max_members,
         "members": [{"id": str(m["id"]), "name": m["name"], "email": m["email"]} for m in members],
         "invites": [{"id": str(i["id"]), "email": i["email"]} for i in invites],
+        "siblings": [
+            {"id": str(s["id"]), "name": s["name"], "phone": s["phone"],
+             "language": s["language"], "relation": s["relation"], "verified": s["verified"]}
+            for s in siblings
+        ],
     }
 
 @api.post("/circle/invite")
@@ -2204,6 +2244,114 @@ async def cancel_invite(invite_id: str, user: dict = Depends(get_current_user), 
         )
     return {"ok": True}
 
+
+# ── #11 Care-circle siblings (phone + OTP, no email) ────────────────────────
+
+
+
+async def _sibling_guard(user: dict) -> tuple[str, int]:
+    """Shared checks for sibling add: owner-only + Raksha plan gate. Returns
+    (owner_uid, max_members)."""
+    if is_member(user):
+        raise HTTPException(status_code=403, detail="Only the account owner can add siblings.")
+    plan_id = await _get_plan_id(user)
+    max_members = plan_limits(plan_id).get("family_members", 0)
+    if max_members < 1:
+        raise HTTPException(status_code=403, detail="Family co-care requires Raksha. Upgrade to add siblings.")
+    return str(user["id"]), max_members
+
+
+@api.post("/circle/sibling/send-otp")
+async def sibling_send_otp(payload: SiblingOtpInput, user: dict = Depends(get_current_user), _csrf: None = Depends(validate_csrf_token), _rl: None = Depends(api_rate_limit_dependency)):
+    uid, max_members = await _sibling_guard(user)
+    phone = _normalize_phone(payload.phone)
+    if user.get("phone") and _normalize_phone(user["phone"]) == phone:
+        raise HTTPException(status_code=400, detail="That's your own number 🙂")
+    async with get_pool().acquire() as conn:
+        current = await conn.fetchval(
+            "select count(*) from care_circle_siblings where owner_id = $1 and verified = true", uid
+        )
+        if current >= max_members:
+            raise HTTPException(status_code=400, detail=f"Your plan allows up to {max_members} sibling(s). Remove one first.")
+        dup = await conn.fetchrow(
+            "select 1 from care_circle_siblings where owner_id = $1 and regexp_replace(phone, '\\D', '', 'g') = regexp_replace($2, '\\D', '', 'g') and verified = true",
+            uid, phone,
+        )
+        if dup:
+            raise HTTPException(status_code=400, detail="This person is already in your care circle.")
+    result = await create_and_send_otp(phone)
+    if result.get("status") == "rate_limited":
+        raise HTTPException(status_code=429, detail=result.get("detail", "Too many requests. Try again shortly."))
+    return {
+        "ok": True,
+        "phone": phone,
+        "channel": result.get("channel"),
+        "dev_code": result.get("dev_code"),  # onscreen dev mode surfaces the code
+        "expires_at": result.get("expires_at"),
+    }
+
+
+@api.post("/circle/sibling/verify")
+async def sibling_verify(payload: SiblingVerifyInput, background_tasks: BackgroundTasks, user: dict = Depends(get_current_user), _csrf: None = Depends(validate_csrf_token)):
+    uid, max_members = await _sibling_guard(user)
+    phone = _normalize_phone(payload.phone)
+    result = await verify_otp_code(phone, payload.code)
+    if not result.get("ok"):
+        raise HTTPException(status_code=400, detail=result.get("detail", "Invalid or expired code."))
+    lang = (payload.language or "en").strip().lower()[:2] or "en"
+    async with get_pool().acquire() as conn:
+        current = await conn.fetchval(
+            "select count(*) from care_circle_siblings where owner_id = $1 and verified = true", uid
+        )
+        if current >= max_members:
+            raise HTTPException(status_code=400, detail=f"Your plan allows up to {max_members} sibling(s).")
+        try:
+            sib = await conn.fetchrow(
+                """
+                insert into care_circle_siblings (owner_id, name, phone, language, relation, verified, created_at)
+                values ($1, $2, $3, $4, $5, true, now())
+                on conflict (owner_id, phone) do update
+                    set name = excluded.name, language = excluded.language,
+                        relation = excluded.relation, verified = true
+                returning *
+                """,
+                uid, payload.name.strip(), phone, lang, (payload.relation or "sibling").strip(),
+            )
+        except Exception as e:
+            logger.error("[circle] sibling insert failed for %s: %s", uid, e, exc_info=True)
+            raise HTTPException(status_code=500, detail="Could not add sibling. Please try again.")
+        parent_rows = await conn.fetch("select name, preferred_name from parents where user_id = $1 and deleted_at is null", uid)
+    parent_names = [ (p["preferred_name"] or p["name"]) for p in parent_rows ]
+    owner_name = (user.get("name") or "your family").split()[0]
+    # Sibling gets the ayana_opener welcome (cold-number safe); owner is told
+    # who joined. Both best-effort in the background.
+    background_tasks.add_task(send_sibling_welcome, dict(sib), owner_name, parent_names)
+    if user.get("phone"):
+        background_tasks.add_task(send_sibling_added_notice, user["phone"], payload.name.strip(), lang)
+    await audit(user["id"], "sibling_added", {"phone": phone, "name": payload.name.strip()})
+    return {
+        "ok": True,
+        "sibling": {"id": str(sib["id"]), "name": sib["name"], "phone": sib["phone"],
+                    "language": sib["language"], "relation": sib["relation"], "verified": sib["verified"]},
+    }
+
+
+@api.delete("/circle/sibling/{sibling_id}")
+async def remove_sibling(sibling_id: str, background_tasks: BackgroundTasks, user: dict = Depends(get_current_user), _csrf: None = Depends(validate_csrf_token)):
+    if is_member(user):
+        raise HTTPException(status_code=403, detail="Only the account owner can remove siblings.")
+    async with get_pool().acquire() as conn:
+        sib = await conn.fetchrow(
+            "select * from care_circle_siblings where id = $1::uuid and owner_id = $2", sibling_id, str(user["id"])
+        )
+        await conn.execute(
+            "delete from care_circle_siblings where id = $1::uuid and owner_id = $2", sibling_id, str(user["id"])
+        )
+    if sib and sib["phone"]:
+        background_tasks.add_task(send_member_removed_notice, sib["phone"], sib["language"] or "en")
+    await audit(user["id"], "sibling_removed", {"sibling_id": sibling_id})
+    return {"ok": True}
+
 # ---------------- Monthly reports ----------------
 @api.get("/reports/monthly")
 async def get_monthly_report(parent_id: str, period: str, user: dict = Depends(get_current_user)):
@@ -2358,13 +2506,19 @@ async def _notify_family(owner_id, parent, feeling: str | None, is_voice: bool, 
         members = await conn.fetch(
             "select * from users where household_owner_id = $1::uuid and deleted_at is null limit 20", owner_id
         )
+        # #11: phone-verified care-circle siblings receive the EXACT same
+        # forwarded reply + voice note the account owner gets.
+        siblings = await conn.fetch(
+            "select name, phone, language from care_circle_siblings where owner_id = $1::uuid and verified = true limit 5",
+            owner_id,
+        )
         last_log = None
         if parent:
             last_log = await conn.fetchrow(
                 "select category, msg_type, body from message_logs where parent_id = $1::uuid order by created_at desc limit 1",
                 parent["id"],
             )
-    recipients = ([owner] if owner else []) + list(members)
+    recipients = ([owner] if owner else []) + list(members) + list(siblings)
     pname = parent["name"] if parent else "Your parent"
     prompt = _prompt_label(last_log)
     prompt_l = prompt[:1].lower() + prompt[1:]
@@ -2468,6 +2622,55 @@ async def _resolve_generic_button_intent(parent_id, button_payload: str) -> str 
         logger.warning("[webhook] No recent %s send found for parent %s to resolve %s", category_set, parent_id, button_payload)
         return f"{action}:generic"
     return f"{action}:{last_log['category']}"
+
+
+# ── #2c: approved-template quick-reply button → intent by TITLE ─────────────
+# Meta returns {id, title} for a tapped quick-reply. Our in-session buttons
+# carry structured ids ("feeling:good", "done:rest"), but the APPROVED
+# TEMPLATE buttons (ayana_mood/medicine/meal) may come back with a non-
+# structured id — or an empty id — depending on how they were registered in
+# Meta. When that happens we map the localized title the parent actually
+# tapped (Good/బాగున్నాను/अच्छा, Taken/వేసుకున్నా/ले लिया, …) to the right
+# intent using the SAME multilingual keyword lists the free-text path uses.
+_STRUCTURED_INTENT_PREFIXES = ("feeling:", "done:", "pending:", "skip:", "emergency:")
+
+# Localized quick-reply TITLES for reminder confirmations, in en/te/hi — used
+# when a tapped template button carries no structured id (#2c). Kept explicit
+# (not reusing the free-text lists) because button titles are short and fixed.
+_TITLE_DONE_WORDS = [
+    "taken", "done", "did it", "వేసుకున్నా", "వేసుకున్నాను", "తీసుకున్నా",
+    "తీసుకున్నాను", "అయింది", "ले लिया", "लिया", "ले ली", "हो गया", "कर लिया",
+]
+_TITLE_SKIP_WORDS = [
+    "skip", "not yet", "later", "వద్దు", "లేదు", "ఇంకా లేదు",
+    "नहीं", "अभी नहीं", "बाद में", "छोड़",
+]
+
+
+async def _resolve_action_for_category_set(parent_id, action: str, category_set: list[str]) -> str:
+    async with get_pool().acquire() as conn:
+        last_log = await conn.fetchrow(
+            "select category from message_logs where parent_id = $1::uuid and category = any($2::text[]) order by created_at desc limit 1",
+            parent_id, category_set,
+        )
+    return f"{action}:{last_log['category']}" if last_log else f"{action}:generic"
+
+
+async def _resolve_button_title_intent(parent_id, title: str) -> str:
+    t = (title or "").strip()
+    if not t:
+        return "text"
+    tl = t.lower()
+    if any(w in tl for w in _TITLE_DONE_WORDS):
+        return await _resolve_action_for_category_set(parent_id, "done", list(_REMINDER_CATEGORIES))
+    if any(w in tl for w in _TITLE_SKIP_WORDS):
+        return await _resolve_action_for_category_set(parent_id, "skip", list(_REMINDER_CATEGORIES))
+    fr = parse_reply(t)  # 'good' | 'okay' | 'not_well' | 'done' | None
+    if fr in ("good", "okay", "not_well"):
+        return f"feeling:{fr}"
+    if fr == "done":
+        return await _resolve_action_for_category_set(parent_id, "done", list(_REMINDER_CATEGORIES))
+    return parse_intent(None, t)
 
 
 # ── Interactive button handler callbacks ───────────────────────────────────
@@ -2574,7 +2777,16 @@ async def _record_reply(from_number: str, body_text: str, num_media: int = 0, pa
     async with get_pool().acquire() as conn:
         if button_payload:
             resolved = await _resolve_generic_button_intent(parent["id"], button_payload) if parent else None
-            intent = resolved if resolved is not None else button_payload
+            if resolved is not None:
+                intent = resolved
+            elif button_payload.startswith(_STRUCTURED_INTENT_PREFIXES):
+                intent = button_payload
+            else:
+                # #2c: approved-template button with a non-structured / empty id
+                # — fall back to matching the localized TITLE the parent tapped.
+                intent = await _resolve_button_title_intent(parent["id"], body_text) if parent else button_payload
+                if not intent or intent == "text":
+                    intent = button_payload
         elif media_url and (media_content_type or "").startswith("audio/"):
             is_voice = True
             stt = await transcribe_voice_note_detailed(media_url, language=lang, auth_headers=meta_auth_header())
@@ -2819,8 +3031,7 @@ async def replies_unread_count(user: dict = Depends(get_current_user)):
     return {"unread": count or 0, "latest": latest_out}
 
 
-class MarkRepliesReadInput(BaseModel):
-    ids: Optional[List[str]] = None  # None/empty → mark ALL of the user's replies read
+
 
 
 @api.post("/replies/read")
@@ -2846,11 +3057,7 @@ async def mark_replies_read(payload: MarkRepliesReadInput, user: dict = Depends(
 
 
 
-class SimulateReplyInput(BaseModel):
-    parent_id: str
-    text: str = ""
-    num_media: int = Field(0, ge=0)
-    button_payload: Optional[str] = None
+
 
 
 @api.post("/replies/simulate")
@@ -2934,12 +3141,22 @@ async def checkins_summary(
     for r in replies:
         replies_by_parent.setdefault(str(r["parent_id"]), []).append(r)
 
+    # #13 sync: attribute each reply to at most ONE message (consume-once),
+    # identical to the monthly report's _daily_details logic — so the Check-ins
+    # tab, dashboard stats and the monthly report all report the SAME reply
+    # counts (the old logic marked every preceding send 'replied' off one late
+    # reply, inflating the dashboard above the report).
+    consumed_reply_ids: set = set()
+
     def _find_reply(parent_id: str, log_dt: datetime, day_key: str, tz_name: str):
         for r in replies_by_parent.get(parent_id, []):
+            if str(r["id"]) in consumed_reply_ids:
+                continue
             if r["created_at"] < log_dt:
                 continue
             if _local_day_key(r["created_at"], tz_name) != day_key:
                 continue
+            consumed_reply_ids.add(str(r["id"]))
             return r
         return None
 

@@ -7,7 +7,7 @@
  */
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Phone, Plus, Trash2, Send, Heart, ImagePlus, Loader2, ShieldAlert, Activity, Lock, AlertTriangle, Bell, Clock, X } from "lucide-react";
+import { Phone, Plus, Trash2, Send, Heart, ImagePlus, Loader2, ShieldAlert, Activity, Lock, AlertTriangle, Bell, Clock, X, Palmtree } from "lucide-react";
 import { api, formatApiError } from "@/lib/api";
 import { PhoneInput } from "@/components/PhoneInput";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -453,6 +453,64 @@ function RecoveryCard({ parents, schedules, planId, limits }) {
   );
 }
 
+function VacationCard({ parent }) {
+  const qc = useQueryClient();
+  const [start, setStart] = useState(parent.vacation_start || "");
+  const [end, setEnd] = useState(parent.vacation_end || "");
+  const [busy, setBusy] = useState(false);
+  const active = !!(parent.vacation_start && parent.vacation_end);
+
+  const save = async () => {
+    if (!start || !end) { toast.error("Pick both a start and end date."); return; }
+    if (start > end) { toast.error("Start date must be on or before the end date."); return; }
+    setBusy(true);
+    try {
+      await api.put(`/parents/${parent.id}/vacation`, { start, end });
+      toast.success(`Vacation mode set for ${parent.name}. Check-ins pause during this range and resume automatically.`);
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
+    } catch (e) { toast.error(formatApiError(e.response?.data?.detail)); } finally { setBusy(false); }
+  };
+  const clear = async () => {
+    setBusy(true);
+    try {
+      await api.put(`/parents/${parent.id}/vacation`, { start: null, end: null });
+      setStart(""); setEnd("");
+      toast.success("Vacation mode cleared. Check-ins resume as scheduled.");
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
+    } catch (e) { toast.error(formatApiError(e.response?.data?.detail)); } finally { setBusy(false); }
+  };
+
+  return (
+    <div className="rounded-2xl border border-ayana-line bg-white p-5" data-testid={`vacation-card-${parent.id}`}>
+      <div className="flex items-center gap-2 mb-1">
+        <span className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: "rgba(61,184,232,0.14)" }}>
+          <Palmtree className="w-4 h-4 text-ayana-sky" />
+        </span>
+        <h3 className="font-display text-lg font-semibold text-ayana-text">Vacation / holiday mode: {parent.name}</h3>
+        {active && <span className="ml-1 text-xs px-2 py-0.5 rounded-full bg-ayana-sky/15 text-ayana-sky font-medium" data-testid={`vacation-active-${parent.id}`}>Paused {parent.vacation_start} → {parent.vacation_end}</span>}
+      </div>
+      <p className="text-sm text-ayana-muted mb-4">Going away or in hospital? Pause all daily check-ins for a date range. Ayana stops sending during it and resumes automatically the day after.</p>
+      <div className="grid sm:grid-cols-[1fr_1fr_auto] gap-2 items-end">
+        <div>
+          <label className="text-xs font-semibold text-ayana-muted uppercase tracking-wider">From</label>
+          <input type="date" value={start} onChange={(e) => setStart(e.target.value)} className={`mt-1 ${inputCls}`} data-testid={`vacation-start-${parent.id}`} />
+        </div>
+        <div>
+          <label className="text-xs font-semibold text-ayana-muted uppercase tracking-wider">To</label>
+          <input type="date" value={end} min={start || undefined} onChange={(e) => setEnd(e.target.value)} className={`mt-1 ${inputCls}`} data-testid={`vacation-end-${parent.id}`} />
+        </div>
+        <div className="flex gap-2">
+          <button onClick={save} disabled={busy} className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-ayana-primary text-white text-sm font-medium hover:bg-ayana-primary-hover disabled:opacity-50" data-testid={`vacation-save-${parent.id}`}>
+            {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Palmtree className="w-4 h-4" />} Save
+          </button>
+          {active && <button onClick={clear} disabled={busy} className="px-4 py-2.5 rounded-full border border-ayana-line text-sm font-medium text-ayana-accent hover:border-ayana-accent/50 disabled:opacity-50" data-testid={`vacation-clear-${parent.id}`}>Clear</button>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
 export function CareTab({ parents, schedules = [], planId, limits, moments, quota, onMomentSent }) {
   if (!parents || parents.length === 0) {
     return <EmptyState text="Add a parent first to manage moments and emergency contacts." />;
@@ -463,6 +521,7 @@ export function CareTab({ parents, schedules = [], planId, limits, moments, quot
       <RecoveryCard parents={parents} schedules={schedules} planId={planId} limits={limits} />
       {parents.map((p) => (
         <div key={p.id} className="space-y-4">
+          <VacationCard parent={p} />
           <EmergencyContacts parent={p} />
           <EmergencyEventsHistory parent={p} />
         </div>

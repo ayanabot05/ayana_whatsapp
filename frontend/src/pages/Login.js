@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Loader2 } from "lucide-react";
 import { Logo } from "@/components/Logo";
+import { PasswordField } from "@/components/PasswordField";
 import { api, formatApiError } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { toast } from "sonner";
@@ -69,10 +70,11 @@ export default function Login() {
             </div>
             <div>
               <label className="text-sm font-medium text-ayana-text">Password</label>
-              <input
-                type="password" required value={password} onChange={(e) => setPassword(e.target.value)}
-                data-testid="login-password" placeholder="••••••••"
-                className="mt-1.5 w-full px-4 py-3 rounded-xl border border-ayana-line bg-white text-ayana-text focus:outline-none focus:ring-2 focus:ring-ayana-bright/50 focus:border-ayana-bright transition"
+              <PasswordField
+                required value={password} onChange={(e) => setPassword(e.target.value)}
+                testid="login-password" placeholder="••••••••"
+                wrapperClassName="mt-1.5"
+                className="w-full px-4 py-3 rounded-xl border border-ayana-line bg-white text-ayana-text focus:outline-none focus:ring-2 focus:ring-ayana-bright/50 focus:border-ayana-bright transition"
               />
             </div>
             <div className="flex justify-end -mt-1">

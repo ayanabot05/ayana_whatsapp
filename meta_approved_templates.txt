@@ -1,4 +1,4 @@
-ayana_opener_en • English - Hi {{1}}! This is AYANA checking in for {{2}}. Reply anytime. I'm here for check-ins, reminders, and updates. 💛
+ayana_opener_en • English - Hi {{1}}! This is AYANA checking in for {{2}}. I'm here for check-ins, reminders, and updates. 💛
 
 ayana_opener_te • Telugu - నమస్తే {{1}}! AYANA {{2}} కోసం చెక్-ఇన్ చేస్తోంది. ఈరోజు మీరు ఎలా ఉన్నారు?
 
@@ -29,7 +29,22 @@ ayana_report_ready_en · English - 📋 {{1}}'s monthly wellness report is ready
 ayana_report_ready_hi · Hindi - 📋 {{1}} की मासिक वेलनेस रिपोर्ट तैयार है। चेक-इन, मूड ट्रेंड और दवा अनुपालन देखने के लिए AYANA BOT डैशबोर्ड खोलें।
 ayana_report_ready_te · Telugu - 📋 {{1}} యొక్క నెలవారీ వెల్‌నెస్ రిపోర్ట్ సిద్ధంగా ఉంది. చెక్-ఇన్‌లు, మూడ్ ట్రెండ్‌లు, మందుల వినియోగం చూడటానికి AYANA BOT డాష్‌బోర్డ్ తెరవండి.
 
-
+template naming - ayana_template name_language - ayana_opener_en
+ayana_opener_en
+ayana_opener_te
+ayana_opener_hi
+ayana_mood_en
+ayana_mood_te
+ayana_mood_hi
+ayana_medicine_en
+ayana_medicine_te
+ayana_medicine_hi
+ayana_reengagement_en
+ayana_reengagement_te
+ayana_reengagement_hi
+ayana_report_ready_en 
+ayana_report_ready_te 
+ayana_report_ready_hi 
 
 standard footer - 
 नीचे टैप करें या वॉइस नोट भेजें
