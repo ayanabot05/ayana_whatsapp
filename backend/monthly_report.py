@@ -27,6 +27,7 @@ never picks up a reply from outside the month being reported on.
 import logging
 from datetime import datetime, timezone, timedelta
 from calendar import monthrange
+from zoneinfo import ZoneInfo
 
 from database import get_pool
 from pricing import plan_limits, PLAN_BY_ID
@@ -35,6 +36,17 @@ from whatsapp import send_report_ready
 logger = logging.getLogger("ayana.monthly_report")
 
 _FEELING_SCORE = {"good": 1.0, "okay": 0.5, "not_well": 0.0}
+
+
+def _tz(tz_name: str | None):
+    try:
+        return ZoneInfo(tz_name or "Asia/Kolkata")
+    except Exception:
+        return ZoneInfo("Asia/Kolkata")
+
+
+def _local_day(dt: datetime, tz) -> str:
+    return dt.astimezone(tz).strftime("%Y-%m-%d")
 
 
 def _month_bounds(year: int, month: int) -> tuple[str, str]:
@@ -46,8 +58,9 @@ def _day_key_to_dt(day_key: str) -> datetime:
     return datetime.strptime(day_key, "%Y-%m-%d").replace(tzinfo=timezone.utc)
 
 
-async def _mood_series(conn, parent_id, start_day: str, end_day: str) -> list[dict]:
+async def _mood_series(conn, parent_id, start_day: str, end_day: str, tz_name: str | None = None) -> list[dict]:
     """One point per day the parent tapped a feeling — used for the mood graph."""
+    tz = _tz(tz_name)
     range_start = _day_key_to_dt(start_day)
     range_end = _day_key_to_dt(end_day) + timedelta(days=1)
     replies = await conn.fetch(
@@ -61,7 +74,7 @@ async def _mood_series(conn, parent_id, start_day: str, end_day: str) -> list[di
     )
     series, seen = [], set()
     for r in replies:
-        day = r["created_at"].strftime("%Y-%m-%d")
+        day = _local_day(r["created_at"], tz)
         if day in seen:
             continue
         seen.add(day)
@@ -70,9 +83,16 @@ async def _mood_series(conn, parent_id, start_day: str, end_day: str) -> list[di
     return series
 
 
-async def _daily_details(conn, parent_id, start_day: str, end_day: str) -> dict:
+async def _daily_details(conn, parent_id, start_day: str, end_day: str, tz_name: str | None = None) -> dict:
     """Per-day / per-category breakdown stored alongside the summary so the
-    report page (and its PDF) can show exactly what happened each day."""
+    report page (and its PDF) can show exactly what happened each day.
+
+    Times and day grouping use the PARENT'S timezone so the report matches the
+    dashboard check-in timeline (which also renders in local time). Each reply
+    is attributed to at most ONE message so the reply rate reflects reality —
+    a single late reply no longer marks every preceding send as 'replied'
+    (the old logic reported 100% reply rate off one message)."""
+    tz = _tz(tz_name)
     range_start = _day_key_to_dt(start_day)
     range_end = _day_key_to_dt(end_day) + timedelta(days=1)
     logs = await conn.fetch(
@@ -96,23 +116,37 @@ async def _daily_details(conn, parent_id, start_day: str, end_day: str) -> dict:
         parent_id, range_start, range_end,
     )
 
+    # Bucket replies by LOCAL day, chronological, with a consumed flag so each
+    # reply can satisfy only one message — an honest reply rate.
     replies_by_day: dict[str, list] = {}
     for r in replies:
-        replies_by_day.setdefault(r["created_at"].strftime("%Y-%m-%d"), []).append(r)
+        replies_by_day.setdefault(_local_day(r["created_at"], tz), []).append(r)
+    consumed_by_day: dict[str, list] = {dk: [False] * len(rs) for dk, rs in replies_by_day.items()}
 
     days: dict[str, dict] = {}
     by_category: dict[str, dict] = {}
-    for log in logs:
-        d = days.setdefault(log["day_key"], {"day": log["day_key"], "sent": 0, "replied": 0, "items": []})
+    for log in logs:  # already ordered by created_at asc
+        dk = _local_day(log["created_at"], tz)
+        d = days.setdefault(dk, {"day": dk, "sent": 0, "replied": 0, "items": []})
         delivered = log["status"] in ("sent", "simulated")
-        day_replies = replies_by_day.get(log["day_key"], [])
-        replied = log["reply_status"] in ("done", "skipped", "pending") or any(r["created_at"] >= log["created_at"] for r in day_replies)
+
+        # Attribute this message to the earliest not-yet-consumed reply that
+        # arrived at/after it on the same local day (a reply answers a check-in).
+        replied = False
+        day_reps = replies_by_day.get(dk, [])
+        flags = consumed_by_day.get(dk, [])
+        for i, r in enumerate(day_reps):
+            if not flags[i] and r["created_at"] >= log["created_at"]:
+                flags[i] = True
+                replied = True
+                break
+
         if delivered:
             d["sent"] += 1
         if replied:
             d["replied"] += 1
         d["items"].append({
-            "time": log["created_at"].strftime("%H:%M"),
+            "time": log["created_at"].astimezone(tz).strftime("%H:%M"),
             "category": log["category"],
             "msg_type": log["msg_type"],
             "status": log["status"],
@@ -221,8 +255,9 @@ async def generate_monthly_report(user_id: str, parent_id, plan_id: str, year: i
             parent_id, range_start, range_end,
         )
 
-        parent_row = await conn.fetchrow("select name, preferred_name, relationship, language from parents where id = $1", parent_id)
-        details = await _daily_details(conn, parent_id, start_day, end_day)
+        parent_row = await conn.fetchrow("select name, preferred_name, relationship, language, timezone from parents where id = $1", parent_id)
+        tz_name = (parent_row["timezone"] if parent_row else None) or "Asia/Kolkata"
+        details = await _daily_details(conn, parent_id, start_day, end_day, tz_name)
         details["parent_name"] = (parent_row["name"] if parent_row else None) or "Parent"
         details["relationship"] = parent_row["relationship"] if parent_row else None
         details["plan_name"] = (PLAN_BY_ID.get(plan_id) or {}).get("name", plan_id)
@@ -245,7 +280,7 @@ async def generate_monthly_report(user_id: str, parent_id, plan_id: str, year: i
 
         # Mood graph + analysis: Bandham and Raksha only (matches plan feature table)
         if limits.get("variants_per_slot", 3) >= 7:
-            series = await _mood_series(conn, parent_id, start_day, end_day)
+            series = await _mood_series(conn, parent_id, start_day, end_day, tz_name)
             report["mood_graph"] = series
             report["trend_note"] = _trend_note(series)
 

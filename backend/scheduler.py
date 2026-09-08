@@ -14,10 +14,10 @@ Job 1 — _deliver_due_messages (every 1 minute)
     no automatic retry. Paying customers depend on these arriving every
     day without interruption, so a slot is now only considered "done"
     once a message_logs row for it shows a SUCCESSFUL status
-    ('sent' or 'simulated'). A failed attempt is retried on every
-    subsequent scheduler tick (once a minute) until it succeeds or the
-    day ends, capped at MAX_RETRY_ATTEMPTS_PER_SLOT to avoid an
-    infinite hot loop against a permanently broken config.
+    ('sent' or 'simulated'). A failed attempt is retried with spacing
+    (5 min after the 1st failure, then 10 min, then every 10 min) until
+    it succeeds or the day ends — never giving up, but never hammering
+    Meta's API every single minute either.
 
 Job 2 — _check_reengagement (every 15 minutes)
     Re-engagement window is now read per-schedule (reengagement_hours,
@@ -84,11 +84,17 @@ _WORKER_ID = f"{socket.gethostname()}:{uuid.uuid4().hex[:8]}"
 # Last successful run per job — surfaced by /api/health as the scheduler heartbeat.
 _LAST_RUN: dict[str, str] = {}
 
-# A slot that keeps failing gets retried once a minute, but not forever —
-# past this many failed attempts in one day we stop hammering Meta and rely
-# on Sentry (raised in whatsapp.py) + the admin delivery-health "stuck sends"
-# view to surface it as a real incident instead of silently retrying all day.
-MAX_RETRY_ATTEMPTS_PER_SLOT = int(os.environ.get("WA_MAX_RETRY_ATTEMPTS_PER_SLOT", "30"))
+# "No interruption" retry policy. A slot that fails is retried with spacing so
+# we never hammer Meta's API, but we also never give up within the day — the
+# only things that retire a slot are (a) a SUCCESSFUL send or (b) the day
+# boundary. Spacing after each failure:
+#   failure #1  -> wait 5 min before the next attempt
+#   failure #2  -> wait 10 min
+#   failure #3+ -> retry every 10 min, forever
+# Overridable via env for ops tuning; defaults encode the schedule above.
+RETRY_BACKOFF_MINUTES = [
+    int(x) for x in os.environ.get("WA_RETRY_BACKOFF_MINUTES", "5,10").split(",") if x.strip()
+] or [5, 10]
 
 
 def scheduler_heartbeat() -> dict:
@@ -271,20 +277,28 @@ async def _deliver_due_messages_impl():
                     if already_sent:
                         continue
 
-                    # Bounded retry: stop hammering a slot that's failed too
-                    # many times today (systemic issue, not a transient one) —
-                    # surfaced via Sentry in whatsapp.py and the admin
-                    # delivery-health "stuck sends" view, not silently forever.
-                    failed_attempts_today = await conn.fetchval(
+                    # "No interruption" backoff: after a failure, wait the
+                    # scheduled spacing before retrying (5 min, then 10 min,
+                    # then every 10 min forever) instead of retrying every
+                    # single minute. A SUCCESS retires the slot via the
+                    # already_sent check above; nothing here ever gives up.
+                    fail_stat = await conn.fetchrow(
                         """
-                        select count(*) from message_logs
+                        select count(*) as n, max(created_at) as last_at
+                        from message_logs
                         where schedule_id = $1 and message_index = $2 and day_key = $3
                           and status = 'failed'
                         """,
                         sched["id"], idx, day_key,
                     )
-                    if failed_attempts_today and failed_attempts_today >= MAX_RETRY_ATTEMPTS_PER_SLOT:
-                        continue
+                    fail_count = (fail_stat["n"] if fail_stat else 0) or 0
+                    last_fail_at = fail_stat["last_at"] if fail_stat else None
+                    if fail_count and last_fail_at is not None:
+                        if last_fail_at.tzinfo is None:
+                            last_fail_at = last_fail_at.replace(tzinfo=timezone.utc)
+                        wait_min = RETRY_BACKOFF_MINUTES[min(fail_count, len(RETRY_BACKOFF_MINUTES)) - 1]
+                        if now_utc < last_fail_at + timedelta(minutes=wait_min):
+                            continue  # backing off — not yet time to retry this slot
 
                     msg_type = category_type(msg.get("category"))
                     _limit_key = {"checkin": "checkins", "reminder": "reminders", "activity": "activities"}[msg_type]
@@ -342,10 +356,11 @@ async def _deliver_due_messages_impl():
                             status, parent["name"], msg.get("category"),
                         )
                     else:
+                        next_wait = RETRY_BACKOFF_MINUTES[min(fail_count + 1, len(RETRY_BACKOFF_MINUTES)) - 1]
                         logger.warning(
-                            "Scheduler: send FAILED for parent %s category %s (attempt #%d today) — "
-                            "will retry next tick: %s",
-                            parent["name"], msg.get("category"), (failed_attempts_today or 0) + 1,
+                            "Scheduler: send FAILED for parent %s category %s (failure #%d today) — "
+                            "will retry in ~%d min: %s",
+                            parent["name"], msg.get("category"), fail_count + 1, next_wait,
                             result.get("detail"),
                         )
         except Exception as exc:
