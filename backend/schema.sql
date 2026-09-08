@@ -1,9 +1,7 @@
 -- ============================================================================
--- AYANA — COMPLETE CLEAN PostgreSQL schema (Supabase)  ·  updated 2026-09
--- Base + migration 002 + email_otps + manual quiet-hours + 6-month retention
--- + #9 vacation mode (parents.vacation_start/end) + #11 care_circle_siblings
--- + role: user|admin|support. Drops everything first (fresh start).
--- Admin is NOT seeded here — the app seeds it from ADMIN_EMAIL / ADMIN_PASSWORD.
+-- AYANA — COMPLETE CLEAN PostgreSQL schema (Supabase)
+-- Consolidates base schema + migration 002 + email_otps + manual quiet-hours
+-- + 6-month retention. Drops everything first (fresh start, re-signup).
 -- ============================================================================
 
 create extension if not exists pgcrypto;   -- gen_random_uuid()
@@ -25,21 +23,20 @@ drop table if exists moments cascade;
 drop table if exists emergency_events cascade;
 drop table if exists parent_replies cascade;
 drop table if exists distress_logs cascade;
-drop table if exists care_circle_siblings cascade;   -- #11 (new)
 drop table if exists circle_invites cascade;
 drop table if exists email_otps cascade;
 drop table if exists phone_otps cascade;
 drop table if exists wa_sessions cascade;
-drop table if exists webhook_debug cascade;
 drop table if exists escalation_daily cascade;
 drop table if exists escalation_state cascade;
 drop table if exists message_logs cascade;
 drop table if exists schedules cascade;
 drop table if exists parents cascade;
+drop table if exists care_circle_siblings cascade;
 drop table if exists users cascade;
 
 -- ============================================================================
--- USERS  (role now allows support team; admin seeded from env, not here)
+-- USERS
 -- ============================================================================
 create table users (
     id                    uuid primary key default gen_random_uuid(),
@@ -64,7 +61,7 @@ create table users (
 create index idx_users_household_owner on users(household_owner_id);
 
 -- ============================================================================
--- PARENTS  — manual quiet hours (06:00–22:00 default) + #9 vacation range
+-- PARENTS  — quiet hours are now MANUAL only (06:00–22:00 default, no auto)
 -- ============================================================================
 create table parents (
     id                       uuid primary key default gen_random_uuid(),
@@ -211,7 +208,7 @@ create index idx_wasessions_reeng on wa_sessions(opener_sent_at, reengagement_se
 create index idx_wasessions_session_open on wa_sessions(session_open) where session_open = true;
 
 -- ============================================================================
--- PHONE_OTPS  (child phone verification + sibling verification)
+-- PHONE_OTPS  (child phone verification)
 -- ============================================================================
 create table phone_otps (
     phone              text primary key,
@@ -241,7 +238,7 @@ create table email_otps (
 );
 
 -- ============================================================================
--- CIRCLE_INVITES  (legacy email invites — UI now uses phone+OTP siblings)
+-- CIRCLE_INVITES
 -- ============================================================================
 create table circle_invites (
     id            uuid primary key default gen_random_uuid(),
@@ -260,10 +257,10 @@ create table circle_invites (
 create index idx_circleinvites_owner_status on circle_invites(owner_id, status);
 create index idx_circleinvites_email_status on circle_invites(email, status);
 
+
 -- ============================================================================
--- CARE_CIRCLE_SIBLINGS  (#11 — phone + OTP verified; each verified sibling
--- receives the EXACT same forwarded reply + voice the account owner gets;
--- max 2 enforced in app, Raksha-gated; unique per (owner_id, phone))
+-- CARE_CIRCLE_SIBLINGS  (#11 — phone + OTP verified; get the exact same
+-- forwarded reply + voice the account owner receives; max 2, Raksha-gated)
 -- ============================================================================
 create table care_circle_siblings (
     id          uuid primary key default gen_random_uuid(),
@@ -316,7 +313,7 @@ create table parent_replies (
     ml_score            double precision,
     stt_confidence      double precision,
     raw_payload         jsonb not null default '{}'::jsonb,
-    wam_id              text,                 -- Meta message id — idempotency key
+    wam_id              text,                 -- Meta message id — idempotency key (Meta retries must not duplicate)
     created_at          timestamptz not null default now()
 );
 create index idx_parentreplies_parent_created on parent_replies(parent_id, created_at);
@@ -360,8 +357,8 @@ create table moments (
     image_urls   jsonb not null default '[]'::jsonb,
     sender_name  text,
     status       text not null default 'pending',
-    sid          text,
-    delivery_status text,
+    sid          text,                            -- Meta wam id of the photo send (delivery confirmation)
+    delivery_status text,                         -- Meta callback: sent|delivered|read|failed
     delivery_notified boolean not null default false,
     created_at   timestamptz not null default now()
 );
@@ -472,7 +469,7 @@ create table consent_logs (
 );
 
 -- ============================================================================
--- AUDIT_LOGS
+-- AUDIT_LOGS  (server writes `meta`; `detail` kept for compatibility)
 -- ============================================================================
 create table audit_logs (
     id           uuid primary key default gen_random_uuid(),
@@ -507,7 +504,7 @@ create table scheduler_locks (
 );
 
 -- ============================================================================
--- PURGE JOB — reports kept FOREVER; raw chat purged after 6 months
+-- PURGE JOB — retention: reports kept FOREVER; raw chat purged after 6 months
 -- (only once that month's report exists); distress/emergency never purged.
 -- ============================================================================
 create or replace function purge_expired_data() returns void as $$

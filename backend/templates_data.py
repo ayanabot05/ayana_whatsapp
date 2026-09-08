@@ -55,10 +55,9 @@ CHECKIN_CATEGORIES = {
     "morning_wish", "breakfast", "lunch", "dinner", "afternoon_checkin",
     "goodnight", "love_note",
 }
-REMINDER_CATEGORIES = {"medicine", "bp_check", "sugar_check", "health_check"}
-# Daily routine / lifestyle nudges — a distinct plan bucket from medical
-# reminders (medicine/BP/sugar/health) and from emotional check-ins.
-ACTIVITY_CATEGORIES = {"walk_check", "tea_check", "water", "how_feeling"}
+
+REMINDER_CATEGORIES = {"medicine", "water", "bp_check", "sugar_check", "health_check"}
+ACTIVITY_CATEGORIES = {"walk_check", "tea_check", "how_feeling"}
 
 
 def category_type(category: str) -> str:

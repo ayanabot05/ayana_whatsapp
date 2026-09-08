@@ -271,12 +271,26 @@ async def run_care_watch_impl():
                         """,
                         parent_id, now - timedelta(hours=SILENCE_PING_HOURS),
                     )
+                    # FALSE-ALERT FIX: anchor the silence window to the FIRST
+                    # message ever sent to this parent. A brand-new parent has
+                    # last_reply_at = None, which previously read as "silent for
+                    # 24h" and fired the alert minutes after setup. Now we only
+                    # nudge once the parent has actually been receiving
+                    # check-ins for >= 24h.
+                    first_sent_at = _aware(await conn.fetchval(
+                        """
+                        select min(created_at) from message_logs
+                        where parent_id = $1 and status in ('sent', 'simulated')
+                        """,
+                        parent_id,
+                    ))
+                    been_active_24h = first_sent_at is not None and (now - first_sent_at) >= timedelta(hours=SILENCE_PING_HOURS)
                     last_reply_at = _aware(await conn.fetchval(
                         "select max(created_at) from parent_replies where parent_id = $1",
                         parent_id,
                     ))
                     silent_24h = last_reply_at is None or (now - last_reply_at) >= timedelta(hours=SILENCE_PING_HOURS)
-                    if sent_last_24h and sent_last_24h > 0 and silent_24h:
+                    if been_active_24h and sent_last_24h and sent_last_24h > 0 and silent_24h:
                         marker = f"{parent_id}:{day_key}:silence24h"
                         inserted = await conn.fetchval(
                             """

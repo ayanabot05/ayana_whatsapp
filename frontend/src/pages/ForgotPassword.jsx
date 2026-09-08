@@ -5,7 +5,6 @@ import { toast } from "sonner";
 import { Logo } from "@/components/Logo";
 import { PhoneInput } from "@/components/PhoneInput";
 import { PasswordStrength } from "@/components/PasswordStrength";
-import { PasswordField } from "@/components/PasswordField";
 import { AuthBrandPanel } from "@/components/AuthBrandPanel";
 import { api, formatAxiosError } from "@/lib/api";
 import { phoneError, passwordError } from "@/lib/validation";
@@ -87,13 +86,11 @@ export default function ForgotPassword() {
               </div>
               <div>
                 <label className="text-sm font-medium text-ayana-text">New password</label>
-                <PasswordField required value={password} onChange={(e) => setPassword(e.target.value)} testid="reset-password" placeholder="8+ chars, 1 uppercase, 1 number" wrapperClassName="mt-1.5" className={inputCls.replace("mt-1.5 ", "")} />
-                <PasswordStrength password={password} testid="reset-password-strength" />
+                 <PasswordStrength password={password} testid="reset-password-strength" />
               </div>
               <div>
                 <label className="text-sm font-medium text-ayana-text">Confirm new password</label>
-                <PasswordField required value={confirm} onChange={(e) => setConfirm(e.target.value)} testid="reset-confirm" wrapperClassName="mt-1.5" className={inputCls.replace("mt-1.5 ", "")} />
-              </div>
+                 </div>
               {error && <p className="text-sm text-red-600" data-testid="reset-error">{error}</p>}
               <button type="submit" disabled={loading} data-testid="reset-submit" className="w-full btn-saffron flex items-center justify-center gap-2 px-6 py-3.5 rounded-full font-semibold disabled:opacity-60">
                 {loading && <Loader2 className="w-4 h-4 animate-spin" />} Set new password

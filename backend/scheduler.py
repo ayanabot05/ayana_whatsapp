@@ -97,6 +97,47 @@ RETRY_BACKOFF_MINUTES = [
 ] or [5, 10]
 
 
+# ── Send-eligibility rules (pure + unit-tested in tests/test_flood_gate.py) ──
+def eligible_from(created_at, activated_at, tz):
+    """Parent-local moment a parent first becomes eligible for sends: the LATER
+    of when the parent was created and when the account's WhatsApp was
+    activated. Slots scheduled before this are never back-filled — this is what
+    stops a parent added mid-day (or a 2nd parent added weeks later) from
+    replaying the whole day's earlier check-ins at once."""
+    def aware(dt):
+        if dt is None:
+            return None
+        return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+    created_at, activated_at = aware(created_at), aware(activated_at)
+    if created_at and activated_at:
+        anchor = max(created_at, activated_at)
+    else:
+        anchor = created_at or activated_at
+    return anchor.astimezone(tz) if anchor else None
+
+
+def slot_due(now_local, slot_time: str, eligible_local) -> bool:
+    """Should a daily check-in slot fire right now?
+
+    True only when BOTH hold:
+      1. the slot's local time has already arrived today, and
+      2. that time did not fall before the parent became eligible.
+    Rule 2 is the flood guard: a parent set up at 8 PM starts from the next
+    slot after 8 PM, not from breakfast.
+    """
+    if slot_time > now_local.strftime("%H:%M"):
+        return False  # not due yet today
+    try:
+        sh, sm = (int(x) for x in str(slot_time).split(":")[:2])
+    except Exception:
+        sh, sm = 0, 0
+    slot_dt = now_local.replace(hour=sh, minute=sm, second=0, microsecond=0)
+    if eligible_local is not None and slot_dt < eligible_local:
+        return False  # slot's time passed before the parent was eligible
+    return True
+
+
 def scheduler_heartbeat() -> dict:
     return {
         "running": _scheduler is not None and getattr(_scheduler, "running", False),
@@ -264,15 +305,20 @@ async def _deliver_due_messages_impl():
                 variants_per_slot = limits.get("variants_per_slot", 3)
                 sent_counts = defaultdict(int)
 
+                # Flood guard, anchored PER PARENT (created_at ∪ activation) —
+                # see eligible_from()/slot_due(). The old code anchored on the
+                # account's activation alone, so adding Nanna weeks after Amma
+                # replayed his whole day of slots at once. Computed once here.
+                eligible_local = eligible_from(parent["created_at"], activation["activated_at"], tz)
+
                 for idx, msg in enumerate(sched["messages"] or []):
-                    # RELIABILITY FIX: was `!= hhmm` (exact-minute match only,
-                    # so a missed/failed minute meant this slot never fired
-                    # again today). Now: fire on every tick from the scheduled
-                    # time onward, until a SUCCESSFUL send is recorded (see
-                    # the `already_sent` query below) — this is what actually
-                    # makes "no interruption" true rather than just intended.
-                    if msg.get("time") > hhmm:
-                        continue  # not due yet today
+                    # Fire from the scheduled time onward until a SUCCESSFUL send
+                    # is recorded (already_sent check below), but never backfill
+                    # slots from before the parent was eligible. Both rules live
+                    # in slot_due() so they stay testable.
+                    if not slot_due(local, msg.get("time") or "00:00", eligible_local):
+                        continue
+
                     if msg.get("is_recovery") and not limits.get("recovery_mode"):
                         continue
 

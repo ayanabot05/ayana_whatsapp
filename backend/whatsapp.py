@@ -378,7 +378,7 @@ async def mark_reengagement_sent(parent_id) -> None:
 
 
 _NON_MEDICINE_REMINDER_LABELS = {
-    "water": "water",
+    "water": "water check 💧",
     "bp_check": "BP check",
     "sugar_check": "sugar check",
     "health_check": "health check",
@@ -665,12 +665,12 @@ FEELING_PATTERNS = {
         "बाग हूँ", "बहुत अच्छा", "ठीक हूँ", "ठीक है", "अच्छा", "सुखद",
     ],
     "okay": [
-        "సాధారణం", "ఫర్వాలేదు", "సరే", "ఓకే", "సాధారణంగా",
-        "ठीक-ठाक", "त्यार हूँ", "बिना मुद्दत के",
+        "సాధారణం", "ఫర్వాలేదు", "పరవాలేదు", "సరే", "ఓకే", "సాధారణంగా",
+        "ठीक-ठाक", "ठीक है", "त्यार हूँ", "बिना मुद्दत के",
     ],
     "not_well": [
-        "ఒంట్లో బాలేదు", "కాలు నొప్పి", "నొప్పి", "చెడ్గా", "హృద్యం మరీయు",
-        "मुझे खराब", "पीड़हट", "बहुत खराब", "असहज", "नहीं हूँ",
+        "ఒంట్లో బాలేదు", "బాగోలేదు", "కాలు నొప్పి", "నొప్పి", "చెడ్గా", "హృద్యం మరీయు",
+        "मुझे खराब", "ठीक नहीं", "पीड़हट", "बहुत खराब", "असहज", "नहीं हूँ",
     ],
 }
 
@@ -744,13 +744,10 @@ async def send_care_circle_activation_welcome(
 
 
 # ── Per-parent welcome (Phase 2): fires for EVERY parent added, both sides ──
-_PARENT_WELCOME_TEXT = {
-    "en": "Namaste {parent_name} 💛 This is Ayana. Your child {child_name} asked me to check on you every day. Reply 👍 to say hi.",
-    "te": "నమస్తే {parent_name} 💛 నేను Ayana. మీ పిల్లవాడు {child_name} ప్రతిరోజూ మీ గురించి అడగమన్నారు. హాయ్ చెప్పడానికి 👍 తో రిప్లై చేయండి.",
-    "hi": "नमस्ते {parent_name} 💛 मैं Ayana हूँ। आपके बच्चे {child_name} ने मुझसे हर दिन आपका हाल पूछने को कहा है। हाय कहने के लिए 👍 से जवाब दीजिए।",
-}
-
-_CHILD_PARENT_SETUP_TEXT = "✅ {parent_name} is set up. First check-in tomorrow at 8:00 AM IST. 💛"
+# The parent's welcome IS the approved `ayana_opener` template (which carries
+# the tappable Good / Okay / Not-well quick-reply buttons) — NOT a plain-text
+# "reply 👍" message. Elderly parents never have to type. The old free-text
+# constants were removed so that message can never be sent again.
 
 
 async def send_welcome_for_new_parent(
