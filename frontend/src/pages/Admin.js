@@ -402,7 +402,7 @@ function DeliveryHealthTab({ data, onRangeChange }) {
     );
   }
 
-  const { overall, daily, stuck_sends: stuckSends } = data;
+  const { overall, daily, stuck_sends: stuckSends, failing_parents: failingParents = [] } = data;
 
   const funnelData = [
     { name: "Sent",      value: overall.total,     fill: CHART_COLORS.muted },
@@ -510,6 +510,56 @@ function DeliveryHealthTab({ data, onRangeChange }) {
                     ) : (
                       <span className="text-red-600 text-xs">no — send likely never reached Meta</span>
                     )}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </div>
+
+      <div className="bg-white rounded-2xl border border-ayana-line overflow-x-auto" data-testid="delivery-health-failing">
+        <div className="p-5 pb-0">
+          <h3 className="font-display text-sm font-medium text-ayana-text">
+            Failing sends — per parent{" "}
+            <span className="text-ayana-muted font-normal">
+              — a scheduled message that keeps failing and has <em>not</em> gone through yet (silent drop; scheduler is still retrying)
+            </span>
+          </h3>
+        </div>
+        {failingParents.length === 0 ? (
+          <p className="p-5 text-sm text-ayana-muted">None — no parent has an unresolved failing message in this window. 💛</p>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Parent</TableHead>
+                <TableHead>Account</TableHead>
+                <TableHead>Message</TableHead>
+                <TableHead>Day</TableHead>
+                <TableHead>Failures</TableHead>
+                <TableHead>Last try</TableHead>
+                <TableHead>Last error</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {failingParents.map((f, i) => (
+                <TableRow key={`${f.parent_phone || f.parent_name}-${f.category}-${f.day_key}-${i}`} data-testid="failing-parent-row">
+                  <TableCell className="font-medium">
+                    {f.parent_name}
+                    {f.parent_phone && <div className="text-xs text-ayana-muted">{f.parent_phone}</div>}
+                  </TableCell>
+                  <TableCell className="text-xs text-ayana-secondary">{f.owner_email || "—"}</TableCell>
+                  <TableCell>{f.category}</TableCell>
+                  <TableCell className="text-xs">{f.day_key}</TableCell>
+                  <TableCell>
+                    <span className="inline-flex items-center justify-center min-w-[1.5rem] px-1.5 py-0.5 rounded-full bg-red-100 text-red-700 text-xs font-semibold">
+                      {f.failures}
+                    </span>
+                  </TableCell>
+                  <TableCell className="text-xs">{f.last_attempt_at ? new Date(f.last_attempt_at).toLocaleString() : "—"}</TableCell>
+                  <TableCell className="text-xs text-red-600 max-w-[16rem] truncate" title={f.last_error || ""}>
+                    {f.last_error || "—"}
                   </TableCell>
                 </TableRow>
               ))}

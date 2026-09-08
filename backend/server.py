@@ -296,6 +296,27 @@ async def _run_startup_migrations():
         )
         if linked and not linked.endswith(" 0"):
             logger.info("[migrate] backfilled orphan parent replies: %s", linked)
+        # Lightweight product analytics sink (frontend src/lib/analytics.js beacons here).
+        await conn.execute("""
+            create table if not exists analytics_events (
+                id uuid primary key default gen_random_uuid(),
+                type text,
+                name text,
+                page text,
+                path text,
+                lang text,
+                session_id text,
+                meta jsonb,
+                ip text,
+                user_agent text,
+                created_at timestamptz not null default now()
+            )
+        """)
+        await conn.execute("create index if not exists idx_analytics_events_created on analytics_events(created_at)")
+        await conn.execute("delete from analytics_events where created_at < now() - interval '90 days'")
+        # Reply Alerts: track which parent replies the child has seen in-app.
+        await conn.execute("alter table parent_replies add column if not exists read_at timestamptz")
+        await conn.execute("create index if not exists idx_parentreplies_user_unread on parent_replies(user_id) where read_at is null")
 
 def _parse_jsonb_field(value, default=None):
     """Safe parser for jsonb columns that may come back as str, dict/list, or None after Mongo->Postgres migration."""
@@ -572,6 +593,47 @@ async def public_config():
         },
         "reply_mode": "quick_reply_buttons",
     }
+
+# ---------------- Product analytics (public beacon) ----------------
+class AnalyticsEventInput(BaseModel):
+    type: Optional[str] = None
+    name: Optional[str] = None
+    page: Optional[str] = None
+    path: Optional[str] = None
+    lang: Optional[str] = None
+    session_id: Optional[str] = None
+    meta: Optional[dict] = None
+    ts: Optional[str] = None
+
+
+@api.post("/analytics/event")
+async def analytics_event(request: Request):
+    """Fire-and-forget product analytics sink for the frontend beacon
+    (src/lib/analytics.js). Public + best-effort: never blocks the UI and
+    never fails the request — a bad body is simply ignored with a 204."""
+    try:
+        raw = await request.json()
+    except Exception:
+        return Response(status_code=204)
+    if not isinstance(raw, dict):
+        return Response(status_code=204)
+    try:
+        ev = AnalyticsEventInput(**{k: raw.get(k) for k in AnalyticsEventInput.model_fields})
+        ua = request.headers.get("User-Agent", "")[:400]
+        ip = _get_client_ip(request)
+        async with get_pool().acquire() as conn:
+            await conn.execute(
+                """
+                insert into analytics_events
+                    (type, name, page, path, lang, session_id, meta, ip, user_agent, created_at)
+                values ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, now())
+                """,
+                ev.type, ev.name, ev.page, ev.path, ev.lang, ev.session_id,
+                json.dumps(ev.meta or {}), ip, ua,
+            )
+    except Exception as e:
+        logger.debug("[analytics] event ignored: %s", e)
+    return Response(status_code=204)
 
 # ---------------- Auth ----------------
 @api.post("/auth/register")
@@ -2726,6 +2788,64 @@ async def list_replies(user: dict = Depends(get_current_user)):
     return out
 
 
+@api.get("/replies/unread-count")
+async def replies_unread_count(user: dict = Depends(get_current_user)):
+    """Badge count for the dashboard — replies the child hasn't seen yet, plus
+    the most recent unread one so a poll can raise a live toast."""
+    async with get_pool().acquire() as conn:
+        count = await conn.fetchval(
+            "select count(*) from parent_replies where user_id = $1 and read_at is null", scope(user)
+        )
+        latest = await conn.fetchrow(
+            """
+            select r.id, r.created_at, r.feeling, r.body, r.is_voice, p.name as parent_name
+            from parent_replies r
+            left join parents p on p.id = r.parent_id
+            where r.user_id = $1 and r.read_at is null
+            order by r.created_at desc limit 1
+            """,
+            scope(user),
+        )
+    latest_out = None
+    if latest:
+        latest_out = {
+            "id": str(latest["id"]),
+            "parent_name": latest["parent_name"] or "Parent",
+            "feeling": latest["feeling"],
+            "body": latest["body"],
+            "is_voice": latest["is_voice"],
+            "created_at": latest["created_at"].isoformat(),
+        }
+    return {"unread": count or 0, "latest": latest_out}
+
+
+class MarkRepliesReadInput(BaseModel):
+    ids: Optional[List[str]] = None  # None/empty → mark ALL of the user's replies read
+
+
+@api.post("/replies/read")
+async def mark_replies_read(payload: MarkRepliesReadInput, user: dict = Depends(get_current_user), _csrf: None = Depends(validate_csrf_token)):
+    async with get_pool().acquire() as conn:
+        if payload.ids:
+            result = await conn.execute(
+                "update parent_replies set read_at = now() where user_id = $1 and read_at is null and id = any($2::uuid[])",
+                scope(user), payload.ids,
+            )
+        else:
+            result = await conn.execute(
+                "update parent_replies set read_at = now() where user_id = $1 and read_at is null",
+                scope(user),
+            )
+    marked = 0
+    if result and result.startswith("UPDATE "):
+        try:
+            marked = int(result.split(" ")[1])
+        except (IndexError, ValueError):
+            marked = 0
+    return {"ok": True, "marked": marked}
+
+
+
 class SimulateReplyInput(BaseModel):
     parent_id: str
     text: str = ""
@@ -3171,6 +3291,9 @@ async def dashboard_bootstrap(user: dict = Depends(get_current_user)):
     )
     async with get_pool().acquire() as conn:
         funnel = await _delivery_funnel(conn, str(scope(user)))
+        unread_replies = await conn.fetchval(
+            "select count(*) from parent_replies where user_id = $1 and read_at is null", scope(user)
+        )
     return {
         "parents": parents,
         "schedules": schedules,
@@ -3182,6 +3305,7 @@ async def dashboard_bootstrap(user: dict = Depends(get_current_user)):
         "moments_quota": quota,
         "moments": moments,
         "delivery_funnel": funnel,
+        "unread_replies": unread_replies or 0,
         "server_time": datetime.now(timezone.utc).isoformat(),
     }
 
@@ -3366,6 +3490,36 @@ async def admin_delivery_health(
             since,
         )
 
+        # Per-parent FAILING sends: a scheduled slot (parent + category + day)
+        # that has failed attempts and has NOT yet landed a successful send.
+        # This is the "silent drop" signal — a parent who is currently getting
+        # nothing while the scheduler keeps retrying with backoff.
+        failing_rows = await conn.fetch(
+            """
+            select
+                p.name  as parent_name,
+                p.phone as parent_phone,
+                u.email as owner_email,
+                ml.category,
+                ml.day_key,
+                count(*) filter (where ml.status = 'failed')                      as failures,
+                max(ml.created_at) filter (where ml.status = 'failed')            as last_attempt_at,
+                (array_agg(ml.detail order by ml.created_at desc)
+                    filter (where ml.status = 'failed'))[1]                       as last_error
+            from message_logs ml
+            left join parents p on p.id = ml.parent_id
+            left join users   u on u.id = ml.user_id
+            where ml.created_at >= $1
+            group by ml.schedule_id, ml.message_index, ml.day_key, ml.category,
+                     p.name, p.phone, u.email
+            having count(*) filter (where ml.status = 'failed') > 0
+               and bool_or(ml.status in ('sent', 'simulated')) = false
+            order by max(ml.created_at) filter (where ml.status = 'failed') desc nulls last
+            limit 100
+            """,
+            since,
+        )
+
     def _rate(n, d):
         return round(n / d, 4) if d else None
 
@@ -3399,6 +3553,19 @@ async def admin_delivery_health(
                 "has_sid": r["sid"] is not None,
             }
             for r in stuck_rows
+        ],
+        "failing_parents": [
+            {
+                "parent_name": r["parent_name"] or "Unknown",
+                "parent_phone": r["parent_phone"],
+                "owner_email": r["owner_email"],
+                "category": r["category"],
+                "day_key": r["day_key"],
+                "failures": r["failures"] or 0,
+                "last_attempt_at": r["last_attempt_at"].isoformat() if r["last_attempt_at"] else None,
+                "last_error": r["last_error"],
+            }
+            for r in failing_rows
         ],
     }
 

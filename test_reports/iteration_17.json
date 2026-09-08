@@ -1,0 +1,46 @@
+{
+  "summary": "Verified the monthly report accuracy bug fix. API response is correct (reply_rate=0.444, 4 replies of 9 sends, IST-local times, by_category replied<=sent). However, the FRONTEND UI cannot be exercised end-to-end because frontend/.env REACT_APP_BACKEND_URL points to a DIFFERENT preview pod (https://comeback-app-8.preview.emergentagent.com) while the current pod is https://b27a4999-7626-429a-942a-ce1907f1fb7a..., which triggers CORS preflight failures on every call (config, auth/me, auth/refresh, auth/login) and prevents login. Same-origin /api proxy on the correct host works and returned the fixed report data.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {
+        "flow": "Login / any authenticated view (Reports tab)",
+        "issue": "REACT_APP_BACKEND_URL in /app/frontend/.env is set to https://comeback-app-8.preview.emergentagent.com (a different preview pod) instead of the current preview host. All API calls made from the app fail CORS preflight because that other backend returns Access-Control-Allow-Origin: * with credentials:'include'. Login button shows 'Something went wrong. Please try again.' UI cannot be tested until this is fixed to the current preview URL (or made same-origin).",
+        "affected_selectors": ["input[type=email]", "input[type=password]", "button:has-text('Log in')"]
+      }
+    ],
+    "design_issues": []
+  },
+  "api_verification": {
+    "endpoint": "GET /api/reports/monthly?parent_id=7bb1e691-6356-4d4a-abeb-7bd0d8dc10b0&period=2026-09 (via same-origin proxy after POST /api/auth/login)",
+    "status": 200,
+    "assertions_passed": [
+      "details.reply_rate = 0.444 (NOT 1.0) — matches expected ~44%",
+      "details.replies_total = 4, total_touches = 9",
+      "details.by_category: medicine_reminder 4/3, morning_hello 4/1, goodnight 1/0 — all replied <= sent",
+      "details.days grouping by local day: 2026-09-07 has 1 item (21:44), 2026-09-08 has 8 items",
+      "IST times present: 07:00, 07:34, 08:00, 08:04, 08:34, 08:34, 09:04, 09:34, 21:44",
+      "No UTC-shifted times (no 01:30, 02:04, 02:30, 16:14)",
+      "mood_graph day = 2026-09-08 (local IST day)"
+    ]
+  },
+  "test_report_links": [],
+  "action_items": [
+    "Fix /app/frontend/.env REACT_APP_BACKEND_URL to point to the current preview host (https://b27a4999-7626-429a-942a-ce1907f1fb7a.preview.emergentagent.com) or use a relative same-origin base so the app is portable across pods. Restart frontend after change. Once fixed, the Reports UI should visually reflect the already-correct API data (reply rate ~44%, 4 replies, IST times)."
+  ],
+  "critical_code_review_comments": [
+    "Backend fix (monthly_report._daily_details/_mood_series with tz_name from parent.timezone) correctly produces IST-local grouping and honest reply attribution — verified via live API.",
+    "Frontend .env misconfiguration is an environment/config bug, not a code bug — but it blocks all UI verification and will break real users on this pod."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (API validated)", "frontend": "not testable due to misconfigured backend URL"},
+  "seed_data_creation": "None — used existing seeded user report_f94a53@example.com",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "The report-accuracy fix itself is correct at the API layer. Only remaining blocker is that frontend/.env REACT_APP_BACKEND_URL points to comeback-app-8 pod. After main agent fixes that (and restarts frontend), a browser-driven UI test can log in, open Reports, pick parent 'Dady' and Sep 2026, and visually confirm 4 replies / 44% reply rate and IST times (07:00 etc.) in the Day-by-day list.",
+  "rca of the issue": "Bug (reported): report used naive UTC datetimes and over-counted replies. Root cause of over-count: each reply row was joined multi-to-multi with all send rows in the same window, so N sends × 1 reply produced N 'replied' flags. Root cause of UTC times: created_at rendered via strftime without tz conversion. Fix in monthly_report.py now (a) fetches parent.timezone (Asia/Kolkata) and converts each timestamp with astimezone(tz) before formatting/grouping, and (b) consumes each reply once (attributes at most one reply per send). API response now shows reply_rate 0.444 and IST times — verified live."
+}

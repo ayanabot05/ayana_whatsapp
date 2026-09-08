@@ -1,0 +1,30 @@
+{
+  "summary": "Frontend-only testing of Reply Alerts (unread badge) and Admin Delivery Health 'Failing sends — per parent'. Both features work end-to-end as specified.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Minor UX: after logging in as reply_f8937c@example.com, the app auto-redirects to /onboarding (Care circle still 'Off', 'Finish setup' banner shown). Test required checking the badge on Dashboard, so I had to navigate to /dashboard explicitly. Not a bug per the spec, but if the intent is that returning users always see the badge immediately on login, consider sending them to /dashboard when they already have parents+replies, or surfacing the badge in the top nav too."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "not tested", "frontend": "100%"},
+  "test_credentials": "reply_f8937c@example.com / Secret@123 ; admin@ayana.app / Admin@12345",
+  "seed_data_creation": "none — used pre-seeded data",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Reply Alerts: On /dashboard for reply_f8937c@example.com the tab-checkins trigger renders a red circular badge (data-testid=unread-replies-badge) with text '1'. A live toast '💛 Dad is feeling text - \"I am good beta, had my lunch\"' also appeared. Clicking data-testid=tab-checkins triggers POST /api/replies/read (200) then GET /api/dashboard/bootstrap (200); badge disappears. Reload keeps badge gone. Delivery Health: admin@ayana.app -> /admin -> Delivery health tab. Section 'Failing sends — per parent' (data-testid=delivery-health-failing) renders. One failing-parent-row: Mom / +919998536002 / child_965ac7@example.com / template 'how_feeling' / last error '(#131047) Re-engagement message outside 24h window'. Stuck sends table still renders. GET /api/admin/delivery-health?days=7 returns 200.",
+  "verified_features": [
+    "Unread badge visible with '1' before Check-ins click (data-testid=unread-replies-badge)",
+    "Live toast on new reply (bonus)",
+    "Clicking tab-checkins invokes POST /api/replies/read and badge disappears within seconds",
+    "Badge remains gone after full page reload",
+    "Admin Delivery Health tab: 'Failing sends — per parent' section renders",
+    "One failing-parent-row with parent name Mom, error containing 131047, account email present",
+    "Stuck sends, funnel, stat cards all still render without console errors"
+  ]
+}

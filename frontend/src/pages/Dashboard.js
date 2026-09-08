@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -98,6 +98,49 @@ export default function Dashboard() {
   const circle = boot?.circle ?? { role: "owner", members: [], invites: [] };
   const auditLogs = useMemo(() => boot?.audit ?? [], [boot]);
   const checkinsData = boot?.checkins;
+  const unreadReplies = boot?.unread_replies ?? 0;
+
+  // Reply Alerts: raise a live toast the moment a new parent reply lands during
+  // polling, so "had my lunch" never sits unseen in the dashboard. We compare
+  // the unread count against the previous poll and announce the newest reply.
+  const prevUnreadRef = useRef(null);
+  useEffect(() => {
+    if (prevUnreadRef.current === null) {
+      prevUnreadRef.current = unreadReplies; // first load — don't toast history
+      return;
+    }
+    if (unreadReplies > prevUnreadRef.current) {
+      api.get("/replies/unread-count").then((r) => {
+        const latest = r.data?.latest;
+        if (latest) {
+          const what = latest.is_voice
+            ? "sent a voice note"
+            : latest.feeling
+              ? `is feeling ${latest.feeling.replace(/_/g, " ")}`
+              : "replied";
+          toast(`💛 ${latest.parent_name} ${what}`, {
+            description: latest.body ? `"${latest.body}"` : "Tap Check-ins to see it.",
+            action: { label: "View", onClick: () => setActiveTab("checkins") },
+          });
+        }
+      }).catch(() => {});
+    }
+    prevUnreadRef.current = unreadReplies;
+  }, [unreadReplies]);
+
+  // Opening the Check-ins tab (where replies live) marks them all as seen.
+  const markRepliesRead = () => {
+    if (unreadReplies > 0) {
+      api.post("/replies/read", {})
+        .then(() => queryClient.invalidateQueries({ queryKey: ["dashboard"] }))
+        .catch(() => {});
+    }
+  };
+
+  const handleTabChange = (tab) => {
+    setActiveTab(tab);
+    if (tab === "checkins") markRepliesRead();
+  };
 
   const loading = bootQuery.isLoading;
   const anyError = bootQuery.isError;
@@ -229,12 +272,20 @@ export default function Dashboard() {
           ))}
         </div>
 
-        <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <Tabs value={activeTab} onValueChange={handleTabChange}>
           <TabsList className="bg-ayana-alt flex w-full sm:w-auto justify-start overflow-x-auto no-scrollbar h-auto py-1">
             <TabsTrigger value="parents" data-testid="tab-parents">Parents</TabsTrigger>
             <TabsTrigger value="checkins" data-testid="tab-checkins">
               Check-ins
-              {(checkinsData?.alerts?.length ?? 0) > 0 && (
+              {unreadReplies > 0 ? (
+                <span
+                  data-testid="unread-replies-badge"
+                  className="ml-1.5 inline-flex items-center justify-center min-w-[1.15rem] h-[1.15rem] px-1 rounded-full bg-red-500 text-white text-[0.65rem] font-semibold leading-none"
+                  title={`${unreadReplies} new repl${unreadReplies === 1 ? "y" : "ies"}`}
+                >
+                  {unreadReplies > 9 ? "9+" : unreadReplies}
+                </span>
+              ) : (checkinsData?.alerts?.length ?? 0) > 0 && (
                 <span className="ml-1.5 inline-block w-1.5 h-1.5 rounded-full bg-red-500" title="Needs attention" />
               )}
             </TabsTrigger>
