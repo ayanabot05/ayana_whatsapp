@@ -50,7 +50,13 @@ _CATEGORY_TEMPLATE_NAME = {
     "report_ready": "ayana_report_ready",
 }
 
-TEMPLATE_LANG_CODE_MAP = {"en": "en_US", "te": "te", "hi": "hi"}
+# Confirmed in Meta Business Manager: English templates are registered as
+# `en` (naming: ayana_<category>_<en|hi|te>), NOT `en_US`. Both the welcome
+# path (send_opener_welcome) and the daily-template path
+# (send_template_for_category) now route language codes through this single
+# map so they can never disagree again (was the #2b latent bug where the
+# welcome sent en_US and half the sends were silently rejected by Meta).
+TEMPLATE_LANG_CODE_MAP = {"en": "en", "te": "te", "hi": "hi"}
 
 
 def whatsapp_enabled() -> bool:
@@ -164,13 +170,17 @@ def _send_content_template_once(
     if not template_name:
         logger.warning("[wa] No template name for %s, to=%s", template_key, to_phone)
         return None
+    # Single source of truth for the Meta language code — every caller passes
+    # the app's short code ("en"/"te"/"hi") and it is normalized here so the
+    # welcome path and the daily-template path are always identical (#2b).
+    lang_code = TEMPLATE_LANG_CODE_MAP.get(language, language)
     payload = {
         "messaging_product": "whatsapp",
         "to": to_phone,
         "type": "template",
         "template": {
             "name": template_name,
-            "language": {"code": language},
+            "language": {"code": lang_code},
             "components": [{"type": "body", "parameters": _build_body_params(content_variables)}],
         },
     }
@@ -700,11 +710,12 @@ async def send_opener_welcome(
     language: str = "en",
 ) -> Dict[str, Any]:
     template_name = _get_template_name("opener", language)
-    lang_code = TEMPLATE_LANG_CODE_MAP.get(language, "en_US")
     content_vars = {"1": recipient_name[:20], "2": checking_for_name[:20]}
     logger.info(f"[welcome] {template_name} -> {to_phone} : {recipient_name} for {checking_for_name}")
+    # Pass the raw app language code — _send_content_template_once normalizes
+    # it via TEMPLATE_LANG_CODE_MAP, same as every other template send (#2b).
     return await _send_content_template_with_retry(
-        to_phone, template_name, lang_code, content_vars, "opener"
+        to_phone, template_name, language, content_vars, "opener"
     )
 
 
@@ -746,22 +757,27 @@ async def send_welcome_for_new_parent(
     child_user: Dict[str, Any],
     new_parent: Dict[str, Any],
 ) -> Dict[str, Any]:
-    """Welcome BOTH sides when a parent is added — per parent, not per account."""
+    """Welcome BOTH sides when a parent is added — per parent, not per account.
+
+    #2 fix (root cause of the live bug): a cold WhatsApp number — no open 24h
+    session — rejects plain free text, so the first "welcome to Amma" never
+    arrived. Both the parent AND the child are now welcomed through the
+    approved `ayana_opener` template (send_opener_welcome) instead of
+    send_whatsapp(), so silent/cold numbers still get a tappable message.
+    """
     child_name = (child_user.get("name") or child_user.get("full_name") or "there").split()[0]
     child_phone = child_user.get("phone") or child_user.get("whatsapp_number") or child_user.get("phone_number")
+    child_lang = _lang2(child_user.get("language"))
     p_phone = new_parent.get("phone")
     p_name = new_parent.get("preferred_name") or new_parent.get("name") or "there"
     p_lang = _lang2(new_parent.get("language"))
     results: Dict[str, Any] = {}
     if p_phone:
-        body = _PARENT_WELCOME_TEXT.get(p_lang, _PARENT_WELCOME_TEXT["en"]).format(
-            parent_name=p_name, child_name=child_name,
-        )
-        logger.info("[welcome] parent welcome -> %s (%s)", p_phone, p_name)
-        results["parent"] = send_whatsapp(p_phone, body)
+        logger.info("[welcome] parent opener template -> %s (%s)", p_phone, p_name)
+        results["parent"] = await send_opener_welcome(p_phone, p_name, child_name, p_lang)
     if child_phone:
-        logger.info("[welcome] child confirmation -> %s for %s", child_phone, p_name)
-        results["child"] = send_whatsapp(child_phone, _CHILD_PARENT_SETUP_TEXT.format(parent_name=p_name))
+        logger.info("[welcome] child opener template -> %s for %s", child_phone, p_name)
+        results["child"] = await send_opener_welcome(child_phone, child_name, p_name, child_lang)
     return results
 
 
@@ -835,15 +851,17 @@ def _lang2(language: str | None) -> str:
 
 
 async def send_child_welcome(user: Dict[str, Any]) -> Dict[str, Any]:
-    """Welcome the account owner (adult child) right after they sign up."""
-    phone = user.get("phone") or user.get("whatsapp_number") or user.get("phone_number")
-    if not phone:
-        return {"status": "skipped", "detail": "no phone"}
-    name = (user.get("name") or user.get("full_name") or "there").split()[0]
-    lang = _lang2(user.get("language"))
-    body = _CHILD_WELCOME_TEXT.get(lang, _CHILD_WELCOME_TEXT["en"]).format(name=name)
-    logger.info("[welcome] child welcome -> %s", phone)
-    return send_whatsapp(phone, body)
+    """Welcome the account owner (adult child) right after they sign up.
+
+    #2 fix: GATED. At signup there is no parent yet and the child's WhatsApp
+    number is typically cold (no open 24h session), so free text would be
+    rejected by Meta (the exact failure this batch fixes). We intentionally
+    send nothing here — the real welcome fires from send_welcome_for_new_parent()
+    via the approved `ayana_opener` template the moment the first parent is
+    added. Left as a safe no-op so existing callers keep working.
+    """
+    logger.info("[welcome] child welcome skipped — gated until first parent is added")
+    return {"status": "skipped", "detail": "gated until first parent added"}
 
 
 async def send_plan_change(phone: str, language: str, plan_name: str, direction: str) -> Dict[str, Any]:
@@ -875,3 +893,35 @@ async def send_member_removed_notice(member_phone: str, language: str = "en") ->
     body = _MEMBER_REMOVED_TEXT.get(lang, _MEMBER_REMOVED_TEXT["en"])
     logger.info("[lifecycle] member-removed notice -> %s", member_phone)
     return send_whatsapp(member_phone, body)
+
+
+# ── #11 Care-circle sibling notifications ──────────────────────────────────
+_SIBLING_ADDED_TEXT = {
+    "en": "💛 {name} has joined your AYANA care circle. They'll now receive the same updates whenever your parents reply.",
+    "te": "💛 {name} మీ AYANA కేర్ సర్కిల్‌లో చేరారు. మీ తల్లిదండ్రులు స్పందించినప్పుడు వారికీ అవే అప్‌డేట్‌లు అందుతాయి.",
+    "hi": "💛 {name} आपके AYANA केयर सर्कल में शामिल हो गए हैं। अब जब भी आपके माता-पिता जवाब देंगे, उन्हें भी वही अपडेट मिलेंगे।",
+}
+
+
+async def send_sibling_welcome(sibling: Dict[str, Any], owner_name: str, parent_names: List[str] = None) -> Dict[str, Any]:
+    """Welcome a newly added sibling via the approved ayana_opener template
+    (cold-number safe). {1}=sibling name, {2}=who they're helping care for."""
+    phone = sibling.get("phone")
+    if not phone:
+        return {"status": "skipped", "detail": "no phone"}
+    name = (sibling.get("name") or "there").split()[0]
+    lang = _lang2(sibling.get("language"))
+    parent_names = parent_names or []
+    checking_for = (", ".join([p for p in parent_names if p]) or owner_name or "your family")[:20]
+    logger.info("[sibling] opener welcome -> %s (%s)", phone, name)
+    return await send_opener_welcome(phone, name, checking_for, lang)
+
+
+async def send_sibling_added_notice(owner_phone: str, sibling_name: str, language: str = "en") -> Dict[str, Any]:
+    """Tell the account owner (main child) that a sibling has joined."""
+    if not owner_phone:
+        return {"status": "skipped", "detail": "no phone"}
+    lang = _lang2(language)
+    body = _SIBLING_ADDED_TEXT.get(lang, _SIBLING_ADDED_TEXT["en"]).format(name=sibling_name or "A sibling")
+    logger.info("[sibling] added notice -> %s", owner_phone)
+    return send_whatsapp(owner_phone, body)

@@ -6,6 +6,7 @@
 import { useState } from "react";
 import { Mail, KeyRound, Loader2 } from "lucide-react";
 import { api, formatAxiosError } from "@/lib/api";
+import { PasswordField } from "@/components/PasswordField";
 import { toast } from "sonner";
 
 const inputCls = "w-full px-3.5 py-2.5 rounded-lg border border-ayana-line bg-white text-sm focus:outline-none focus:ring-2 focus:ring-ayana-accent/50 focus:border-ayana-accent transition";
@@ -101,7 +102,7 @@ export function ChangeEmailCard({ user, refreshUser }) {
   );
 }
 
-export function ChangePasswordCard() {
+export function ChangePasswordCard({ refreshUser }) {
   const [open, setOpen] = useState(false);
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
@@ -116,8 +117,11 @@ export function ChangePasswordCard() {
     setBusy(true);
     try {
       await api.post("/auth/change-password", { current_password: current, new_password: next });
-      toast.success("Password changed.");
+      toast.success("Password changed — you're still signed in.");
       setOpen(false); setCurrent(""); setNext(""); setConfirm("");
+      // #8: backend re-issues fresh access+refresh cookies, so we stay logged
+      // in. Re-sync the in-memory user from the new session — no bounce to login.
+      if (refreshUser) await refreshUser();
     } catch (err) { toast.error(formatAxiosError(err)); } finally { setBusy(false); }
   };
 
@@ -130,12 +134,12 @@ export function ChangePasswordCard() {
       {!open && <p className="mt-1 text-sm text-ayana-secondary">••••••••</p>}
       {open && (
         <form onSubmit={submit} className="mt-4 space-y-3" data-testid="change-password-form">
-          <input type="password" required value={current} onChange={(e) => setCurrent(e.target.value)} placeholder="Current password" data-testid="change-password-current" className={inputCls} />
+          <PasswordField required value={current} onChange={(e) => setCurrent(e.target.value)} placeholder="Current password" testid="change-password-current" className={inputCls} />
           <div>
-            <input type="password" required value={next} onChange={(e) => setNext(e.target.value)} placeholder="New password (8+ chars, 1 uppercase, 1 number)" data-testid="change-password-new" className={inputCls} />
+            <PasswordField required value={next} onChange={(e) => setNext(e.target.value)} placeholder="New password (8+ chars, 1 uppercase, 1 number)" testid="change-password-new" className={inputCls} />
             <PasswordStrength password={next} testid="change-password-strength" />
           </div>
-          <input type="password" required value={confirm} onChange={(e) => setConfirm(e.target.value)} placeholder="Confirm new password" data-testid="change-password-confirm" className={inputCls} />
+          <PasswordField required value={confirm} onChange={(e) => setConfirm(e.target.value)} placeholder="Confirm new password" testid="change-password-confirm" className={inputCls} />
           <div className="flex gap-2">
             <button type="submit" disabled={busy} data-testid="change-password-submit" className={btnCls}>{busy && <Loader2 className="w-4 h-4 animate-spin" />} Update password</button>
             <button type="button" onClick={() => setOpen(false)} className="text-sm text-ayana-secondary px-3">Cancel</button>

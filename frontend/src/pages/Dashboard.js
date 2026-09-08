@@ -19,6 +19,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Switch } from "@/components/ui/switch";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { PhoneInput } from "@/components/PhoneInput";
 import { CareTab } from "@/components/CareTab";
 import { PricingCards } from "@/components/PricingCards";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
@@ -453,7 +454,7 @@ export default function Dashboard() {
 
             <div className="mt-6 grid gap-4">
               <ChangeEmailCard user={user} refreshUser={refreshUser} />
-              <ChangePasswordCard />
+              <ChangePasswordCard refreshUser={refreshUser} />
             </div>
 
             <div className="mt-6 bg-white rounded-xl border border-ayana-line p-6">
@@ -463,7 +464,7 @@ export default function Dashboard() {
               ) : (
                 <div className="space-y-3" data-testid="audit-log-list">
                   {relevantLogs.map((log, idx) => (
-                    <div key={idx} className="flex items-start gap-3 p-3 rounded-lg bg-ayana-alt border border-ayana-line">
+                    <div key={log.id || idx} className="flex items-start gap-3 p-3 rounded-lg bg-ayana-alt border border-ayana-line">
                       <div className="w-8 h-8 rounded-lg bg-ayana-primary/10 flex items-center justify-center shrink-0">
                         <Activity className="w-4 h-4 text-ayana-primary" />
                       </div>
@@ -638,7 +639,7 @@ function CheckinsTab({ parents, data, catByKey, revealedReplies, setRevealedRepl
         <div className="space-y-2" data-testid="checkins-alerts">
           {alerts.map((a, i) => (
             <div
-              key={i}
+              key={a.id || `${a.kind || "alert"}-${i}`}
               className={`rounded-xl p-3 flex items-center gap-3 text-sm border ${
                 a.kind === "emergency" ? "bg-red-50 text-red-700 border-red-200" : "bg-amber-50 text-amber-700 border-amber-200"
               }`}
@@ -1002,11 +1003,16 @@ function SendTestDialog({ parent, categories, trigger }) {
   );
 }
 
+const SIBLING_LANGS = [["en", "English"], ["te", "తెలుగు / Telugu"], ["hi", "हिंदी / Hindi"]];
+
 function CircleTab({ circle, planId, plan, parents, reload }) {
-  const [email, setEmail] = useState("");
-  const [parentId, setParentId] = useState("");
+  const [name, setName] = useState("");
+  const [phone, setPhone] = useState("+91");
+  const [language, setLanguage] = useState("en");
+  const [step, setStep] = useState("form"); // form | otp
+  const [code, setCode] = useState("");
+  const [devCode, setDevCode] = useState("");
   const [busy, setBusy] = useState(false);
-  const [lastLink, setLastLink] = useState("");
 
   if (circle?.role === "member") {
     return (
@@ -1019,65 +1025,123 @@ function CircleTab({ circle, planId, plan, parents, reload }) {
 
   const planLimits = plan?.limits;
   const isCarePlus = (planLimits?.family_members || 0) > 0;
-    const invite = async () => {
+  const siblings = circle?.siblings || [];
+  const legacyMembers = circle?.members || [];
+  const legacyInvites = circle?.invites || [];
+  const maxMembers = circle?.max_members ?? (planLimits?.family_members || 0);
+  const usedCount = siblings.length + legacyMembers.length + legacyInvites.length;
+  const atLimit = usedCount >= maxMembers;
+  const overLimit = usedCount > maxMembers; // downgrade left too many — warn to remove
+
+  const resetForm = () => { setName(""); setPhone("+91"); setLanguage("en"); setCode(""); setDevCode(""); setStep("form"); };
+
+  const sendOtp = async () => {
+    if (!name.trim() || !phone || phone.length < 6) { toast.error("Enter the sibling's name and WhatsApp number."); return; }
     setBusy(true);
     try {
-      const { data } = await api.post("/circle/invite", { email, parent_id: parentId });
-      setLastLink(data.invite_link || "");
-      if (data.email_status === "sent") {
-        toast.success(`Invite emailed to ${data.email}`);
-      } else if (data.email_status === "failed") {
-        toast.warning("Invite created, but the email couldn't be sent — share the link below manually.", { duration: 8000 });
-      } else {
-        toast.success(`Invite created for ${data.email}`);
-      }
-      setEmail(""); setParentId(""); reload();
+      const { data } = await api.post("/circle/sibling/send-otp", { name: name.trim(), phone, language });
+      setDevCode(data.dev_code || "");
+      setStep("otp");
+      toast.success(data.dev_code ? "Dev mode — use the code shown below." : "Verification code sent to their WhatsApp.");
     } catch (e) { toast.error(formatApiError(e.response?.data?.detail)); } finally { setBusy(false); }
+  };
+
+  const verify = async () => {
+    if (!code.trim()) { toast.error("Enter the 6-digit code."); return; }
+    setBusy(true);
+    try {
+      const { data } = await api.post("/circle/sibling/verify", { name: name.trim(), phone, language, code: code.trim() });
+      toast.success(`${data.sibling?.name || "Sibling"} added to your care circle 💛`);
+      resetForm();
+      reload();
+    } catch (e) { toast.error(formatApiError(e.response?.data?.detail)); } finally { setBusy(false); }
+  };
+
+  const removeSibling = async (id) => {
+    try { await api.delete(`/circle/sibling/${id}`); toast.success("Sibling removed."); reload(); }
+    catch (e) { toast.error(formatApiError(e.response?.data?.detail)); }
   };
 
   return (
     <div className="max-w-2xl space-y-6">
       <div className="bg-white rounded-xl border border-ayana-line p-6">
         <h2 className="font-display text-lg font-medium text-ayana-text flex items-center gap-2"><Users className="w-4 h-4 text-ayana-primary" /> Family co-care {isCarePlus && <span className="text-xs px-2 py-0.5 rounded-full bg-ayana-accent/10 text-ayana-accent inline-flex items-center gap-1"><Crown className="w-3 h-3" /> Raksha</span>}</h2>
-        <p className="mt-1 text-sm text-ayana-secondary">Invite siblings to help care for the same parents. They'll share your parents, schedules and replies (but can't change billing).</p>
+        <p className="mt-1 text-sm text-ayana-secondary">Add up to {maxMembers || 2} siblings or cousins by WhatsApp number. Once verified, they get the <b>same replies and voice notes</b> you do whenever your parents respond.</p>
+
+        {overLimit && (
+          <div className="mt-4 rounded-xl bg-red-50 border border-red-200 p-4 flex items-start gap-3" data-testid="sibling-downgrade-warning">
+            <AlertTriangle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm font-medium text-red-700">Your plan now allows {maxMembers} sibling{maxMembers === 1 ? "" : "s"}</p>
+              <p className="text-sm text-red-600">You have {usedCount}. Please remove {usedCount - maxMembers} to match your current plan.</p>
+            </div>
+          </div>
+        )}
 
         {!isCarePlus ? (
           <div className="mt-4 rounded-xl bg-ayana-alt p-4 flex items-start gap-3">
             <Crown className="w-5 h-5 text-ayana-accent shrink-0 mt-0.5" />
             <div>
               <p className="text-sm font-medium text-ayana-text">Family co-care is a Raksha feature</p>
-              <p className="text-sm text-ayana-secondary">Upgrade to Raksha to invite up to 2 family members.</p>
+              <p className="text-sm text-ayana-secondary">Upgrade to Raksha to add up to 2 siblings.</p>
             </div>
           </div>
+        ) : atLimit && step === "form" ? (
+          <p className="mt-4 text-sm text-ayana-muted" data-testid="sibling-limit-note">You've reached your plan limit of {maxMembers} sibling{maxMembers === 1 ? "" : "s"}. Remove one to add another.</p>
+        ) : step === "form" ? (
+          <div className="mt-4 space-y-3" data-testid="sibling-form">
+            <input value={name} onChange={(e) => setName(e.target.value)} data-testid="sibling-name" placeholder="Sibling's name (e.g. Priya)"
+              className="w-full px-3.5 py-2.5 rounded-lg border border-ayana-line bg-white text-sm focus:outline-none focus:ring-2 focus:ring-ayana-accent/50" />
+            <PhoneInput value={phone} onChange={setPhone} testid="sibling-phone" />
+            <select value={language} onChange={(e) => setLanguage(e.target.value)} data-testid="sibling-language"
+              className="w-full px-3.5 py-2.5 rounded-lg border border-ayana-line bg-white text-sm focus:outline-none focus:ring-2 focus:ring-ayana-accent/50">
+              {SIBLING_LANGS.map(([c, l]) => <option key={c} value={c}>{l}</option>)}
+            </select>
+            <button onClick={sendOtp} disabled={busy} data-testid="sibling-send-otp" className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-full bg-ayana-primary text-white text-sm font-medium hover:bg-ayana-primary-hover disabled:opacity-50">
+              {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserPlus className="w-4 h-4" />} Send verification code
+            </button>
+          </div>
         ) : (
-          <>
-            <div className="mt-4 flex flex-col sm:flex-row gap-2" data-testid="invite-form">
-              <div className="relative flex-1 min-w-0">
-                <Mail className="w-4 h-4 text-ayana-muted absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-                <input value={email} onChange={(e) => setEmail(e.target.value)} data-testid="invite-email" placeholder="sibling@email.com" type="email" autoComplete="off"
-  className="w-full pl-9 pr-3 py-2.5 rounded-lg border border-ayana-line bg-white text-sm focus:outline-none focus:ring-2 focus:ring-ayana-accent/50" />
-              </div>
-              <select value={parentId} onChange={(e) => setParentId(e.target.value)} className="w-full sm:w-44 shrink-0 px-3.5 py-2.5 rounded-lg border border-ayana-line bg-white text-sm focus:outline-none focus:ring-2 focus:ring-ayana-bright/50 focus:border-ayana-bright transition" data-testid="invite-parent-select">
-                <option value="">All parents</option>
-                {parents.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </select>
-              <button onClick={invite} disabled={busy || !email} data-testid="invite-send" className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-full bg-ayana-primary text-white text-sm font-medium hover:bg-ayana-primary-hover disabled:opacity-50">{busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserPlus className="w-4 h-4" />} Invite</button>
+          <div className="mt-4 space-y-3" data-testid="sibling-otp-step">
+            <p className="text-sm text-ayana-secondary">Enter the 6-digit code sent to <b>{phone}</b> to verify and add {name.trim()}.</p>
+            {devCode && <p className="text-xs rounded-lg bg-amber-50 border border-amber-200 text-amber-800 px-3 py-2" data-testid="sibling-dev-code">Dev mode — code: <b>{devCode}</b></p>}
+            <input inputMode="numeric" maxLength={6} value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))} data-testid="sibling-otp-code" placeholder="6-digit code"
+              className="w-full px-3.5 py-2.5 rounded-lg border border-ayana-line bg-white text-sm tracking-[0.3em] text-center font-semibold focus:outline-none focus:ring-2 focus:ring-ayana-accent/50" />
+            <div className="flex gap-2">
+              <button onClick={verify} disabled={busy} data-testid="sibling-verify" className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-full bg-ayana-primary text-white text-sm font-medium hover:bg-ayana-primary-hover disabled:opacity-50">
+                {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />} Verify & add
+              </button>
+              <button onClick={resetForm} className="text-sm text-ayana-secondary px-3" data-testid="sibling-cancel">Cancel</button>
             </div>
-            {lastLink && <p className="mt-2 text-xs text-ayana-muted break-all">Invite link (share manually if the email doesn't arrive): <span className="text-ayana-primary">{lastLink}</span></p>}
-            <p className="mt-2 text-xs text-ayana-muted">{(circle.members?.length || 0) + (circle.invites?.length || 0)} / {circle.max_members} members used</p>
-          </>
+          </div>
         )}
+        {isCarePlus && <p className="mt-3 text-xs text-ayana-muted" data-testid="sibling-usage">{usedCount} / {maxMembers} used</p>}
       </div>
 
-      {(circle.members?.length > 0 || circle.invites?.length > 0) && (
-        <div className="bg-white rounded-xl border border-ayana-line divide-y divide-ayana-line" data-testid="members-list">
-          {circle.members?.map((m) => (
+      {(siblings.length > 0 || legacyMembers.length > 0 || legacyInvites.length > 0) && (
+        <div className="bg-white rounded-xl border border-ayana-line divide-y divide-ayana-line" data-testid="siblings-list">
+          {siblings.map((s) => (
+            <div key={s.id} className="p-4 flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-ayana-text">{s.name}</p>
+                <p className="text-xs text-ayana-muted">{s.phone} · {s.relation} · verified</p>
+              </div>
+              <ConfirmDialog
+                title="Remove from care circle?"
+                description={`${s.name} will stop receiving your parents' replies and voice notes. You can add them back anytime.`}
+                confirmLabel="Remove"
+                onConfirm={() => removeSibling(s.id)}
+                trigger={<button data-testid={`remove-sibling-${s.id}`} className="text-ayana-muted hover:text-red-500 p-2"><Trash2 className="w-4 h-4" /></button>}
+              />
+            </div>
+          ))}
+          {legacyMembers.map((m) => (
             <div key={m.id} className="p-4 flex items-center justify-between">
               <div><p className="text-sm font-medium text-ayana-text">{m.name}</p><p className="text-xs text-ayana-muted">{m.email} · member</p></div>
               <button onClick={async () => { await api.delete(`/circle/member/${m.id}`); toast.success("Removed."); reload(); }} data-testid={`remove-member-${m.id}`} className="text-ayana-muted hover:text-red-500 p-2"><Trash2 className="w-4 h-4" /></button>
             </div>
           ))}
-          {circle.invites?.map((i) => (
+          {legacyInvites.map((i) => (
             <div key={i.id} className="p-4 flex items-center justify-between">
               <div><p className="text-sm text-ayana-text">{i.email}</p><p className="text-xs text-ayana-accent">pending invite</p></div>
               <button onClick={async () => { await api.delete(`/circle/invite/${i.id}`); toast.success("Invite cancelled."); reload(); }} data-testid={`cancel-invite-${i.id}`} className="text-ayana-muted hover:text-red-500 p-2"><Trash2 className="w-4 h-4" /></button>

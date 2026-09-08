@@ -196,6 +196,19 @@ async def _deliver_due_messages_impl():
                 hhmm = local.strftime("%H:%M")
                 day_key = local.strftime("%Y-%m-%d")
 
+                # #9 Vacation / holiday mode: skip ALL sends while today
+                # (parent-local) falls inside the paused range; auto-resumes
+                # the day after vacation_end. ISO YYYY-MM-DD strings compare
+                # correctly lexicographically, so no date parsing needed.
+                vac_start = parent["vacation_start"]
+                vac_end = parent["vacation_end"]
+                if vac_start and vac_end and vac_start <= day_key <= vac_end:
+                    logger.info(
+                        "Scheduler: skipped sends for parent %s — vacation mode %s..%s (today %s)",
+                        parent["name"], vac_start, vac_end, day_key,
+                    )
+                    continue
+
                 # Send-time activity window check — defer messages sent outside
                 # the parent's active hours. Window is child-set
                 # (activity_window_start/end as "HH:MM") or auto-learned if
@@ -392,6 +405,14 @@ async def _check_reengagement_impl():
                     "select * from parents where id = $1 and deleted_at is null", parent_id
                 )
                 if not parent:
+                    continue
+                # #9 Vacation mode: no re-engagement nudges during a paused range.
+                try:
+                    _tz = ZoneInfo(parent["timezone"] or "Asia/Kolkata")
+                except Exception:
+                    _tz = ZoneInfo("Asia/Kolkata")
+                _today = datetime.now(timezone.utc).astimezone(_tz).strftime("%Y-%m-%d")
+                if parent["vacation_start"] and parent["vacation_end"] and parent["vacation_start"] <= _today <= parent["vacation_end"]:
                     continue
 
             result = await send_reengagement(dict(parent), sched["reengagement_hours"] or 4)

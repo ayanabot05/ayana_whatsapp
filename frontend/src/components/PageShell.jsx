@@ -2,14 +2,14 @@ import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
 
 /**
- * PageShell — Standard authenticated-page layout.
+ * PageShell â€” Standard authenticated-page layout.
  *
  * Props:
- *   maxWidth   — Tailwind max-w class suffix, e.g. "6xl" (default) or "3xl"
- *   gradient   — Show subtle radial brand gradient (default true)
- *   withFooter — Render Footer below main content (default false)
- *   padding    — Tailwind padding on main, default "py-10"
- *   className  — Extra classes on main
+ *   maxWidth   â€” Tailwind max-w class suffix, e.g. "6xl" (default) or "3xl"
+ *   gradient   â€” Show subtle radial brand gradient (default true)
+ *   withFooter â€” Render Footer below main content (default false)
+ *   padding    â€” Tailwind padding on main, default "py-10"
+ *   className  â€” Extra classes on main
  */
 export function PageShell({
   children,

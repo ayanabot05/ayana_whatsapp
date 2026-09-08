@@ -171,6 +171,9 @@ class ParentInput(BaseModel):
     activity_window_start: Optional[str] = Field(None, pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
     activity_window_end: Optional[str] = Field(None, pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
     auto_activity_detection: bool = False
+    # #9 Vacation / holiday mode — paused date range (YYYY-MM-DD, parent-local).
+    vacation_start: Optional[str] = Field(None, pattern=r"^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$")
+    vacation_end: Optional[str] = Field(None, pattern=r"^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$")
 
     @field_validator("phone")
     @classmethod
@@ -207,7 +210,7 @@ class ParentInput(BaseModel):
             return None
         return v
 
-    @field_validator("activity_window_start", "activity_window_end", mode="before")
+    @field_validator("activity_window_start", "activity_window_end", "vacation_start", "vacation_end", mode="before")
     @classmethod
     def blank_activity_window_to_none(cls, v):
         # Same fix as birthday above — the DND start/end time pickers send
@@ -314,3 +317,80 @@ class MomentInput(BaseModel):
     text: str = Field(..., min_length=1, max_length=600)
     image_url: Optional[str] = Field(None, max_length=600)
     image_urls: List[str] = Field(default_factory=list, max_length=2)
+
+
+# ── Request payload models consolidated from server.py (refactor slice 0) ──
+class CheckoutInput(BaseModel):
+    plan: str = Field("nitya", pattern="^(nitya|bandham|raksha|basic|care_plus)$")
+    billing: str = Field("month", pattern="^(month|year)$")
+    origin_url: str = ""
+
+
+class SendTestInput(BaseModel):
+    parent_id: str
+    category: str = "how_feeling"
+
+
+class PreviewInput(BaseModel):
+    parent_id: str
+    category: str = "how_feeling"
+
+
+class InviteInput(BaseModel):
+    email: str
+    parent_id: str = ""
+
+
+class AnalyticsEventInput(BaseModel):
+    type: Optional[str] = None
+    name: Optional[str] = None
+    page: Optional[str] = None
+    path: Optional[str] = None
+
+
+class OtpSendInput(BaseModel):
+    phone: str = Field(..., min_length=6, max_length=20)
+
+
+class OtpVerifyInput(BaseModel):
+    phone: str = Field(..., min_length=6, max_length=20)
+    code: str = Field(..., min_length=4, max_length=8)
+
+
+class VacationInput(BaseModel):
+    start: Optional[str] = Field(None, pattern=r"^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$")
+    end: Optional[str] = Field(None, pattern=r"^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$")
+
+    @field_validator("start", "end", mode="before")
+    @classmethod
+    def blank_to_none(cls, v):
+        if v is None or (isinstance(v, str) and not v.strip()):
+            return None
+        return v
+
+
+class EmergencyEventUpdate(BaseModel):
+    status: str = Field(..., pattern="^(open|reviewed|resolved|false_positive)$")
+    resolution_note: Optional[str] = None
+
+
+class SiblingOtpInput(BaseModel):
+    name: str = Field(..., min_length=1, max_length=80)
+    phone: str = Field(..., min_length=6, max_length=20)
+    language: str = Field("en", min_length=2, max_length=8)
+    relation: str = Field("sibling", max_length=20)
+
+
+class SiblingVerifyInput(SiblingOtpInput):
+    code: str = Field(..., min_length=4, max_length=8)
+
+
+class MarkRepliesReadInput(BaseModel):
+    ids: Optional[List[str]] = None  # None/empty → mark ALL of the user's replies read
+
+
+class SimulateReplyInput(BaseModel):
+    parent_id: str
+    text: str = ""
+    num_media: int = Field(0, ge=0)
+    button_payload: Optional[str] = None

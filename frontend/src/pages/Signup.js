@@ -6,6 +6,7 @@ import { api, formatApiError } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { PhoneInput } from "@/components/PhoneInput";
 import { PasswordStrength } from "@/components/PasswordStrength";
+import { PasswordField } from "@/components/PasswordField";
 import { phoneError, passwordError } from "@/lib/validation";
 import { toast } from "sonner";
 import { AuthBrandPanel } from "@/components/AuthBrandPanel";
@@ -97,8 +98,9 @@ export default function Signup() {
             </div>
             <div>
               <label className="text-sm font-medium text-ayana-text">Password</label>
-              <input type="password" required minLength={8} value={form.password} onChange={upd("password")} data-testid="signup-password" placeholder="8+ chars, 1 uppercase, 1 number"
-                className="mt-1.5 w-full px-4 py-3 rounded-xl border border-ayana-line bg-white focus:outline-none focus:ring-2 focus:ring-ayana-bright/50 focus:border-ayana-bright transition" />
+              <PasswordField required minLength={8} value={form.password} onChange={upd("password")} testid="signup-password" placeholder="8+ chars, 1 uppercase, 1 number"
+                wrapperClassName="mt-1.5"
+                className="w-full px-4 py-3 rounded-xl border border-ayana-line bg-white focus:outline-none focus:ring-2 focus:ring-ayana-bright/50 focus:border-ayana-bright transition" />
               <PasswordStrength password={form.password} testid="signup-password-strength" />
             </div>
             {error && <p className="text-sm text-red-600" data-testid="signup-error">{error}</p>}
