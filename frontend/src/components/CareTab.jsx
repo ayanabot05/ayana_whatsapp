@@ -13,7 +13,7 @@ import { PhoneInput } from "@/components/PhoneInput";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { toast } from "sonner";
 
-const inputCls = "w-full px-3.5 py-2.5 rounded-lg border border-ayana-line bg-white text-sm focus:outline-none focus:ring-2 focus:ring-ayana-accent/50 focus:border-ayana-accent transition";
+const inputCls = "w-full px-3.5 py-2.5 rounded-xl border border-[#efe8d8] bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#0f3d2e]/20 focus:border-[#0f3d2e] transition";
 
 function EmergencyEventsHistory({ parent }) {
   const qc = useQueryClient();
@@ -34,32 +34,32 @@ function EmergencyEventsHistory({ parent }) {
   if (!events || events.length === 0) return null;
 
   return (
-    <div className="rounded-2xl border border-red-200 bg-red-50/30 p-5 mt-4" data-testid={`emergency-events-${parent.id}`}>
-      <div className="flex items-center gap-2 mb-2">
-        <span className="w-8 h-8 rounded-lg flex items-center justify-center bg-red-100">
+    <div className="rounded-[16px] border border-red-200 bg-red-50/40 p-4 sm:p-5 mt-4 shadow-[0_1px_0_0_rgba(0,0,0,0.02)]" data-testid={`emergency-events-${parent.id}`}>
+      <div className="flex items-center gap-2 mb-1">
+        <span className="w-9 h-9 rounded-full flex items-center justify-center bg-red-100 shrink-0">
           <Bell className="w-4 h-4 text-red-600" />
         </span>
-        <h3 className="font-display text-lg font-semibold text-ayana-text">Emergency & alert history: {parent.name}</h3>
+        <h3 className="font-display text-[16px] font-medium text-[#1a1a1a]">Emergency & alert history: {parent.name}</h3>
       </div>
-      <p className="text-sm text-ayana-muted mb-4">Past keywords detected or distress alerts sent to emergency contacts.</p>
+      <p className="text-[13px] text-[#9a9183] mb-4">Past keywords detected or distress alerts sent to emergency contacts.</p>
 
       <div className="space-y-3">
         {events.map((ev) => (
-          <div key={ev.id || ev._id} className="bg-white rounded-xl border border-red-200 p-4 text-sm" data-testid={`emergency-event-${ev.id || ev._id}`}>
+          <div key={ev.id || ev._id} className="bg-white rounded-[12px] border border-red-200 p-4 text-sm" data-testid={`emergency-event-${ev.id || ev._id}`}>
             <div className="flex items-center justify-between flex-wrap gap-2 mb-1">
               <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-0.5 rounded-full bg-red-100 text-red-700">
                 <AlertTriangle className="w-3 h-3" /> {(ev.keywords || []).join(", ") || "Emergency flagged"}
               </span>
-              <span className="text-xs text-ayana-muted flex items-center gap-1">
+              <span className="text-xs text-[#9a9183] flex items-center gap-1">
                 <Clock className="w-3 h-3" /> {new Date(ev.created_at).toLocaleString()}
               </span>
             </div>
-            {ev.body && <p className="text-ayana-text font-medium mt-1">&ldquo;{ev.body}&rdquo;</p>}
+            {ev.body && <p className="text-[#1a1a1a] font-medium mt-1">&ldquo;{ev.body}&rdquo;</p>}
             <div className="flex items-center justify-between mt-3 gap-2">
-              <p className="text-xs text-ayana-secondary">Status: <span className="font-medium capitalize">{ev.status || "open"}</span></p>
+              <p className="text-xs text-[#6b5f4a]">Status: <span className="font-medium capitalize">{ev.status || "open"}</span></p>
               {ev.status === "open" && (
                 <div className="flex gap-2">
-                  <button onClick={() => resolve(ev.id || ev._id, "resolved")} className="px-3 py-1 bg-ayana-primary text-white text-xs font-medium rounded-full hover:bg-ayana-primary-hover">Resolve</button>
+                  <button onClick={() => resolve(ev.id || ev._id, "resolved")} className="px-3 py-1 bg-[#0f3d2e] text-white text-xs font-medium rounded-full hover:bg-black transition-colors">Resolve</button>
                   <button onClick={() => resolve(ev.id || ev._id, "false_positive")} className="px-3 py-1 border border-red-300 text-red-600 text-xs font-medium rounded-full hover:bg-red-50">False positive</button>
                 </div>
               )}
@@ -104,37 +104,37 @@ function EmergencyContacts({ parent }) {
   };
 
   return (
-    <div className="rounded-2xl border border-ayana-line bg-white p-5" data-testid={`emergency-card-${parent.id}`}>
+    <div className="rounded-[16px] border border-[#efe8d8] bg-white p-4 sm:p-5 shadow-[0_1px_0_0_rgba(0,0,0,0.02)]" data-testid={`emergency-card-${parent.id}`}>
       <div className="flex items-center gap-2 mb-1">
-        <span className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: "rgba(232,89,12,0.12)" }}>
-          <ShieldAlert className="w-4 h-4 text-ayana-accent" />
+        <span className="w-9 h-9 rounded-full flex items-center justify-center shrink-0" style={{ background: "rgba(232,89,12,0.12)" }}>
+          <ShieldAlert className="w-4 h-4 text-[#c2410c]" />
         </span>
-        <h3 className="font-display text-lg font-semibold text-ayana-text">Emergency contacts: {parent.name}</h3>
+        <h3 className="font-display text-[16px] font-medium text-[#1a1a1a]">Emergency contacts: {parent.name}</h3>
       </div>
-      <p className="text-sm text-ayana-muted mb-4">Alerted immediately on an emergency, or if {parent.name} doesn&apos;t reply all day. Up to 5.</p>
+      <p className="text-[13px] text-[#9a9183] mb-4">Alerted immediately on an emergency, or if {parent.name} doesn&apos;t reply all day. Up to 5.</p>
 
       {isLoading ? (
-        <div className="flex justify-center py-6"><Loader2 className="w-5 h-5 animate-spin text-ayana-muted" /></div>
+        <div className="flex justify-center py-6"><Loader2 className="w-5 h-5 animate-spin text-[#9a9183]" /></div>
       ) : (
         <div className="space-y-3">
-          {contacts.length === 0 && <p className="text-sm text-ayana-muted">No emergency contacts yet.</p>}
+          {contacts.length === 0 && <p className="text-sm text-[#9a9183]">No emergency contacts yet.</p>}
           {contacts.map((c, i) => (
             <div key={i} className="grid sm:grid-cols-[1fr_1fr_auto] gap-2 items-start" data-testid={`emergency-row-${parent.id}-${i}`}>
               <input value={c.name} onChange={(e) => update(i, "name", e.target.value)} placeholder="Name (e.g. Ravi)" className={inputCls} data-testid={`emergency-name-${i}`} />
               <PhoneInput value={c.phone} onChange={(v) => update(i, "phone", v)} testid={`emergency-phone-${i}`} />
               <div className="flex gap-2">
                 <input value={c.relation || ""} onChange={(e) => update(i, "relation", e.target.value)} placeholder="Relation" className={`${inputCls} sm:w-28`} data-testid={`emergency-relation-${i}`} />
-                <button onClick={() => remove(i)} className="shrink-0 w-10 h-10 rounded-lg border border-ayana-line text-ayana-muted hover:text-ayana-accent hover:border-ayana-accent/50 flex items-center justify-center" data-testid={`emergency-remove-${i}`}>
+                <button onClick={() => remove(i)} className="shrink-0 w-10 h-10 rounded-xl border border-[#efe8d8] text-[#9a9183] hover:text-red-500 hover:border-red-300 flex items-center justify-center transition-colors" data-testid={`emergency-remove-${i}`}>
                   <Trash2 className="w-4 h-4" />
                 </button>
               </div>
             </div>
           ))}
           <div className="flex items-center justify-between pt-1">
-            <button onClick={add} disabled={contacts.length >= 5} className="inline-flex items-center gap-1.5 text-sm font-medium text-ayana-primary hover:text-ayana-primary-hover disabled:opacity-40" data-testid={`emergency-add-${parent.id}`}>
+            <button onClick={add} disabled={contacts.length >= 5} className="inline-flex items-center gap-1.5 text-sm font-medium text-[#0f3d2e] hover:text-black disabled:opacity-40 transition-colors" data-testid={`emergency-add-${parent.id}`}>
               <Plus className="w-4 h-4" /> Add contact
             </button>
-            <button onClick={save} disabled={saving} className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-ayana-primary text-white text-sm font-medium hover:bg-ayana-primary-hover disabled:opacity-50" data-testid={`emergency-save-${parent.id}`}>
+            <button onClick={save} disabled={saving} className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-[#0f3d2e] text-white text-sm font-medium hover:bg-black disabled:opacity-50 transition-colors" data-testid={`emergency-save-${parent.id}`}>
               {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Phone className="w-4 h-4" />} Save contacts
             </button>
           </div>
@@ -252,21 +252,21 @@ function MomentComposer({ parents, moments, quota, onMomentSent }) {
   const parentName = (id) => parents.find((p) => p.id === id)?.name || "Parent";
 
   return (
-    <div className="rounded-2xl border border-ayana-line bg-white p-5" data-testid="moment-composer">
+    <div className="rounded-[16px] border border-[#efe8d8] bg-white p-4 sm:p-5 shadow-[0_1px_0_0_rgba(0,0,0,0.02)]" data-testid="moment-composer">
       <div className="flex items-center gap-2 mb-1">
-        <span className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: "rgba(212,150,10,0.14)" }}>
-          <Heart className="w-4 h-4 text-ayana-gold" />
+        <span className="w-9 h-9 rounded-full flex items-center justify-center shrink-0" style={{ background: "rgba(212,150,10,0.14)" }}>
+          <Heart className="w-4 h-4 text-[#b8860b]" />
         </span>
-        <h3 className="font-display text-lg font-semibold text-ayana-text">Send a moment</h3>
+        <h3 className="font-display text-[16px] font-medium text-[#1a1a1a]">Send a moment</h3>
       </div>
-      <p className="text-sm text-ayana-muted mb-4">A warm note + photos (up to 2). Ayana delivers it to their WhatsApp with love.</p>
+      <p className="text-[13px] text-[#9a9183] mb-4">A warm note + photos (up to 2). Ayana delivers it to their WhatsApp with love.</p>
 
       {typeof remaining === "number" && (
         <div className="mb-4 flex items-center gap-2 text-xs" data-testid="moment-quota">
-          <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full font-medium ${outOfMoments ? "bg-red-50 text-red-600" : "bg-ayana-gold/15 text-ayana-gold"}`}>
+          <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full font-medium border ${outOfMoments ? "bg-red-50 text-red-600 border-red-200" : "bg-[#fef3c7] text-[#92400e] border-[#fde68a]"}`}>
             <Heart className="w-3 h-3" /> {remaining} of {limit} special moments left this month
           </span>
-          {outOfMoments && <span className="text-ayana-muted">Resets on the 1st.</span>}
+          {outOfMoments && <span className="text-[#9a9183]">Resets on the 1st.</span>}
         </div>
       )}
 
@@ -276,10 +276,10 @@ function MomentComposer({ parents, moments, quota, onMomentSent }) {
         </select>
         <textarea value={text} onChange={(e) => setText(e.target.value.slice(0, 600))} rows={3} placeholder="Thinking of you, Amma. Had a great day and wanted to say I love you ❤️" className={`${inputCls} resize-none`} data-testid="moment-text" />
         <div className="flex items-start gap-2">
-          <ImagePlus className="w-5 h-5 text-ayana-muted shrink-0 mt-0.5" />
+          <ImagePlus className="w-5 h-5 text-[#9a9183] shrink-0 mt-0.5" />
           <div className="flex-1">
-            <label className="border border-ayana-line border-dashed rounded-lg p-3 block text-center cursor-pointer hover:bg-ayana-alt transition">
-              <span className="text-sm text-ayana-muted">Click to add photo or drag & drop</span>
+            <label className="border border-[#efe8d8] border-dashed rounded-xl p-3 block text-center cursor-pointer hover:bg-[#faf6ec] transition-colors">
+              <span className="text-sm text-[#9a9183]">Click to add photo or drag & drop</span>
               <input
                 type="file"
                 accept="image/*"
@@ -290,14 +290,14 @@ function MomentComposer({ parents, moments, quota, onMomentSent }) {
               />
             </label>
             {imageUrls.length >= MAX_IMAGES && (
-              <p className="text-xs text-ayana-muted mt-1.5">Maximum {MAX_IMAGES} photos.</p>
+              <p className="text-xs text-[#9a9183] mt-1.5">Maximum {MAX_IMAGES} photos.</p>
             )}
           </div>
         </div>
         {imageUrls.length > 0 && (
           <div className="flex flex-wrap gap-2" data-testid="moment-image-previews">
             {imageUrls.map((url, idx) => (
-              <div key={idx} className="relative w-16 h-16 rounded-lg overflow-hidden border border-ayana-line">
+              <div key={idx} className="relative w-16 h-16 rounded-lg overflow-hidden border border-[#efe8d8]">
                 <img src={url} alt={`preview-${idx}`} className="w-full h-full object-cover" />
                 <button
                   onClick={() => removeImage(idx)}
@@ -311,31 +311,37 @@ function MomentComposer({ parents, moments, quota, onMomentSent }) {
           </div>
         )}
         <div className="flex justify-end">
-          <button onClick={send} disabled={sending || !text.trim() || outOfMoments} className="btn-saffron inline-flex items-center gap-2 px-6 py-2.5 rounded-full text-sm font-semibold disabled:opacity-50" data-testid="moment-send">
+          <button
+            onClick={send}
+            disabled={sending || !text.trim() || outOfMoments}
+            className="inline-flex items-center gap-2 px-6 py-2.5 rounded-full text-white text-sm font-semibold disabled:opacity-50 shadow-sm hover:shadow-md transition-shadow"
+            style={{ background: "linear-gradient(135deg, #f59e0b, #fbbf24)" }}
+            data-testid="moment-send"
+          >
             {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />} {outOfMoments ? "Limit reached" : "Send"}
           </button>
         </div>
       </div>
 
       {moments && moments.length > 0 && (
-        <div className="mt-6 border-t border-ayana-line pt-4">
-          <p className="text-xs font-semibold text-ayana-muted uppercase tracking-wide mb-3">Recently sent</p>
+        <div className="mt-6 border-t border-[#efe8d8] pt-4">
+          <p className="text-xs font-semibold text-[#9a9183] uppercase tracking-wide mb-3">Recently sent</p>
           <div className="space-y-3" data-testid="moments-list">
             {moments.slice(0, 5).map((m) => (
               <div key={m.id} className="flex items-start gap-3 text-sm">
-                <Heart className="w-3.5 h-3.5 text-ayana-gold mt-1 shrink-0" />
+                <Heart className="w-3.5 h-3.5 text-[#b8860b] mt-1 shrink-0" />
                 <div>
-                  <p className="text-ayana-text">{m.text}</p>
+                  <p className="text-[#1a1a1a]">{m.text}</p>
                   {(m.image_urls || m.image_url) && (
                     <div className="mt-1.5 flex flex-wrap gap-1.5">
                       {(m.image_urls || (m.image_url ? [m.image_url] : [])).map((img, i) => (
-                        <img key={i} src={img} alt="sent" className="w-16 h-16 object-cover rounded-lg border border-ayana-line" />
+                        <img key={i} src={img} alt="sent" className="w-16 h-16 object-cover rounded-lg border border-[#efe8d8]" />
                       ))}
                     </div>
                   )}
-                  <p className="text-ayana-muted">to {parentName(m.parent_id)}</p>
+                  <p className="text-[#9a9183]">to {parentName(m.parent_id)}</p>
                   {(m.delivery_status === "delivered" || m.delivery_status === "read") && (
-                    <p className="text-xs text-ayana-primary font-medium" data-testid={`moment-delivered-${m.id}`}>📸 {parentName(m.parent_id)} got your photo</p>
+                    <p className="text-xs text-[#0f7a4a] font-medium" data-testid={`moment-delivered-${m.id}`}>📸 {parentName(m.parent_id)} got your photo</p>
                   )}
                 </div>
               </div>
@@ -388,26 +394,26 @@ function RecoveryCard({ parents, schedules, planId, limits }) {
   };
 
   return (
-    <div className="rounded-2xl border border-ayana-line bg-white p-5" data-testid="recovery-card">
+    <div className="rounded-[16px] border border-[#efe8d8] bg-white p-4 sm:p-5 shadow-[0_1px_0_0_rgba(0,0,0,0.02)]" data-testid="recovery-card">
       <div className="flex items-center gap-2 mb-1">
-        <span className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: "rgba(10,89,64,0.12)" }}>
-          <Activity className="w-4 h-4 text-ayana-primary" />
+        <span className="w-9 h-9 rounded-full flex items-center justify-center shrink-0" style={{ background: "rgba(15,61,46,0.10)" }}>
+          <Activity className="w-4 h-4 text-[#0f3d2e]" />
         </span>
-        <h3 className="font-display text-lg font-semibold text-ayana-text">Recovery mode</h3>
-        {!isRaksha && <span className="ml-1 inline-flex items-center gap-1 text-xs text-ayana-gold"><Lock className="w-3 h-3" /> Raksha</span>}
+        <h3 className="font-display text-[16px] font-medium text-[#1a1a1a]">Recovery mode</h3>
+        {!isRaksha && <span className="ml-1 inline-flex items-center gap-1 text-xs text-[#b8860b]"><Lock className="w-3 h-3" /> Raksha</span>}
       </div>
-      <p className="text-sm text-ayana-muted mb-4">After surgery or illness, add extra medicine reminders for a set period. Ayana ends it automatically.</p>
+      <p className="text-[13px] text-[#9a9183] mb-4">After surgery or illness, add extra medicine reminders for a set period. Ayana ends it automatically.</p>
 
       {!isRaksha ? (
-        <p className="text-sm text-ayana-secondary">Upgrade to <strong>Raksha</strong> to enable recovery mode.</p>
+        <p className="text-sm text-[#6b5f4a]">Upgrade to <strong>Raksha</strong> to enable recovery mode.</p>
       ) : schedules.length === 0 ? (
-        <p className="text-sm text-ayana-muted">Create a schedule first.</p>
+        <p className="text-sm text-[#9a9183]">Create a schedule first.</p>
       ) : (
         <div className="space-y-4">
           <div className="space-y-3">
             <div className="flex items-center justify-between">
-              <label className="text-xs font-semibold text-ayana-muted uppercase tracking-wider">Extra Reminders</label>
-              <button onClick={addReminder} disabled={reminders.length >= maxExtra} className="text-xs text-ayana-primary font-medium hover:underline disabled:opacity-40">
+              <label className="text-xs font-semibold text-[#9a9183] uppercase tracking-wider">Extra Reminders</label>
+              <button onClick={addReminder} disabled={reminders.length >= maxExtra} className="text-xs text-[#0f3d2e] font-medium hover:underline disabled:opacity-40">
                 + Add reminder ({reminders.length}/{maxExtra})
               </button>
             </div>
@@ -416,7 +422,7 @@ function RecoveryCard({ parents, schedules, planId, limits }) {
                 <div key={i} className="flex items-center gap-2">
                   <input type="time" value={r.time} onChange={(e) => updateReminder(i, e.target.value)} className={inputCls} data-testid={`recovery-time-${i}`} />
                   {reminders.length > 1 && (
-                    <button onClick={() => removeReminder(i)} className="p-2 text-ayana-muted hover:text-ayana-accent">
+                    <button onClick={() => removeReminder(i)} className="p-2 text-[#9a9183] hover:text-red-500 transition-colors">
                       <X className="w-4 h-4" />
                     </button>
                   )}
@@ -425,23 +431,23 @@ function RecoveryCard({ parents, schedules, planId, limits }) {
             </div>
           </div>
           <div>
-            <label className="text-xs font-semibold text-ayana-muted uppercase tracking-wider">Duration (days)</label>
+            <label className="text-xs font-semibold text-[#9a9183] uppercase tracking-wider">Duration (days)</label>
             <input type="number" min={1} max={90} value={days} onChange={(e) => setDays(e.target.value)} className={`mt-1 ${inputCls} w-24`} data-testid="recovery-days" />
           </div>
           {schedules.map((s) => (
-            <div key={s.id} className="flex items-center justify-between rounded-lg border border-ayana-line px-4 py-3" data-testid={`recovery-sched-${s.id}`}>
+            <div key={s.id} className="flex items-center justify-between rounded-xl border border-[#efe8d8] px-4 py-3" data-testid={`recovery-sched-${s.id}`}>
               <div className="text-sm">
-                <span className="font-medium text-ayana-text">{parentName(s.parent_id)}</span>
+                <span className="font-medium text-[#1a1a1a]">{parentName(s.parent_id)}</span>
                 {s.recovery_mode
-                  ? <span className="ml-2 text-ayana-primary">● Active{s.recovery_until ? ` until ${s.recovery_until}` : ""}</span>
-                  : <span className="ml-2 text-ayana-muted">Off</span>}
+                  ? <span className="ml-2 text-[#0f7a4a]">● Active{s.recovery_until ? ` until ${s.recovery_until}` : ""}</span>
+                  : <span className="ml-2 text-[#9a9183]">Off</span>}
               </div>
               {s.recovery_mode ? (
-                <button onClick={() => end(s)} disabled={busy === s.id} className="px-4 py-2 rounded-full border border-ayana-line text-sm font-medium text-ayana-accent hover:border-ayana-accent/50 disabled:opacity-50" data-testid={`recovery-end-${s.id}`}>
+                <button onClick={() => end(s)} disabled={busy === s.id} className="px-4 py-2 rounded-full border border-[#efe8d8] text-sm font-medium text-red-500 hover:border-red-300 disabled:opacity-50 transition-colors" data-testid={`recovery-end-${s.id}`}>
                   {busy === s.id ? <Loader2 className="w-4 h-4 animate-spin" /> : "End early"}
                 </button>
               ) : (
-                <button onClick={() => start(s)} disabled={busy === s.id} className="px-4 py-2 rounded-full bg-ayana-primary text-white text-sm font-medium hover:bg-ayana-primary-hover disabled:opacity-50" data-testid={`recovery-start-${s.id}`}>
+                <button onClick={() => start(s)} disabled={busy === s.id} className="px-4 py-2 rounded-full bg-[#0f3d2e] text-white text-sm font-medium hover:bg-black disabled:opacity-50 transition-colors" data-testid={`recovery-start-${s.id}`}>
                   {busy === s.id ? <Loader2 className="w-4 h-4 animate-spin" /> : "Start recovery"}
                 </button>
               )}
@@ -453,7 +459,7 @@ function RecoveryCard({ parents, schedules, planId, limits }) {
   );
 }
 
-function VacationCard({ parent }) {
+export function VacationCard({ parent }) {
   const qc = useQueryClient();
   const [start, setStart] = useState(parent.vacation_start || "");
   const [end, setEnd] = useState(parent.vacation_end || "");
@@ -481,29 +487,29 @@ function VacationCard({ parent }) {
   };
 
   return (
-    <div className="rounded-2xl border border-ayana-line bg-white p-5" data-testid={`vacation-card-${parent.id}`}>
+    <div className="rounded-[16px] border border-[#efe8d8] bg-white p-4 sm:p-5 shadow-[0_1px_0_0_rgba(0,0,0,0.02)]" data-testid={`vacation-card-${parent.id}`}>
       <div className="flex items-center gap-2 mb-1">
-        <span className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: "rgba(61,184,232,0.14)" }}>
-          <Palmtree className="w-4 h-4 text-ayana-sky" />
+        <span className="w-9 h-9 rounded-full flex items-center justify-center shrink-0" style={{ background: "rgba(2,132,199,0.12)" }}>
+          <Palmtree className="w-4 h-4 text-[#0284c7]" />
         </span>
-        <h3 className="font-display text-lg font-semibold text-ayana-text">Vacation / holiday mode: {parent.name}</h3>
-        {active && <span className="ml-1 text-xs px-2 py-0.5 rounded-full bg-ayana-sky/15 text-ayana-sky font-medium" data-testid={`vacation-active-${parent.id}`}>Paused {parent.vacation_start} → {parent.vacation_end}</span>}
+        <h3 className="font-display text-[16px] font-medium text-[#1a1a1a]">Vacation / holiday mode: {parent.name}</h3>
+        {active && <span className="ml-1 text-xs px-2 py-0.5 rounded-full bg-[#e0f2fe] text-[#0284c7] font-medium" data-testid={`vacation-active-${parent.id}`}>Paused {parent.vacation_start} → {parent.vacation_end}</span>}
       </div>
-      <p className="text-sm text-ayana-muted mb-4">Going away or in hospital? Pause all daily check-ins for a date range. Ayana stops sending during it and resumes automatically the day after.</p>
+      <p className="text-[13px] text-[#9a9183] mb-4">Going away or in hospital? Pause all daily check-ins for a date range. Ayana stops sending during it and resumes automatically the day after.</p>
       <div className="grid sm:grid-cols-[1fr_1fr_auto] gap-2 items-end">
         <div>
-          <label className="text-xs font-semibold text-ayana-muted uppercase tracking-wider">From</label>
+          <label className="text-xs font-semibold text-[#9a9183] uppercase tracking-wider">From</label>
           <input type="date" value={start} onChange={(e) => setStart(e.target.value)} className={`mt-1 ${inputCls}`} data-testid={`vacation-start-${parent.id}`} />
         </div>
         <div>
-          <label className="text-xs font-semibold text-ayana-muted uppercase tracking-wider">To</label>
+          <label className="text-xs font-semibold text-[#9a9183] uppercase tracking-wider">To</label>
           <input type="date" value={end} min={start || undefined} onChange={(e) => setEnd(e.target.value)} className={`mt-1 ${inputCls}`} data-testid={`vacation-end-${parent.id}`} />
         </div>
         <div className="flex gap-2">
-          <button onClick={save} disabled={busy} className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-ayana-primary text-white text-sm font-medium hover:bg-ayana-primary-hover disabled:opacity-50" data-testid={`vacation-save-${parent.id}`}>
+          <button onClick={save} disabled={busy} className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-[#0f3d2e] text-white text-sm font-medium hover:bg-black disabled:opacity-50 transition-colors" data-testid={`vacation-save-${parent.id}`}>
             {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Palmtree className="w-4 h-4" />} Save
           </button>
-          {active && <button onClick={clear} disabled={busy} className="px-4 py-2.5 rounded-full border border-ayana-line text-sm font-medium text-ayana-accent hover:border-ayana-accent/50 disabled:opacity-50" data-testid={`vacation-clear-${parent.id}`}>Clear</button>}
+          {active && <button onClick={clear} disabled={busy} className="px-4 py-2.5 rounded-full border border-[#efe8d8] text-sm font-medium text-red-500 hover:border-red-300 disabled:opacity-50 transition-colors" data-testid={`vacation-clear-${parent.id}`}>Clear</button>}
         </div>
       </div>
     </div>
@@ -516,12 +522,11 @@ export function CareTab({ parents, schedules = [], planId, limits, moments, quot
     return <EmptyState text="Add a parent first to manage moments and emergency contacts." />;
   }
   return (
-    <div className="space-y-6" data-testid="care-tab">
+    <div className="space-y-4" data-testid="care-tab">
       <MomentComposer parents={parents} moments={moments} quota={quota} onMomentSent={onMomentSent} />
       <RecoveryCard parents={parents} schedules={schedules} planId={planId} limits={limits} />
       {parents.map((p) => (
         <div key={p.id} className="space-y-4">
-          <VacationCard parent={p} />
           <EmergencyContacts parent={p} />
           <EmergencyEventsHistory parent={p} />
         </div>

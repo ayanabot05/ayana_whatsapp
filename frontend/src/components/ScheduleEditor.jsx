@@ -1,3 +1,4 @@
+
 import {
   Sunrise, Coffee, Heart, Utensils, Sun, Moon, Star, Pill, Droplet,
   Activity, HeartPulse, Candy, MessageCircle, Plus, Trash2,
@@ -13,8 +14,6 @@ export const CATEGORY_ICONS = {
   "heart-pulse": HeartPulse, candy: Candy,
 };
 
-// Generate a human-readable label from a category key when the backend
-// doesn't include one (backend /config returns {key, type} only).
 const CATEGORY_LABELS = {
   morning_wish: "Morning Wish",
   breakfast: "Breakfast Check",
@@ -27,7 +26,7 @@ const CATEGORY_LABELS = {
   goodnight: "Good Night",
   love_note: "Love Note",
   medicine: "Medicine Reminder",
-  water: "Water Reminder",
+  water: "Water Check",
   bp_check: "BP Check",
   sugar_check: "Sugar Check",
   health_check: "Health Check",
@@ -51,9 +50,6 @@ const CATEGORY_ICON_MAP = {
   health_check: "heart-pulse",
 };
 
-// Preview of the exact tap-buttons the parent will see for each category —
-// mirrors backend BUTTONS in templates_data.py so the daily-routine builder
-// shows the right options under each message (no medicine names leaking in).
 const CATEGORY_BUTTONS = {
   morning_wish: ["Slept well 😴", "So-so 🙂", "Couldn't sleep 😔"],
   how_feeling: ["Good 😊", "Okay 🙂", "Not well 😟"],
@@ -69,11 +65,9 @@ const CATEGORY_BUTTONS = {
   dinner: ["Done 🌙", "Not yet", "Skipping"],
   afternoon_checkin: ["Resting 🛌", "Busy", "Not well 😟"],
   tea_check: ["Done ☕", "Now", "Skipped"],
-  walk_check: ["Done 🚶‍♀️", "Later", "Not today"],
+  walk_check: ["Done 🚶♀", "Later", "Not today"],
 };
 
-// Normalize a category from backend (may have {key, type} only) to
-// {key, label, type, icon} for rendering.
 export function normalizeCategory(c) {
   const key = c.key || c.value || c;
   return {
@@ -84,13 +78,6 @@ export function normalizeCategory(c) {
   };
 }
 
-// Shared row logic for both ScheduleEditor (checkin) and ReminderEditor
-// (reminder). Both operate on the SAME flat `messages` array — that's
-// what ScheduleInput.messages actually is on the backend, one list mixing
-// checkin and reminder entries. Each editor only ever displays its own
-// subset, but update/remove always address the real index in the full
-// array, so adding/removing a check-in never disturbs a reminder row (or
-// vice versa) sitting elsewhere in the same array.
 function useFilteredRows(messages, setMessages, matchType) {
   const indices = messages
     .map((m, i) => i)
@@ -137,9 +124,6 @@ function CategoryRow({ m, realIdx, cats, catByKey, updateAt, removeAt, testPrefi
   );
 }
 
-// A clean, responsive schedule builder — check-ins only.
-// Medicine reminders are handled by the dedicated Medicine section in the parent card.
-// Health reminders (water/BP/sugar/general) are handled by ReminderEditor below.
 export function ScheduleEditor({ messages, setMessages, categories, maxCheckins }) {
   const cats = categories.map(normalizeCategory).filter((c) => c.type === "checkin");
   const catByKey = Object.fromEntries(cats.map((c) => [c.key, c]));
@@ -180,24 +164,20 @@ export function ScheduleEditor({ messages, setMessages, categories, maxCheckins 
   );
 }
 
-// Health reminders — water / BP check / sugar check / general health check.
-// Shares the same `messages` array as ScheduleEditor (see useFilteredRows
-// above) since ScheduleInput.messages is one flat list on the backend.
-//
-// Quota note: the backend's plan `reminders` limit counts EVERY message
-// where category_type() resolves to "reminder" — that includes both these
-// manually-added entries AND the auto-synced medicine_list reminders
-// (medicine_sync.py). `medicineCount` is passed in so the quota shown and
-// enforced here reflects the same combined total the backend will check,
-// not just what's visible in this list.
+// Health reminders — WATER / BP / SUGAR / HEALTH CHECK ONLY
+// Medicine is NOT manually addable here — it comes from medicine_list auto-sync
 export function ReminderEditor({ messages, setMessages, categories, maxReminders, medicineCount = 0 }) {
-  const cats = categories.map(normalizeCategory).filter((c) => c.type === "reminder");
+  const HEALTH_KEYS = ["water", "health_check", "bp_check", "sugar_check"];
+  const allCats = categories.map(normalizeCategory);
+  // Only show the 4 health keys, explicitly exclude 'medicine'
+  const cats = allCats.filter((c) => HEALTH_KEYS.includes(c.key));
+
   const catByKey = Object.fromEntries(cats.map((c) => [c.key, c]));
   const { indices, updateAt, removeAt } = useFilteredRows(messages, setMessages, "reminder");
   const totalUsed = indices.length + medicineCount;
 
   if (!cats.length) {
-    return null; // config hasn't loaded reminder categories yet — section just doesn't render
+    return null;
   }
 
   const add = () => {
@@ -227,9 +207,6 @@ export function ReminderEditor({ messages, setMessages, categories, maxReminders
   );
 }
 
-// Daily activities / lifestyle nudges — walk / tea-coffee / water / how-feeling.
-// Distinct plan bucket from medical reminders and emotional check-ins; shares
-// the same flat `messages` array (type === "activity").
 export function ActivityEditor({ messages, setMessages, categories, maxActivities }) {
   const cats = categories.map(normalizeCategory).filter((c) => c.type === "activity");
   const catByKey = Object.fromEntries(cats.map((c) => [c.key, c]));
@@ -265,3 +242,4 @@ export function ActivityEditor({ messages, setMessages, categories, maxActivitie
     </div>
   );
 }
+

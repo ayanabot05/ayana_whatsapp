@@ -731,18 +731,19 @@ async def login(request: Request, response: Response, payload: LoginInput):
 
     allowed, retry_after = await login_rate_check(email, ip)
     if not allowed:
-        raise HTTPException(
-            status_code=429,
-            detail=f"Too many failed login attempts. Try again in {retry_after} seconds.",
-            headers={"Retry-After": str(retry_after)},
-        )
+        raise HTTPException(status_code=429, detail=f"Too many failed attempts. Try again in {retry_after}s.", headers={"Retry-After": str(retry_after)})
 
     async with get_pool().acquire() as conn:
         user = await conn.fetchrow("select * from users where email = $1", email)
 
-    if not user or user["deleted_at"] or not verify_password(payload.password, user["password_hash"]):
+    if not user or user["deleted_at"]:
+        # NEW: tell them account doesn't exist
+        raise HTTPException(status_code=404, detail="No account found with this email. Please create an account.")
+
+    if not verify_password(payload.password, user["password_hash"]):
         await record_failed_login(email, ip)
-        raise HTTPException(status_code=401, detail="Invalid email or password.")
+        # NEW: tell them password is wrong
+        raise HTTPException(status_code=401, detail="Incorrect password. Forgot your password?")
 
     await clear_login_attempts(email, ip)
     access_token = create_access_token(str(user["id"]), email, user["role"] or "user")
@@ -2420,8 +2421,8 @@ FEELING_MAP = {
     "done": {"emoji": "✅", "label": {"en": "Done", "te": "అయ్యింది", "hi": "हो गया"}},
 }
 _GOOD = ["1", "good", "fine", "great", "బాగున్నా", "బాగుంది", "ठीक हूँ", "अच्छा"]
-_OKAY = ["2", "okay", "ok", "theek", "ఫర్వాలేదు", "పర్వాలేదు", "ठीक-ठाक", "ठीक ठाक"]
-_BAD = ["3", "not well", "sick", "bad", "ఒంట్లో బాలేదు", "బాలేదు", "तबीयत ठीक नहीं", "बीमार"]
+_OKAY = ["2", "okay", "ok", "theek", "ఫర్వాలేదు", "పర్వాలేదు", "పరవాలేదు", "ठीक-ठाक", "ठीक ठाक", "ठीक है"]
+_BAD = ["3", "not well", "sick", "bad", "ఒంట్లో బాలేదు", "బాలేదు", "బాగోలేదు", "तबीयत ठीक नहीं", "ठीक नहीं", "बीमार"]
 _DONE = ["yes", "done", "అయ్యింది", "వేసుకున్నా", "हो गया", "ले लिया"]
 
 
@@ -2500,7 +2501,7 @@ def _reply_context_line(intent: str | None, pname: str, subj: str, poss: str) ->
     return None
 
 
-async def _notify_family(owner_id, parent, feeling: str | None, is_voice: bool, body: str, keywords: list, ml_flagged: bool = False, media_url: str = None, transcription: str | None = None, stt_confidence: float | None = None, intent: str | None = None):
+async def _notify_family(owner_id, parent, feeling: str | None, is_voice: bool, body: str, keywords: list, ml_flagged: bool = False, media_url: str = None, transcription: str | None = None, stt_confidence: float | None = None, intent: str | None = None, context_id: str | None = None):
     async with get_pool().acquire() as conn:
         owner = await conn.fetchrow("select * from users where id = $1::uuid", owner_id)
         members = await conn.fetch(
@@ -2514,10 +2515,22 @@ async def _notify_family(owner_id, parent, feeling: str | None, is_voice: bool, 
         )
         last_log = None
         if parent:
-            last_log = await conn.fetchrow(
-                "select category, msg_type, body from message_logs where parent_id = $1::uuid order by created_at desc limit 1",
-                parent["id"],
-            )
+            # LABEL FIX: tie the reply to the EXACT message the parent tapped.
+            # Meta sends context.id = the wam id of the message being replied
+            # to; our outbound sends store that same id in message_logs.sid.
+            # Resolving by it prevents mislabelling (e.g. a lunch tap showing
+            # as "morning Wish check-in" when several check-ins went out close
+            # together). Falls back to the latest log only if we can't match.
+            if context_id:
+                last_log = await conn.fetchrow(
+                    "select category, msg_type, body from message_logs where parent_id = $1::uuid and sid = $2 order by created_at desc limit 1",
+                    parent["id"], context_id,
+                )
+            if last_log is None:
+                last_log = await conn.fetchrow(
+                    "select category, msg_type, body from message_logs where parent_id = $1::uuid order by created_at desc limit 1",
+                    parent["id"],
+                )
     recipients = ([owner] if owner else []) + list(members) + list(siblings)
     pname = parent["name"] if parent else "Your parent"
     prompt = _prompt_label(last_log)
@@ -2745,7 +2758,7 @@ _PARENT_BY_PHONE_SQL = """
 """
 
 
-async def _record_reply(from_number: str, body_text: str, num_media: int = 0, parent=None, button_payload: str | None = None, media_url: str | None = None, media_content_type: str | None = None, raw_payload: dict | None = None, wam_id: str | None = None):
+async def _record_reply(from_number: str, body_text: str, num_media: int = 0, parent=None, button_payload: str | None = None, media_url: str | None = None, media_content_type: str | None = None, raw_payload: dict | None = None, wam_id: str | None = None, context_id: str | None = None):
     async with get_pool().acquire() as conn:
         if parent is None:
             parent = await conn.fetchrow(_PARENT_BY_PHONE_SQL, from_number)
@@ -2856,7 +2869,7 @@ async def _record_reply(from_number: str, body_text: str, num_media: int = 0, pa
                 owner_id, parent["id"], from_number, body_text, json.dumps(keywords), intent, is_voice,
             )
     if parent and owner_id:
-        await _notify_family(owner_id, parent, feeling, is_voice, body_text, keywords, ml_flagged, media_url=media_url, transcription=transcription or body_text, stt_confidence=stt_confidence, intent=intent)
+        await _notify_family(owner_id, parent, feeling, is_voice, body_text, keywords, ml_flagged, media_url=media_url, transcription=transcription or body_text, stt_confidence=stt_confidence, intent=intent, context_id=context_id)
     return dict(reply_row)
 
 
@@ -3396,6 +3409,7 @@ async def _process_meta_payload(payload: dict) -> None:
             for message in value.get("messages", []):
                 from_number = message.get("from", "")
                 wam_id = message.get("id", "")
+                context_id = (message.get("context") or {}).get("id")
                 msg_type = message.get("type", "")
                 body_text = ""
                 button_payload = None
@@ -3443,6 +3457,7 @@ async def _process_meta_payload(payload: dict) -> None:
                         media_content_type=media_content_type,
                         raw_payload=message,
                         wam_id=wam_id,
+                        context_id=context_id,
                     )
                     if button_payload and reply.get("parent_id"):
                         await _apply_button_tap_effects(reply)

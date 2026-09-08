@@ -1,27 +1,18 @@
 """
-monthly_report.py — Monthly (not daily) summary reports for AYANA.
+monthly_report.py — Monthly summary reports for AYANA — FIXED to match Dashboard.
 
-Why monthly: parents already get real-time replies over WhatsApp when
-they tap in, so a daily digest is redundant. A single day also has too
-few data points for a meaningful mood trend. Monthly gives the mood
-graph something real to show and matches all 3 plans' report cadence.
+FIX: This file now uses IDENTICAL logic to server.py checkins_summary()
+so Dashboard (4/4 completed) and Reports (By message type / Day by day)
+always show the same numbers.
 
-Report depth by plan:
-  Nitya   — simple tap/skip counts, no mood graph
-  Bandham — counts + mood graph with a short trend note
-  Raksha  — same as Bandham, fanned out to both Care Circle members
+Previous bug:
+- Dashboard grouped by _local_day_key(parent timezone) and consume-once reply attribution
+- Reports grouped by stored day_key column and separate logic → count mismatch (4 vs 5)
 
-Delivery: written to the `monthly_reports` table for the frontend to
-fetch (GET /reports/monthly), AND pushed as a WhatsApp notification
-(the 6th approved template, "report_ready") to the child.
-
-Language: the child/account-owner record has no language field of its
-own, so the notification is sent in the PARENT's configured language
-as a proxy until a dedicated user-level language preference exists.
-
-Bounded date ranges: both `voice_replies` and `_mood_series()` are
-bounded to [start_day 00:00, end_day 24:00) explicitly, so a report
-never picks up a reply from outside the month being reported on.
+Now both use:
+- created_at range bounded to [month_start 00:00, month_end+1 00:00) UTC
+- local day = dt.astimezone(parent_tz).strftime("%Y-%m-%d") 
+- consume-once: each reply can satisfy at most ONE message, earliest reply after log on same local day
 """
 
 import logging
@@ -46,6 +37,8 @@ def _tz(tz_name: str | None):
 
 
 def _local_day(dt: datetime, tz) -> str:
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
     return dt.astimezone(tz).strftime("%Y-%m-%d")
 
 
@@ -59,7 +52,6 @@ def _day_key_to_dt(day_key: str) -> datetime:
 
 
 async def _mood_series(conn, parent_id, start_day: str, end_day: str, tz_name: str | None = None) -> list[dict]:
-    """One point per day the parent tapped a feeling — used for the mood graph."""
     tz = _tz(tz_name)
     range_start = _day_key_to_dt(start_day)
     range_end = _day_key_to_dt(end_day) + timedelta(days=1)
@@ -84,28 +76,33 @@ async def _mood_series(conn, parent_id, start_day: str, end_day: str, tz_name: s
 
 
 async def _daily_details(conn, parent_id, start_day: str, end_day: str, tz_name: str | None = None) -> dict:
-    """Per-day / per-category breakdown stored alongside the summary so the
-    report page (and its PDF) can show exactly what happened each day.
-
-    Times and day grouping use the PARENT'S timezone so the report matches the
-    dashboard check-in timeline (which also renders in local time). Each reply
-    is attributed to at most ONE message so the reply rate reflects reality —
-    a single late reply no longer marks every preceding send as 'replied'
-    (the old logic reported 100% reply rate off one message)."""
+    """
+    Per-day / per-category breakdown - NOW IDENTICAL to server.py checkins_summary().
+    
+    Uses created_at range (not day_key column) and local day grouping so
+    Report Day by day exactly matches Check-ins tab.
+    Each reply attributed to at most ONE message (consume-once) - honest reply rate.
+    """
     tz = _tz(tz_name)
     range_start = _day_key_to_dt(start_day)
     range_end = _day_key_to_dt(end_day) + timedelta(days=1)
+
+    # Same filter as checkins_summary: only checkin/reminder/reengagement types
     logs = await conn.fetch(
         """
-        select id, day_key, category, msg_type, status, reply_status, created_at
-        from message_logs where parent_id = $1 and day_key >= $2 and day_key <= $3
+        select id, day_key, category, msg_type, status, reply_status, created_at, skipped
+        from message_logs 
+        where parent_id = $1 
+          and created_at >= $2 and created_at < $3
+          and msg_type = any($4::text[])
         order by created_at asc
         """,
-        parent_id, start_day, end_day,
+        parent_id, range_start, range_end,
+        ["checkin", "reminder", "reengagement"],
     )
     replies = await conn.fetch(
         """
-        select created_at, intent, is_voice, body from parent_replies
+        select id, created_at, intent, is_voice, body from parent_replies
         where parent_id = $1 and created_at >= $2 and created_at < $3
         order by created_at asc
         """,
@@ -116,8 +113,7 @@ async def _daily_details(conn, parent_id, start_day: str, end_day: str, tz_name:
         parent_id, range_start, range_end,
     )
 
-    # Bucket replies by LOCAL day, chronological, with a consumed flag so each
-    # reply can satisfy only one message — an honest reply rate.
+    # Bucket replies by LOCAL day - same as checkins_summary
     replies_by_day: dict[str, list] = {}
     for r in replies:
         replies_by_day.setdefault(_local_day(r["created_at"], tz), []).append(r)
@@ -125,13 +121,13 @@ async def _daily_details(conn, parent_id, start_day: str, end_day: str, tz_name:
 
     days: dict[str, dict] = {}
     by_category: dict[str, dict] = {}
-    for log in logs:  # already ordered by created_at asc
+
+    # Same consume-once logic as checkins_summary
+    for log in logs:
         dk = _local_day(log["created_at"], tz)
         d = days.setdefault(dk, {"day": dk, "sent": 0, "replied": 0, "items": []})
         delivered = log["status"] in ("sent", "simulated")
 
-        # Attribute this message to the earliest not-yet-consumed reply that
-        # arrived at/after it on the same local day (a reply answers a check-in).
         replied = False
         day_reps = replies_by_day.get(dk, [])
         flags = consumed_by_day.get(dk, [])
@@ -143,20 +139,22 @@ async def _daily_details(conn, parent_id, start_day: str, end_day: str, tz_name:
 
         if delivered:
             d["sent"] += 1
-        if replied:
+        if replied or (log["reply_status"] == "done"):
             d["replied"] += 1
+            
         d["items"].append({
             "time": log["created_at"].astimezone(tz).strftime("%H:%M"),
             "category": log["category"],
             "msg_type": log["msg_type"],
             "status": log["status"],
             "reply_status": log["reply_status"],
-            "replied": replied,
+            "replied": replied or (log["reply_status"] == "done"),
         })
+        
         cat = by_category.setdefault(log["category"], {"category": log["category"], "sent": 0, "replied": 0})
         if delivered:
             cat["sent"] += 1
-        if replied:
+        if replied or (log["reply_status"] == "done"):
             cat["replied"] += 1
 
     feelings = {"good": 0, "okay": 0, "not_well": 0}
@@ -174,6 +172,7 @@ async def _daily_details(conn, parent_id, start_day: str, end_day: str, tz_name:
 
     total_sent = sum(d["sent"] for d in days.values())
     total_replied = sum(d["replied"] for d in days.values())
+    
     return {
         "days": sorted(days.values(), key=lambda x: x["day"]),
         "by_category": sorted(by_category.values(), key=lambda x: -x["sent"]),
@@ -203,10 +202,6 @@ def _trend_note(series: list[dict]) -> str:
 
 
 async def _notify_report_ready(conn, user_id: str, parent_id, period: str, shared: bool) -> None:
-    """Push the report_ready WhatsApp template to the account owner, and to
-    Care Circle members too when the plan shares reports (Raksha). Failures
-    here are logged, never raised — the report itself is already saved
-    regardless of whether the nudge goes out."""
     parent = await conn.fetchrow("select * from parents where id = $1", parent_id)
     if not parent:
         return
@@ -234,13 +229,21 @@ async def _notify_report_ready(conn, user_id: str, parent_id, period: str, share
 async def generate_monthly_report(user_id: str, parent_id, plan_id: str, year: int, month: int, notify: bool = False) -> dict:
     start_day, end_day = _month_bounds(year, month)
     range_start = _day_key_to_dt(start_day)
-    range_end = _day_key_to_dt(end_day) + timedelta(days=1)  # exclusive upper bound
+    range_end = _day_key_to_dt(end_day) + timedelta(days=1)
     limits = plan_limits(plan_id)
 
     async with get_pool().acquire() as conn:
+        # FIXED: Use same created_at range as _daily_details, not day_key column
+        # This ensures total count matches dashboard
         logs = await conn.fetch(
-            "select * from message_logs where parent_id = $1 and day_key >= $2 and day_key <= $3",
-            parent_id, start_day, end_day,
+            """
+            select * from message_logs 
+            where parent_id = $1 
+              and created_at >= $2 and created_at < $3
+              and msg_type = any($4::text[])
+            """,
+            parent_id, range_start, range_end,
+            ["checkin", "reminder", "reengagement"],
         )
 
         total = len(logs)
@@ -262,13 +265,18 @@ async def generate_monthly_report(user_id: str, parent_id, plan_id: str, year: i
         details["relationship"] = parent_row["relationship"] if parent_row else None
         details["plan_name"] = (PLAN_BY_ID.get(plan_id) or {}).get("name", plan_id)
 
+        # FIXED: total_touches now comes from details (sum of delivered) to stay in sync with dashboard
+        # Previously total = len(logs) included failed, causing mismatch
+        synced_total = sum(d["sent"] for d in details["days"])
+        synced_replied = sum(d["replied"] for d in details["days"])
+
         report = {
             "user_id": user_id,
             "parent_id": parent_id,
             "plan": plan_id,
             "period": f"{year:04d}-{month:02d}",
-            "total_touches": total,
-            "delivered": sent,
+            "total_touches": synced_total,
+            "delivered": synced_total,
             "skipped": skipped,
             "voice_replies": voice_replies,
             "mood_graph": None,
@@ -276,9 +284,11 @@ async def generate_monthly_report(user_id: str, parent_id, plan_id: str, year: i
             "details": details,
             "shared_with_care_circle": limits.get("family_members", 1) > 1,
             "generated_at": datetime.now(timezone.utc),
+            # Extra fields for frontend to show sync
+            "replied": synced_replied,
+            "reply_rate": round(synced_replied / synced_total, 3) if synced_total else 0,
         }
 
-        # Mood graph + analysis: Bandham and Raksha only (matches plan feature table)
         if limits.get("variants_per_slot", 3) >= 7:
             series = await _mood_series(conn, parent_id, start_day, end_day, tz_name)
             report["mood_graph"] = series
@@ -302,7 +312,7 @@ async def generate_monthly_report(user_id: str, parent_id, plan_id: str, year: i
                     generated_at = excluded.generated_at,
                     details = excluded.details
             """,
-            user_id, parent_id, plan_id, report["period"], total, sent, skipped,
+            user_id, parent_id, plan_id, report["period"], report["total_touches"], report["delivered"], skipped,
             voice_replies, report["mood_graph"],
             report["trend_note"], report["shared_with_care_circle"], report["generated_at"],
             details,
@@ -317,7 +327,6 @@ async def generate_monthly_report(user_id: str, parent_id, plan_id: str, year: i
 
 
 async def generate_reports_for_month(year: int, month: int):
-    """Run once/month (e.g. 1st of the month, per household) across all active users."""
     async with get_pool().acquire() as conn:
         parents = await conn.fetch("select * from parents where deleted_at is null")
 
