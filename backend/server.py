@@ -1,3 +1,4 @@
+
 """
 server.py — AYANA-BOT API — FIXED for Supabase/Postgres migration (CTO Review)
 
@@ -2412,6 +2413,18 @@ async def generate_monthly_report_now(parent_id: str, period: str, user: dict = 
     report = await generate_monthly_report(scope(user), parent["id"], plan_id, year, month)
     await audit(user["id"], "generate_monthly_report", {"parent_id": parent_id, "period": period})
     return report
+
+@api.post("/reports/generate")
+async def trigger_monthly_reports(
+    year: int = Query(..., description="Year e.g. 2025"),
+    month: int = Query(..., description="Month 1-12"),
+    user: dict = Depends(get_current_admin),
+):
+    """Admin bulk trigger: generate reports for ALL parents for given month and WhatsApp PDF to child + siblings"""
+    from monthly_report import generate_reports_for_month
+    await generate_reports_for_month(year, month)
+    return {"status": "started", "period": f"{year:04d}-{month:02d}", "note": "Reports generating + WhatsApp sending to child + siblings in background"}
+
 
 # ---------------- Parent replies ----------------
 FEELING_MAP = {

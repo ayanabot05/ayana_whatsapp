@@ -5,6 +5,7 @@ import {
   Users, CalendarHeart, MessageCircle, CheckCircle2, Plus, Pencil, Trash2,
   Loader2, ShieldCheck, Clock, Power, Crown, Send, UserPlus, Activity,
   RefreshCw, Check, X, Palmtree, Eye, EyeOff, Calendar, ChevronLeft, ChevronRight, CalendarDays,
+  User, Download,
 } from "lucide-react";
 import { Navbar } from "@/components/Navbar";
 import { api, formatApiError, formatAxiosError } from "@/lib/api";
@@ -1220,38 +1221,147 @@ function PlanTab({ plans, currencies, planId, plan, usage, circle, reload, curre
 
 
 function ReportsTab({ parents, plan, user, checkinsData }) {
-  const stats = useMemo(() => {
-    const allParents = checkinsData?.parents || [];
-    let total = 0, replied = 0, skipped = 0, voice = 0, scheduled = 0;
-    allParents.forEach(pd => {
-      (pd.days||[]).forEach(d => {
-        total += d.total || 0;
-        replied += d.replied || 0;
-        scheduled += d.total || 0;
-        (d.messages||[]).forEach(m => {
-          if (m.reply_status === "skipped") skipped++;
-          if (m.reply?.is_voice) voice++;
-        });
+  const [selectedParentId, setSelectedParentId] = useState("all");
+  const [selectedMonth, setSelectedMonth] = useState(() => new Date().toISOString().slice(0, 7));
+
+  const todayIso = () => new Date().toISOString().slice(0, 10);
+
+  // Month range: from the account's signup month through the current month,
+  // most recent first. Never shows months before the user existed.
+  const monthOptions = useMemo(() => {
+    const start = user?.created_at ? new Date(user.created_at) : new Date();
+    const now = new Date();
+    const opts = [];
+    let y = start.getFullYear();
+    let m = start.getMonth();
+    while (y < now.getFullYear() || (y === now.getFullYear() && m <= now.getMonth())) {
+      opts.push(`${y}-${String(m + 1).padStart(2, "0")}`);
+      m += 1;
+      if (m > 11) { m = 0; y += 1; }
+    }
+    return opts.reverse();
+  }, [user]);
+
+  useEffect(() => {
+    if (monthOptions.length && !monthOptions.includes(selectedMonth)) {
+      setSelectedMonth(monthOptions[0]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [monthOptions]);
+
+  const monthLabel = useMemo(() => {
+    const [y, mo] = selectedMonth.split("-").map(Number);
+    if (!y || !mo) return selectedMonth;
+    return new Date(y, mo - 1, 1).toLocaleDateString("en-US", { month: "long", year: "numeric" });
+  }, [selectedMonth]);
+
+  const parentOptions = useMemo(() => checkinsData?.parents || [], [checkinsData]);
+
+  const filteredParents = useMemo(() => {
+    return selectedParentId === "all"
+      ? parentOptions
+      : parentOptions.filter((p) => p.parent_id === selectedParentId);
+  }, [parentOptions, selectedParentId]);
+
+  const filteredDays = useMemo(() => {
+    const today = todayIso();
+    const out = [];
+    filteredParents.forEach((pd) => {
+      (pd.days || []).forEach((d) => {
+        const iso = d.day_key === "today" ? today : d.day_key;
+        if (iso && iso.slice(0, 7) === selectedMonth) out.push(d);
       });
     });
-    return { total, replied, skipped, voice, scheduled, completion: total ? Math.round((replied/total)*100) : 0 };
-  }, [checkinsData]);
+    return out;
+  }, [filteredParents, selectedMonth]);
+
+  const allMessages = useMemo(() => filteredDays.flatMap((d) => d.messages || []), [filteredDays]);
+
+  const stats = useMemo(() => {
+    const total = allMessages.length;
+    const replied = allMessages.filter((m) => m.replied || m.reply_status === "done").length;
+    const skipped = allMessages.filter((m) => m.reply_status === "skipped").length;
+    const voice = allMessages.filter((m) => m.reply?.is_voice).length;
+    return { total, replied, skipped, voice, completion: total ? Math.round((replied / total) * 100) : 0 };
+  }, [allMessages]);
+
+  const feelingStats = useMemo(() => {
+    const counts = {};
+    allMessages.forEach((m) => {
+      if (m.reply?.feeling) counts[m.reply.feeling] = (counts[m.reply.feeling] || 0) + 1;
+    });
+    return counts;
+  }, [allMessages]);
+
+  const medicineStats = useMemo(() => {
+    let taken = 0, skipped = 0;
+    allMessages.forEach((m) => {
+      if (m.category?.includes("medicine")) {
+        if (m.reply_status === "done" || m.replied) taken++;
+        if (m.reply_status === "skipped") skipped++;
+      }
+    });
+    return { taken, skipped };
+  }, [allMessages]);
+
+  const byType = useMemo(() => {
+    const map = {};
+    allMessages.forEach((m) => {
+      if (!map[m.category]) map[m.category] = { label: m.category, sent: 0, completed: 0 };
+      map[m.category].sent += 1;
+      if (m.replied || m.reply_status === "done") map[m.category].completed += 1;
+    });
+    return Object.values(map);
+  }, [allMessages]);
+
+  if (parents.length === 0) {
+    return <EmptyState text="Add a parent first — reports appear here once check-ins start." />;
+  }
 
   return (
     <div className="space-y-4">
-      {/* Header like sample */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white rounded-[16px] border border-[#efe8d8] p-4">
-        <div>
-          <p className="text-[12px] text-[#9a9183]">Source: Dashboard bootstrap — same as Check-ins tab ({stats.replied}/{stats.total} = {stats.completion}%) • {parents.length} parents</p>
-          <p className="text-[11px] text-[#9a9183] mt-1">Updated just now • Mobile responsive</p>
+      {/* Filters */}
+      <div className="bg-white rounded-[16px] border border-[#efe8d8] p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-2">
+            <User className="w-4 h-4 text-[#9a9183]" />
+            <select
+              value={selectedParentId}
+              onChange={(e) => setSelectedParentId(e.target.value)}
+              data-testid="reports-parent-filter"
+              className="px-4 py-2 rounded-full border border-[#efe8d8] bg-white text-sm font-medium focus:outline-none focus:ring-2 focus:ring-[#0f3d2e]/20"
+            >
+              <option value="all">All parents</option>
+              {parentOptions.map((p) => (
+                <option key={p.parent_id} value={p.parent_id}>{p.name}</option>
+              ))}
+            </select>
+          </div>
+          <div className="flex items-center gap-2">
+            <Calendar className="w-4 h-4 text-[#9a9183]" />
+            <select
+              value={selectedMonth}
+              onChange={(e) => setSelectedMonth(e.target.value)}
+              data-testid="reports-month-filter"
+              className="px-4 py-2 rounded-full border border-[#efe8d8] bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#0f3d2e]/20"
+            >
+              {monthOptions.map((m) => {
+                const [y, mo] = m.split("-").map(Number);
+                const label = new Date(y, mo - 1, 1).toLocaleDateString("en-US", { month: "long", year: "numeric" });
+                return <option key={m} value={m}>{label}</option>;
+              })}
+            </select>
+          </div>
+          <span className="text-[11px] text-[#9a9183]">
+            {stats.replied}/{stats.total} = {stats.completion}% • {monthLabel}
+          </span>
         </div>
         <button className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full bg-[#0f3d2e] text-white text-[13px] font-medium hover:bg-black transition-colors shrink-0">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-          Download PDF
+          <Download className="w-4 h-4" /> Download PDF
         </button>
       </div>
 
-      {/* 4 stat cards - responsive grid */}
+      {/* 4 stat cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         <div className="bg-white rounded-[16px] border border-[#efe8d8] p-4 sm:p-5">
           <div className="w-8 h-8 rounded-full bg-[#faf6ec] border border-[#efe8d8] flex items-center justify-center mb-3">
@@ -1259,7 +1369,7 @@ function ReportsTab({ parents, plan, user, checkinsData }) {
           </div>
           <p className="font-display text-[28px] font-medium leading-none text-[#1a1a1a]">{stats.total}</p>
           <p className="text-[13px] text-[#6b5f4a] mt-1">Messages sent</p>
-          <p className="text-[11px] text-[#9a9183] mt-1">{stats.scheduled} scheduled</p>
+          <p className="text-[11px] text-[#9a9183] mt-1">{monthLabel}</p>
         </div>
         <div className="bg-white rounded-[16px] border border-[#efe8d8] p-4 sm:p-5">
           <div className="w-8 h-8 rounded-full bg-[#e6f4ea] border border-[#c8e9d4] flex items-center justify-center mb-3">
@@ -1283,48 +1393,56 @@ function ReportsTab({ parents, plan, user, checkinsData }) {
           </div>
           <p className="font-display text-[28px] font-medium leading-none text-[#1a1a1a]">{stats.voice}</p>
           <p className="text-[13px] text-[#6b5f4a] mt-1">Voice notes</p>
-          <p className="text-[11px] text-[#9a9183] mt-1">{parents.length} parents active</p>
+          <p className="text-[11px] text-[#9a9183] mt-1">{filteredParents.length} parent{filteredParents.length === 1 ? "" : "s"} shown</p>
         </div>
       </div>
 
-      {/* Second row */}
+      {/* second row */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
         <div className="bg-white rounded-[16px] border border-[#efe8d8] p-4 sm:p-5">
           <p className="text-[14px] font-medium text-[#1a1a1a] flex items-center gap-2"><span className="text-[16px]">☺</span> How they responded</p>
-          <p className="text-[12px] text-[#9a9183] mt-3">No feelings recorded yet</p>
-          <p className="text-[11px] text-[#9a9183] mt-2">Replies appear here when parents share mood</p>
+          {Object.keys(feelingStats).length === 0 ? (
+            <p className="text-[12px] text-[#9a9183] mt-3">No feelings recorded yet</p>
+          ) : (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {Object.entries(feelingStats).map(([feeling, count]) => (
+                <span key={feeling} className="px-2.5 py-1 rounded-full bg-[#faf6ec] border border-[#efe8d8] text-xs capitalize">{feeling.replace(/_/g, " ")} • {count}</span>
+              ))}
+            </div>
+          )}
         </div>
         <div className="bg-white rounded-[16px] border border-[#efe8d8] p-4 sm:p-5">
           <p className="text-[14px] font-medium text-[#1a1a1a] flex items-center gap-2"><span className="w-4 h-4 rounded-full bg-[#faf6ec] border border-[#efe8d8] flex items-center justify-center">💊</span> Medicine</p>
-          <p className="text-[13px] text-[#1a1a1a] mt-3">Taken 1 <span className="text-[#9a9183]">Skipped 0</span></p>
-          <div className="mt-2 w-full h-1.5 bg-[#f0e9d8] rounded-full overflow-hidden"><div className="h-full bg-[#10b981] w-full" /></div>
+          <p className="text-[13px] text-[#1a1a1a] mt-3">Taken {medicineStats.taken} <span className="text-[#9a9183]">Skipped {medicineStats.skipped}</span></p>
+          <div className="mt-2 w-full h-1.5 bg-[#f0e9d8] rounded-full overflow-hidden">
+            <div className="h-full bg-[#10b981]" style={{ width: `${medicineStats.taken + medicineStats.skipped ? (medicineStats.taken / (medicineStats.taken + medicineStats.skipped)) * 100 : 0}%` }} />
+          </div>
         </div>
         <div className="bg-white rounded-[16px] border border-[#efe8d8] p-4 sm:p-5">
           <p className="text-[14px] font-medium text-[#1a1a1a] flex items-center gap-2">⚠ Attention alerts</p>
           <p className="text-[13px] text-[#1a1a1a] mt-3">0 flagged messages</p>
-          <p className="text-[11px] text-[#9a9183] mt-1">All clear • side-by-side design</p>
+          <p className="text-[11px] text-[#9a9183] mt-1">All clear for {monthLabel}</p>
         </div>
       </div>
 
       {/* By message type */}
       <div className="bg-white rounded-[16px] border border-[#efe8d8] p-4 sm:p-5">
-        <h3 className="font-display text-[16px] font-medium text-[#1a1a1a]">By message type</h3>
+        <h3 className="font-display text-[16px] font-medium text-[#1a1a1a]">By message type — {monthLabel}</h3>
         <div className="mt-4 overflow-x-auto">
           <div className="min-w-[500px]">
             <div className="grid grid-cols-3 text-[11px] text-[#9a9183] border-b border-[#efe8d8] pb-2">
               <span>Message</span><span className="text-center">Delivered</span><span className="text-right">Completed</span>
             </div>
             <div className="divide-y divide-[#f5f0e6]">
-              {(checkinsData?.parents?.[0]?.days?.[0]?.messages || []).slice(0,6).map((m, i) => (
-                <div key={i} className="grid grid-cols-3 py-3 text-[13px]">
-                  <span className="text-[#1a1a1a]">{m.category}</span>
-                  <span className="text-center text-[#6b5f4a]">{m.status}</span>
-                  <span className="text-right text-[#0f7a4a]">{m.replied ? "✓" : "—"}</span>
+              {byType.length === 0 ? (
+                <p className="py-6 text-center text-[12px] text-[#9a9183]">No data yet for this selection.</p>
+              ) : byType.map((row) => (
+                <div key={row.label} className="grid grid-cols-3 py-3 text-[13px]">
+                  <span className="text-[#1a1a1a] capitalize">{row.label?.replace(/_/g, " ")}</span>
+                  <span className="text-center text-[#6b5f4a]">{row.sent}</span>
+                  <span className="text-right text-[#0f7a4a]">{row.completed}/{row.sent}</span>
                 </div>
               ))}
-              {(!checkinsData?.parents?.[0]?.days?.[0]?.messages || checkinsData.parents[0].days[0].messages.length===0) && (
-                <p className="py-6 text-center text-[12px] text-[#9a9183]">No data yet — check-ins will populate here</p>
-              )}
             </div>
           </div>
         </div>
