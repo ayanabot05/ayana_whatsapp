@@ -94,7 +94,7 @@ export default function Dashboard() {
   const auditLogs = useMemo(() => boot?.audit ?? [], [boot]);
   const checkinsData = boot?.checkins;
 
-  // All reply toasts removed as requested - no popup like "Amma is feeling..." 
+  // All reply toasts removed as requested - no popup like "Amma is feeling..."
   // will appear on dashboard anymore. Replies are only visible inside Check-ins tab if you open them.
   const markRepliesRead = () => {
     api.post("/replies/read", {})
@@ -246,7 +246,7 @@ export default function Dashboard() {
             <TabsTrigger value="account" data-testid="tab-account">Account</TabsTrigger>
           </TabsList>
 
-          
+
           <TabsContent value="parents" className="mt-6"><TabBoundary tab="parents" onRetry={load}>
             <div className="space-y-4">
               {/* Header like check-ins sample */}
@@ -1153,7 +1153,6 @@ function CircleTab({ circle, planId, plan, parents, reload }) {
 function PlanTab({ plans, currencies, planId, plan, usage, circle, reload, currentBilling, paymentsEnabled }) {
   const [busy, setBusy] = useState(false);
   const queryClient = useQueryClient();
-
   if (circle?.role === "member") {
     return (
       <div className="max-w-xl bg-white rounded-[16px] border border-[#efe8d8] p-6">
@@ -1162,7 +1161,6 @@ function PlanTab({ plans, currencies, planId, plan, usage, circle, reload, curre
       </div>
     );
   }
-
   const changePlan = async (id, billing) => {
     if (id === planId && billing === currentBilling) { toast("You're already on this plan."); return; }
     setBusy(true);
@@ -1178,7 +1176,6 @@ function PlanTab({ plans, currencies, planId, plan, usage, circle, reload, curre
       await reload();
     } catch (e) { toast.error(formatAxiosError(e), { duration: 8000 }); } finally { setBusy(false); }
   };
-
   return (
     <div className="space-y-4 max-w-3xl">
       <div className="bg-white rounded-[16px] border border-[#efe8d8] p-4 flex items-center gap-3">
@@ -1188,8 +1185,7 @@ function PlanTab({ plans, currencies, planId, plan, usage, circle, reload, curre
           <p className="text-[11px] text-[#9a9183]">Usage, limits, and upgrade options • Mobile responsive</p>
         </div>
       </div>
-
-      <div className="bg-white rounded-[16px] border border-[#efe8d8] p-4 sm:p-5 shadow-[0_1px_0_0_rgba(0,0,0,0.02)]" data-testid="plan-usage">
+      <div className="bg-white rounded-[16px] border border-[#efe8d8] p-4 sm:p-5" data-testid="plan-usage">
         <h2 className="font-display text-[16px] font-medium text-[#1a1a1a] mb-3">Current usage</h2>
         <div className="flex flex-wrap gap-2 text-[12px]">
           <span className="px-3 py-1.5 rounded-full bg-[#faf6ec] border border-[#efe8d8] text-[#6b5f4a]">{usage.parents ?? 0}/{plan?.limits?.parents ?? "–"} parents</span>
@@ -1198,16 +1194,15 @@ function PlanTab({ plans, currencies, planId, plan, usage, circle, reload, curre
           <span className={`px-3 py-1.5 rounded-full border ${plan?.limits?.recovery_mode ? "bg-[#e6f4ea] border-[#c8e9d4] text-[#1a7a4a]" : "bg-[#faf6ec] border-[#efe8d8] text-[#9a9183]"}`}>Recovery mode {plan?.limits?.recovery_mode ? "included" : "not included"}</span>
           {usage.recovery_schedules > 0 && <span className="px-3 py-1.5 rounded-full bg-[#e6f4ea] border border-[#c8e9d4] text-[#1a7a4a]">Recovery mode active on {usage.recovery_schedules} schedule(s)</span>}
         </div>
-        <p className="mt-3 text-[11px] text-[#9a9183]">Downgrading below your current usage will be blocked until you remove the extra items. We'll tell you exactly what to remove.</p>
+        <p className="mt-3 text-[11px] text-[#9a9183]">Downgrading below your current usage will be blocked until you remove the extra items.</p>
       </div>
-
-      <div className="bg-white rounded-[16px] border border-[#efe8d8] p-4 sm:p-6 shadow-[0_1px_0_0_rgba(0,0,0,0.02)]">
+      <div className="bg-white rounded-[16px] border border-[#efe8d8] p-4 sm:p-6">
         <h2 className="font-display text-[16px] font-medium text-[#1a1a1a] mb-4">Change your plan</h2>
         {plans.length === 0 ? (
-          <div className="flex flex-col items-center gap-3 py-8 text-center bg-[#faf6ec] rounded-xl border border-dashed border-[#efe8d8]" data-testid="plans-unavailable">
+          <div className="flex flex-col items-center gap-3 py-8 text-center bg-[#faf6ec] rounded-xl border border-dashed" data-testid="plans-unavailable">
             <Loader2 className="w-5 h-5 animate-spin text-[#9a9183]" />
             <p className="text-sm text-[#6b5f4a]">Couldn't load plan options right now.</p>
-            <button onClick={reload} className="text-sm font-medium text-[#0f3d2e] underline underline-offset-2">Try again</button>
+            <button onClick={reload} className="text-sm font-medium text-[#0f3d2e] underline">Try again</button>
           </div>
         ) : (
           <fieldset disabled={busy}>
@@ -1219,15 +1214,13 @@ function PlanTab({ plans, currencies, planId, plan, usage, circle, reload, curre
   );
 }
 
-
 function ReportsTab({ parents, plan, user, checkinsData }) {
   const [selectedParentId, setSelectedParentId] = useState("all");
   const [selectedMonth, setSelectedMonth] = useState(() => new Date().toISOString().slice(0, 7));
+  const [pdfBusy, setPdfBusy] = useState(false);
 
   const todayIso = () => new Date().toISOString().slice(0, 10);
 
-  // Month range: from the account's signup month through the current month,
-  // most recent first. Never shows months before the user existed.
   const monthOptions = useMemo(() => {
     const start = user?.created_at ? new Date(user.created_at) : new Date();
     const now = new Date();
@@ -1269,7 +1262,7 @@ function ReportsTab({ parents, plan, user, checkinsData }) {
     filteredParents.forEach((pd) => {
       (pd.days || []).forEach((d) => {
         const iso = d.day_key === "today" ? today : d.day_key;
-        if (iso && iso.slice(0, 7) === selectedMonth) out.push(d);
+        if (iso && iso.slice(0, 7) === selectedMonth) out.push({ ...d, parentName: pd.name });
       });
     });
     return out;
@@ -1285,42 +1278,98 @@ function ReportsTab({ parents, plan, user, checkinsData }) {
     return { total, replied, skipped, voice, completion: total ? Math.round((replied / total) * 100) : 0 };
   }, [allMessages]);
 
-  const feelingStats = useMemo(() => {
-    const counts = {};
-    allMessages.forEach((m) => {
-      if (m.reply?.feeling) counts[m.reply.feeling] = (counts[m.reply.feeling] || 0) + 1;
-    });
-    return counts;
-  }, [allMessages]);
-
-  const medicineStats = useMemo(() => {
-    let taken = 0, skipped = 0;
-    allMessages.forEach((m) => {
-      if (m.category?.includes("medicine")) {
-        if (m.reply_status === "done" || m.replied) taken++;
-        if (m.reply_status === "skipped") skipped++;
+  const handleDownloadPDF = async () => {
+    if (!filteredParents.length) {
+      toast.error("No data for selected filters");
+      return;
+    }
+    setPdfBusy(true);
+    try {
+      let jsPDF = null;
+      try {
+        const mod = await import("jspdf");
+        jsPDF = mod.jsPDF || mod.default || mod;
+      } catch (e) {
+        console.warn("npm jspdf not found, trying CDN", e);
       }
-    });
-    return { taken, skipped };
-  }, [allMessages]);
 
-  const byType = useMemo(() => {
-    const map = {};
-    allMessages.forEach((m) => {
-      if (!map[m.category]) map[m.category] = { label: m.category, sent: 0, completed: 0 };
-      map[m.category].sent += 1;
-      if (m.replied || m.reply_status === "done") map[m.category].completed += 1;
-    });
-    return Object.values(map);
-  }, [allMessages]);
+      if (!jsPDF) {
+        if (!window.jspdf) {
+          await new Promise((resolve, reject) => {
+            const script = document.createElement("script");
+            script.src = "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js";
+            script.onload = resolve;
+            script.onerror = () => reject(new Error("CDN failed"));
+            document.head.appendChild(script);
+          });
+        }
+        jsPDF = window.jspdf?.jsPDF || window.jspdf?.default || window.jspdf;
+      }
+
+      if (!jsPDF) {
+        toast.error("Install jspdf: npm install jspdf in frontend folder");
+        return;
+      }
+
+      const doc = new jsPDF();
+      const parentName = selectedParentId === "all" ? "All-Parents" : (filteredParents[0]?.name || "Parent");
+
+      let y = 20;
+      doc.setFontSize(16);
+      doc.text(`AYANA Care Report - ${parentName}`, 14, y);
+      y += 8;
+      doc.setFontSize(11);
+      doc.text(`${monthLabel} (${selectedMonth}) | ${stats.replied}/${stats.total} = ${stats.completion}%`, 14, y);
+      y += 8;
+      doc.text(`Voice: ${stats.voice} | Skipped: ${stats.skipped} | Generated: ${new Date().toLocaleString()}`, 14, y);
+      y += 12;
+
+      doc.setFontSize(12);
+      doc.text("By message type", 14, y);
+      y += 8;
+      doc.setFontSize(10);
+      const byType = {};
+      allMessages.forEach((m) => {
+        if (!byType[m.category]) byType[m.category] = { sent: 0, done: 0 };
+        byType[m.category].sent++;
+        if (m.replied || m.reply_status === "done") byType[m.category].done++;
+      });
+      Object.entries(byType).forEach(([cat, v]) => {
+        if (y > 270) { doc.addPage(); y = 20; }
+        doc.text(`${cat.replace(/_/g, " ")} - ${v.done}/${v.sent}`, 14, y);
+        y += 6;
+      });
+
+      y += 6;
+      if (y > 250) { doc.addPage(); y = 20; }
+      doc.setFontSize(12);
+      doc.text("Day by day", 14, y);
+      y += 8;
+      doc.setFontSize(9);
+      filteredDays.slice(0, 20).forEach((d) => {
+        if (y > 270) { doc.addPage(); y = 20; }
+        const line = `${d.day_key} - ${d.replied}/${d.total} - ${(d.messages || []).map(m => m.category).join(", ")}`;
+        const split = doc.splitTextToSize(line, 180);
+        doc.text(split, 14, y);
+        y += split.length * 5 + 2;
+      });
+
+      doc.save(`AYANA-Report-${parentName}-${selectedMonth}.pdf`);
+      toast.success(`PDF downloaded: ${parentName} - ${monthLabel}`);
+    } catch (e) {
+      console.error("PDF error", e);
+      toast.error("PDF failed: " + e.message);
+    } finally {
+      setPdfBusy(false);
+    }
+  };
 
   if (parents.length === 0) {
-    return <EmptyState text="Add a parent first — reports appear here once check-ins start." />;
+    return <div className="p-8 text-center text-sm text-ayana-muted">Add a parent first</div>;
   }
 
   return (
     <div className="space-y-4">
-      {/* Filters */}
       <div className="bg-white rounded-[16px] border border-[#efe8d8] p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex items-center gap-2">
@@ -1328,8 +1377,7 @@ function ReportsTab({ parents, plan, user, checkinsData }) {
             <select
               value={selectedParentId}
               onChange={(e) => setSelectedParentId(e.target.value)}
-              data-testid="reports-parent-filter"
-              className="px-4 py-2 rounded-full border border-[#efe8d8] bg-white text-sm font-medium focus:outline-none focus:ring-2 focus:ring-[#0f3d2e]/20"
+              className="px-4 py-2 rounded-full border border-[#efe8d8] bg-white text-sm font-medium"
             >
               <option value="all">All parents</option>
               {parentOptions.map((p) => (
@@ -1342,8 +1390,7 @@ function ReportsTab({ parents, plan, user, checkinsData }) {
             <select
               value={selectedMonth}
               onChange={(e) => setSelectedMonth(e.target.value)}
-              data-testid="reports-month-filter"
-              className="px-4 py-2 rounded-full border border-[#efe8d8] bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#0f3d2e]/20"
+              className="px-4 py-2 rounded-full border border-[#efe8d8] bg-white text-sm"
             >
               {monthOptions.map((m) => {
                 const [y, mo] = m.split("-").map(Number);
@@ -1352,100 +1399,22 @@ function ReportsTab({ parents, plan, user, checkinsData }) {
               })}
             </select>
           </div>
-          <span className="text-[11px] text-[#9a9183]">
-            {stats.replied}/{stats.total} = {stats.completion}% • {monthLabel}
-          </span>
+          <span className="text-[11px] text-[#9a9183]">{stats.replied}/{stats.total} = {stats.completion}% • {monthLabel}</span>
         </div>
-        <button className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full bg-[#0f3d2e] text-white text-[13px] font-medium hover:bg-black transition-colors shrink-0">
-          <Download className="w-4 h-4" /> Download PDF
+        <button
+          onClick={handleDownloadPDF}
+          disabled={pdfBusy}
+          className="inline-flex items-center gap-1.5 px-5 py-2 rounded-full bg-[#0f3d2e] text-white text-[13px] font-medium hover:bg-black disabled:opacity-50"
+        >
+          {pdfBusy ? "Generating..." : <><Download className="w-4 h-4" /> Download PDF</>}
         </button>
       </div>
 
-      {/* 4 stat cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-        <div className="bg-white rounded-[16px] border border-[#efe8d8] p-4 sm:p-5">
-          <div className="w-8 h-8 rounded-full bg-[#faf6ec] border border-[#efe8d8] flex items-center justify-center mb-3">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#0f3d2e" strokeWidth="1.75"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
-          </div>
-          <p className="font-display text-[28px] font-medium leading-none text-[#1a1a1a]">{stats.total}</p>
-          <p className="text-[13px] text-[#6b5f4a] mt-1">Messages sent</p>
-          <p className="text-[11px] text-[#9a9183] mt-1">{monthLabel}</p>
-        </div>
-        <div className="bg-white rounded-[16px] border border-[#efe8d8] p-4 sm:p-5">
-          <div className="w-8 h-8 rounded-full bg-[#e6f4ea] border border-[#c8e9d4] flex items-center justify-center mb-3">
-            <CheckCircle2 className="w-4 h-4 text-[#0f7a4a]" />
-          </div>
-          <p className="font-display text-[28px] font-medium leading-none text-[#1a1a1a]">{stats.completion}%</p>
-          <p className="text-[13px] text-[#6b5f4a] mt-1">Completion rate</p>
-          <p className="text-[11px] text-[#9a9183] mt-1">{stats.replied} completed</p>
-        </div>
-        <div className="bg-white rounded-[16px] border border-[#efe8d8] p-4 sm:p-5">
-          <div className="w-8 h-8 rounded-full bg-[#faf6ec] border border-[#efe8d8] flex items-center justify-center mb-3">
-            <Clock className="w-4 h-4 text-[#6b5f4a]" />
-          </div>
-          <p className="font-display text-[28px] font-medium leading-none text-[#1a1a1a]">{stats.skipped}</p>
-          <p className="text-[13px] text-[#6b5f4a] mt-1">Skipped</p>
-          <p className="text-[11px] text-[#9a9183] mt-1">quiet-hours / paused</p>
-        </div>
-        <div className="bg-white rounded-[16px] border border-[#efe8d8] p-4 sm:p-5">
-          <div className="w-8 h-8 rounded-full bg-[#faf6ec] border border-[#efe8d8] flex items-center justify-center mb-3">
-            <MessageCircle className="w-4 h-4 text-[#0f3d2e]" />
-          </div>
-          <p className="font-display text-[28px] font-medium leading-none text-[#1a1a1a]">{stats.voice}</p>
-          <p className="text-[13px] text-[#6b5f4a] mt-1">Voice notes</p>
-          <p className="text-[11px] text-[#9a9183] mt-1">{filteredParents.length} parent{filteredParents.length === 1 ? "" : "s"} shown</p>
-        </div>
-      </div>
-
-      {/* second row */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
-        <div className="bg-white rounded-[16px] border border-[#efe8d8] p-4 sm:p-5">
-          <p className="text-[14px] font-medium text-[#1a1a1a] flex items-center gap-2"><span className="text-[16px]">☺</span> How they responded</p>
-          {Object.keys(feelingStats).length === 0 ? (
-            <p className="text-[12px] text-[#9a9183] mt-3">No feelings recorded yet</p>
-          ) : (
-            <div className="mt-3 flex flex-wrap gap-2">
-              {Object.entries(feelingStats).map(([feeling, count]) => (
-                <span key={feeling} className="px-2.5 py-1 rounded-full bg-[#faf6ec] border border-[#efe8d8] text-xs capitalize">{feeling.replace(/_/g, " ")} • {count}</span>
-              ))}
-            </div>
-          )}
-        </div>
-        <div className="bg-white rounded-[16px] border border-[#efe8d8] p-4 sm:p-5">
-          <p className="text-[14px] font-medium text-[#1a1a1a] flex items-center gap-2"><span className="w-4 h-4 rounded-full bg-[#faf6ec] border border-[#efe8d8] flex items-center justify-center">💊</span> Medicine</p>
-          <p className="text-[13px] text-[#1a1a1a] mt-3">Taken {medicineStats.taken} <span className="text-[#9a9183]">Skipped {medicineStats.skipped}</span></p>
-          <div className="mt-2 w-full h-1.5 bg-[#f0e9d8] rounded-full overflow-hidden">
-            <div className="h-full bg-[#10b981]" style={{ width: `${medicineStats.taken + medicineStats.skipped ? (medicineStats.taken / (medicineStats.taken + medicineStats.skipped)) * 100 : 0}%` }} />
-          </div>
-        </div>
-        <div className="bg-white rounded-[16px] border border-[#efe8d8] p-4 sm:p-5">
-          <p className="text-[14px] font-medium text-[#1a1a1a] flex items-center gap-2">⚠ Attention alerts</p>
-          <p className="text-[13px] text-[#1a1a1a] mt-3">0 flagged messages</p>
-          <p className="text-[11px] text-[#9a9183] mt-1">All clear for {monthLabel}</p>
-        </div>
-      </div>
-
-      {/* By message type */}
-      <div className="bg-white rounded-[16px] border border-[#efe8d8] p-4 sm:p-5">
-        <h3 className="font-display text-[16px] font-medium text-[#1a1a1a]">By message type — {monthLabel}</h3>
-        <div className="mt-4 overflow-x-auto">
-          <div className="min-w-[500px]">
-            <div className="grid grid-cols-3 text-[11px] text-[#9a9183] border-b border-[#efe8d8] pb-2">
-              <span>Message</span><span className="text-center">Delivered</span><span className="text-right">Completed</span>
-            </div>
-            <div className="divide-y divide-[#f5f0e6]">
-              {byType.length === 0 ? (
-                <p className="py-6 text-center text-[12px] text-[#9a9183]">No data yet for this selection.</p>
-              ) : byType.map((row) => (
-                <div key={row.label} className="grid grid-cols-3 py-3 text-[13px]">
-                  <span className="text-[#1a1a1a] capitalize">{row.label?.replace(/_/g, " ")}</span>
-                  <span className="text-center text-[#6b5f4a]">{row.sent}</span>
-                  <span className="text-right text-[#0f7a4a]">{row.completed}/{row.sent}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
+        <div className="bg-white rounded-[16px] border p-5"><p className="text-[28px] font-medium">{stats.total}</p><p className="text-sm text-[#6b5f4a]">Messages sent</p></div>
+        <div className="bg-white rounded-[16px] border p-5"><p className="text-[28px] font-medium">{stats.completion}%</p><p className="text-sm">Completion</p></div>
+        <div className="bg-white rounded-[16px] border p-5"><p className="text-[28px] font-medium">{stats.skipped}</p><p className="text-sm">Skipped</p></div>
+        <div className="bg-white rounded-[16px] border p-5"><p className="text-[28px] font-medium">{stats.voice}</p><p className="text-sm">Voice notes</p></div>
       </div>
     </div>
   );
