@@ -1,3 +1,4 @@
+
 import hashlib
 import hmac
 import json
@@ -890,6 +891,58 @@ async def send_member_removed_notice(member_phone: str, language: str = "en") ->
     body = _MEMBER_REMOVED_TEXT.get(lang, _MEMBER_REMOVED_TEXT["en"])
     logger.info("[lifecycle] member-removed notice -> %s", member_phone)
     return send_whatsapp(member_phone, body)
+
+
+
+# ── NEW: Document / PDF report delivery ──────────────────────────────────
+async def send_document_link(to_phone: str, document_link: str, filename: str = "AYANA-Report.pdf", caption: str = "") -> Dict[str, Any]:
+    """Send a PDF/document via public link (S3 signed URL). Works for reports."""
+    token, phone_id = _creds()
+    if not whatsapp_enabled() or not token or not phone_id:
+        logger.info("[wa] Simulated document to %s file=%s link=%.80s", to_phone, filename, document_link)
+        return {"status": "simulated", "to": to_phone, "type": "document", "link": document_link, "filename": filename}
+    try:
+        payload = {
+            "messaging_product": "whatsapp",
+            "to": to_phone,
+            "type": "document",
+            "document": {
+                "link": document_link,
+                "filename": filename,
+                "caption": caption[:1024] if caption else "",
+            },
+        }
+        resp = httpx.post(
+            _messages_url(phone_id),
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            json=payload,
+            timeout=_SEND_TIMEOUT,
+        )
+        if resp.status_code >= 400:
+            _log_meta_error(resp, f"document to={to_phone} file={filename}")
+        resp.raise_for_status()
+        msg_id = _extract_message_id(resp.json())
+        logger.info("[wa] Document sent to %s file=%s id=%s", to_phone, filename, msg_id)
+        return {"status": "sent", "sid": msg_id, "type": "document", "filename": filename}
+    except Exception as e:
+        logger.error("[wa] Document send failed to %s file=%s: %s", to_phone, filename, e, exc_info=True)
+        return {"status": "failed", "detail": str(e), "to": to_phone, "filename": filename}
+
+
+async def send_report_pdf_with_link(to_phone: str, pdf_url: str, period: str, parent_display: str, language: str = "en", filename: str = None) -> Dict[str, Any]:
+    """Helper: send report PDF after the template. Uses send_document_link."""
+    if not pdf_url:
+        return {"status": "skipped", "detail": "no pdf url"}
+    fname = filename or f"AYANA-Report-{parent_display}-{period}.pdf"
+    caption_map = {
+        "en": f"💛 AYANA Care Report for {parent_display} - {period}\n{period} summary attached.",
+        "te": f"💛 {parent_display} కోసం AYANA కేర్ రిపోర్ట్ - {period}",
+        "hi": f"💛 {parent_display} के लिए AYANA केयर रिपोर्ट - {period}",
+    }
+    lang = _lang2(language)
+    caption = caption_map.get(lang, caption_map["en"])
+    return await send_document_link(to_phone, pdf_url, fname, caption)
+
 
 
 # ── #11 Care-circle sibling notifications ──────────────────────────────────
