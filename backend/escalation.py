@@ -1,38 +1,19 @@
 """
-escalation.py — AYANA "Care Watch" engine — FIXED for Supabase/Postgres migration.
+escalation.py — AYANA "Care Watch" engine — UPDATED for User-Configured Schedules.
 
 Runs on a short interval (locked, like the other scheduler jobs) and does
 three things, all timezone-aware to the parent's local day:
-
 1. RETRY unanswered check-ins / medicine reminders
-2. AFTERNOON no-response warning
+2. AFTERNOON no-response warning (24h silence check)
 3. BIRTHDAY + FESTIVAL auto-wishes
 
-FIXES APPLIED (CTO review):
-- P0: Wrapped escalation_state + message_logs inserts in a transaction (atomic)
-- P0: emergency_contacts can be JSON string or list — now parsed safely
-- P0: Single long-lived connection for whole job now uses per-iteration connections
-      to avoid holding pool connection for minutes with 1000 parents
-- P1: Added _parse_jsonb helper for emergency_contacts / other jsonb fields
-- P1: send_whatsapp is sync and blocks event loop — now run in threadpool via to_thread
-- P1: _has_reply_since now orders by created_at desc for index efficiency
-- P2: Added proper logging and error boundaries per parent so one bad parent doesn't break loop
-- P2: Ensure birthday compare handles None and string formats
-
-FIXES APPLIED (this pass):
-- P0: Removed `from scheduler import _send_scheduled_message` — scheduler.py
-      does `from escalation import run_care_watch_impl`, so importing back
-      from scheduler.py here created a circular import. That helper also
-      never existed in scheduler.py — send_dynamic_checkin already does
-      correct session-based routing (free-form vs approved template)
-      internally, so it's called directly instead.
-- P0: message_logs insert for escalation retries was missing the `sid`
-      column entirely. Meta's delivery-status webhook (_persist_delivery_status
-      in server.py) matches incoming callbacks by sid — any row inserted
-      without one can NEVER have its delivery_status updated later, so it
-      stays stuck showing "Waiting" on the dashboard forever even if the
-      message was actually delivered. Now captured from `result.get("sid")`,
-      same as scheduler.py's insert.
+UPDATES (this pass):
+- No longer reads from the `schedules` table; reads directly from `parents`.
+- Retry logic uses `message_logs` and fits the new `parent_checkins`, `parent_health_reminders`, `parent_routines` tables.
+- Removed reliance on the old `sched["messages"]` JSON structure.
+- Maintains circular import safety (does not import from `scheduler.py`).
+- Uses `send_dynamic_checkin` which routes to template or quick reply based on session.
+- Sets `schedule_id` to NULL in retried `message_logs` (since we don't have a schedule ID in the new system).
 """
 
 import asyncio
@@ -42,13 +23,12 @@ from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 
 from database import get_pool
-from whatsapp import send_whatsapp, send_medicine_template, send_dynamic_checkin
+from whatsapp import send_whatsapp, send_dynamic_checkin
 
 logger = logging.getLogger("ayana.escalation")
 
 # Sprint Phase 3: simplified retry policy — ONE gentle nudge at +2 hours if
-# no reply, then stop. No re-firing yesterday's missed messages today (the
-# day_key filter below already scopes retries to the parent's local day).
+# no reply, then stop. No re-firing yesterday's missed messages today.
 NUDGE_AFTER_MIN = 120
 MAX_RESEND_ATTEMPTS = 1
 SILENCE_PING_HOURS = 24
@@ -139,7 +119,6 @@ async def _notify_child(conn, user_id, parent, text: str):
         for p in unique_phones:
             try:
                 # send_whatsapp is sync (blocks) — run in threadpool to not block event loop
-                # If whatsapp.py is ever made async, replace with await send_whatsapp(...)
                 await asyncio.to_thread(send_whatsapp, p, text)
             except Exception as e:
                 logger.warning("[escalation] notify %s failed: %s", p, e)
@@ -147,30 +126,29 @@ async def _notify_child(conn, user_id, parent, text: str):
         logger.error("[escalation] _notify_child failed: %s", e, exc_info=True)
 
 
+# Helper to determine if a category is a reminder type
+_REMINDER_CATEGORIES = {"medicine", "water", "bp_check", "sugar_check", "health_check"}
+
+
 async def run_care_watch_impl():
     now = datetime.now(timezone.utc)
 
-    # Fetch schedules first with a short-lived connection
+    # Fetch all active parents directly (no longer relying on schedules table)
     try:
         async with get_pool().acquire() as conn:
-            schedules = await conn.fetch(
-                "select * from schedules where active = true and deleted_at is null"
+            parents = await conn.fetch(
+                "select * from parents where deleted_at is null"
             )
     except Exception as e:
-        logger.error("[escalation] Failed to fetch schedules: %s", e, exc_info=True)
+        logger.error("[escalation] Failed to fetch parents: %s", e, exc_info=True)
         return
 
-    for sched in schedules:
-        # Per-schedule connection to avoid holding one connection for entire loop
+    for parent in parents:
+        # Per-parent connection to avoid holding one connection for entire loop
         try:
             async with get_pool().acquire() as conn:
-                parent = await conn.fetchrow(
-                    "select * from parents where id = $1", sched["parent_id"]
-                )
-                if not parent or parent.get("deleted_at"):
-                    continue
                 activation = await conn.fetchrow(
-                    "select * from activation_state where user_id = $1", sched["user_id"]
+                    "select * from activation_state where user_id = $1", parent["user_id"]
                 )
                 if not activation or not activation.get("whatsapp_activated"):
                     continue
@@ -179,10 +157,11 @@ async def run_care_watch_impl():
                     tz = ZoneInfo(parent.get("timezone") or "Asia/Kolkata")
                 except Exception:
                     tz = ZoneInfo("Asia/Kolkata")
+                
                 local = now.astimezone(tz)
                 day_key = local.strftime("%Y-%m-%d")
                 day_index = local.timetuple().tm_yday
-                user_id = sched["user_id"]
+                user_id = parent["user_id"]
                 parent_id = parent["id"]
                 lang = parent.get("language") or "en"
                 preferred = parent.get("preferred_name") or parent.get("name") or "Amma"
@@ -216,16 +195,15 @@ async def run_care_watch_impl():
                             continue
 
                         category = log["category"] or "how_feeling"
-                        msg_type = log["msg_type"] or "checkin"
-                        kind = "medicine" if msg_type == "reminder" else "checkin"
+                        # send_dynamic_checkin handles routing (template vs quick reply)
+                        # We pass empty medicine_name; if a specific med name is needed,
+                        # it can be fetched from parent['medicine_list'] here.
+                        result = await send_dynamic_checkin(
+                            dict(parent), category, day_index, 7, medicine_name=""
+                        )
 
-                        if kind == "medicine":
-                            result = await send_medicine_template(dict(parent), day_index, 7, medicine_name="")
-                        else:
-                            # send_dynamic_checkin already checks is_session_open() internally
-                            # and routes to the approved template when the 24h window is closed —
-                            # no separate routing helper needed here.
-                            result = await send_dynamic_checkin(dict(parent), category, day_index, 7)
+                        # Determine kind for tracking
+                        kind = "reminder" if category in _REMINDER_CATEGORIES else "checkin"
 
                         # P0 FIX: Atomic transaction — state + log must succeed together
                         async with conn.transaction():
@@ -246,22 +224,18 @@ async def run_care_watch_impl():
                                 """
                                 insert into message_logs (user_id, parent_id, schedule_id, day_key, category,
                                                            msg_type, status, escalation_of, attempt, kind, sid, created_at)
-                                values ($1, $2, $3, $4, $5, 'escalation', $6, $7, $8, $9, $10, $11)
+                                values ($1, $2, NULL, $3, $4, 'escalation', $5, $6, $7, $8, $9, $10)
                                 """,
-                                user_id, parent_id, sched["id"], day_key, category,
+                                user_id, parent_id, day_key, category,
                                 (result or {}).get("status"), log["id"], attempts + 1, kind,
                                 (result or {}).get("sid"), now,
                             )
-                        logger.info("[escalation] %s retry #%d -> %s (%s)", kind, attempts + 1, parent.get("name"), category)
+                        logger.info("[escalation] retry #%d -> %s (%s)", attempts + 1, parent.get("name"), category)
                     except Exception as e:
                         logger.error("[escalation] retry failed for log %s: %s", log.get("id"), e, exc_info=True)
                         continue
 
                 # ---- 2) 24h cross-day silence handling ----
-                # Parent replied to NOTHING in 24h -> soft standalone ping to
-                # the parent + alert to the child. Does NOT reschedule
-                # yesterday's specific reminders — tomorrow is a fresh day.
-                # The escalation_daily marker makes this fire at most once/day.
                 try:
                     sent_last_24h = await conn.fetchval(
                         """
@@ -271,12 +245,7 @@ async def run_care_watch_impl():
                         """,
                         parent_id, now - timedelta(hours=SILENCE_PING_HOURS),
                     )
-                    # FALSE-ALERT FIX: anchor the silence window to the FIRST
-                    # message ever sent to this parent. A brand-new parent has
-                    # last_reply_at = None, which previously read as "silent for
-                    # 24h" and fired the alert minutes after setup. Now we only
-                    # nudge once the parent has actually been receiving
-                    # check-ins for >= 24h.
+                    # FALSE-ALERT FIX: anchor the silence window to the FIRST message ever sent.
                     first_sent_at = _aware(await conn.fetchval(
                         """
                         select min(created_at) from message_logs
@@ -320,7 +289,6 @@ async def run_care_watch_impl():
                     # birthday can be MM-DD or YYYY-MM-DD or None — handle safely
                     bday = (parent.get("birthday") or "").strip()
                     if bday:
-                        # normalize to MM-DD
                         bday_mmdd = bday[-5:] if len(bday) >= 5 else bday
                         if bday_mmdd == mmdd:
                             greet = BIRTHDAY_WISH.get(lang, BIRTHDAY_WISH["en"]).format(name=preferred)
@@ -346,5 +314,5 @@ async def run_care_watch_impl():
                     logger.error("[escalation] greet check failed for parent %s: %s", parent_id, e, exc_info=True)
 
         except Exception as exc:
-            logger.error("[escalation] unhandled error for schedule %s — %s", sched.get("id"), exc, exc_info=True)
+            logger.error("[escalation] unhandled error for parent %s — %s", parent.get("id"), exc, exc_info=True)
             continue

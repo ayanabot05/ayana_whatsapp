@@ -87,7 +87,7 @@ export default function Dashboard() {
     parents.filter((p) => p.language_suggestion && p.language_suggestion !== p.language)
       .map((p) => [p.id, { suggested_language: p.language_suggestion }])
   ), [parents]);
-  const schedules = boot?.schedules ?? [];
+  const schedules = boot?.schedules ?? []; // still used for display, but we no longer rely on it for editing
   const activation = boot?.activation ?? {};
   const payment = boot?.payment ?? { state: { plan: "nitya" } };
   const circle = boot?.circle ?? { role: "owner", members: [], invites: [] };
@@ -812,6 +812,8 @@ function CheckinsTab({ parents, data, catByKey, revealedReplies, setRevealedRepl
   );
 }
 
+// ─── UPDATED ParentDialog – uses granular APIs ──────────────────────────
+
 function ParentDialog({ parent, config, limits, plan, schedules = [], onSaved, trigger }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -819,19 +821,39 @@ function ParentDialog({ parent, config, limits, plan, schedules = [], onSaved, t
   const maxCheckins = limits?.checkins || 2;
   const maxReminders = limits?.reminders || 2;
 
-  const existingSchedule = parent ? schedules.find((s) => s.parent_id === parent.id) : null;
   const getDefaultMessages = () => [
     { time: "08:00", category: "morning_wish", type: "checkin" },
     { time: "13:00", category: "lunch", type: "checkin" },
     { time: "21:00", category: "goodnight", type: "checkin" },
   ].slice(0, maxCheckins);
 
-  const buildFormFromParent = () => {
-    if (!parent) return { ...blankParentForm(), messages: getDefaultMessages() };
-    const sched = schedules.find((s) => s.parent_id === parent.id);
-    const schedMessages = sched?.messages
-      ? sched.messages.filter((m) => m.type !== "reminder" && m.source !== "medicine_sync")
-      : getDefaultMessages();
+  // Build form from parent + granular schedule data
+  const buildFormFromParent = async () => {
+    if (!parent) return { ...blankParentForm(), messages: getDefaultMessages(), medicine_list: [] };
+
+    // Fetch granular schedule and medicines
+    const [checkinsRes, healthRes, routinesRes, medsRes] = await Promise.all([
+      api.get(`/parents/${parent.id}/checkins`).then(r => r.data).catch(() => []),
+      api.get(`/parents/${parent.id}/health-reminders`).then(r => r.data).catch(() => []),
+      api.get(`/parents/${parent.id}/routines`).then(r => r.data).catch(() => []),
+      api.get(`/parents/${parent.id}/medicines`).then(r => r.data).catch(() => []),
+    ]);
+
+    const messages = [
+      ...checkinsRes.map(c => ({ category: c.category, time: c.time, type: 'checkin' })),
+      ...healthRes.map(h => ({ category: h.category, time: h.time, type: 'reminder' })),
+      ...routinesRes.map(r => ({ category: r.category, time: r.time, type: 'activity' })),
+    ];
+
+    const medicine_list = medsRes.map(m => ({
+      name: m.name,
+      dose: m.dosage || '',
+      shape: m.shape || '',
+      color: m.colour || '',
+      timing: m.food_timing || '',
+      reminder_time: m.reminder_times?.[0] || '',
+    }));
+
     return {
       name: parent.name || "",
       relationship: parent.relationship || "mother",
@@ -848,24 +870,25 @@ function ParentDialog({ parent, config, limits, plan, schedules = [], onSaved, t
       activity_window_start: parent.activity_window_start || "06:00",
       activity_window_end: parent.activity_window_end || "22:00",
       auto_activity_detection: false,
-      medicine_list: parent.medicine_list || [],
+      medicine_list: medicine_list,
       habits: parent.habits || blankParentForm().habits,
-      messages: schedMessages.length ? schedMessages : getDefaultMessages(),
-      reengagement_hours: sched?.reengagement_hours ?? 4,
+      messages: messages.length ? messages : getDefaultMessages(),
+      reengagement_hours: 4,
     };
   };
 
-  const [form, setForm] = useState(() => buildFormFromParent());
+  const [form, setForm] = useState(() => blankParentForm());
   const [createdParentId, setCreatedParentId] = useState(null);
 
+  // Load data when dialog opens
   useEffect(() => {
     if (open) {
-      setForm(buildFormFromParent());
+      buildFormFromParent().then(f => setForm(f));
       setNewMed(blankMedicine());
       setCreatedParentId(null);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, parent]);
 
   const save = async () => {
     const checkinCount = form.messages.filter((m) => m.type !== "reminder").length;
@@ -891,36 +914,59 @@ function ParentDialog({ parent, config, limits, plan, schedules = [], onSaved, t
       const { messages, reengagement_hours, medicine_list: _ignoredMedicineList, ...parentData } = form;
       const payload = {
         ...parentData,
-        medicine_list: medicineListToSave,
         habits: cleanHabits(form.habits),
         birthday: cleanOptionalString(form.birthday),
         activity_window_start: cleanOptionalString(form.activity_window_start),
         activity_window_end: cleanOptionalString(form.activity_window_end),
       };
+      // Save parent (medicine_list is no longer used, we'll save separately)
       const targetId = parent?.id || createdParentId;
       const { data } = targetId ? await api.put(`/parents/${targetId}`, payload) : await api.post("/parents", payload);
       const parentId = data?.id || targetId;
       if (!parent) setCreatedParentId(parentId);
 
-      const schedPayload = {
-        parent_id: parentId,
-        mode: plan?.id || "nitya",
-        messages: messages,
-        active: existingSchedule?.active ?? true,
-        reengagement_hours: reengagement_hours ?? 1,
-      };
-      if (existingSchedule) {
-        await api.put(`/schedules/${existingSchedule.id}`, schedPayload);
-      } else if (messages.length > 0) {
-        await api.post("/schedules", schedPayload);
+      // ---- Save granular schedule ----
+      // Delete all existing granular items
+      await api.delete(`/parents/${parentId}/checkins/all`).catch(() => {});
+      await api.delete(`/parents/${parentId}/health-reminders/all`).catch(() => {});
+      await api.delete(`/parents/${parentId}/routines/all`).catch(() => {});
+      await api.delete(`/parents/${parentId}/medicines/all`).catch(() => {});
+
+      // Insert messages
+      for (const msg of messages) {
+        const { category, time, type } = msg;
+        if (type === 'checkin') {
+          await api.post(`/parents/${parentId}/checkins`, { category, time });
+        } else if (type === 'reminder' && ['water','bp_check','sugar_check','health_check'].includes(category)) {
+          await api.post(`/parents/${parentId}/health-reminders`, { category, time });
+        } else if (type === 'activity' && ['tea_check','walk_check'].includes(category)) {
+          await api.post(`/parents/${parentId}/routines`, { category, time });
+        } else {
+          // fallback: treat as checkin
+          await api.post(`/parents/${parentId}/checkins`, { category, time });
+        }
+      }
+
+      // Insert medicines
+      for (const med of medicineListToSave) {
+        await api.post(`/parents/${parentId}/medicines`, {
+          name: med.name,
+          dosage: med.dose || '',
+          shape: med.shape || '',
+          colour: med.color || '',
+          food_timing: med.timing || '',
+          reminder_times: [med.reminder_time].filter(Boolean),
+        });
       }
 
       toast.success(targetId ? "Parent details saved." : `${payload.name} is set up. First check-in tomorrow at 8:00 AM.`);
-      if (data?.medicine_reminders_dropped?.length) {
-        toast(`Note: Medicine times ${data.medicine_reminders_dropped.join(", ")} did not fit your plan limit (${maxReminders}). Adjust times or upgrade to include them.`, { duration: 8000 });
-      }
-      setOpen(false); onSaved();
-    } catch (e) { toast.error(formatAxiosError(e)); } finally { setBusy(false); }
+      setOpen(false);
+      onSaved();
+    } catch (e) {
+      toast.error(formatAxiosError(e));
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -945,13 +991,6 @@ function ParentDialog({ parent, config, limits, plan, schedules = [], onSaved, t
               idPrefix="pd"
             />
           </div>
-
-          {existingSchedule && (
-            <div className="flex items-center gap-2 text-xs mt-4">
-              <Power className="w-4 h-4 text-ayana-muted" />
-              <span className="text-ayana-secondary">Currently <span className={existingSchedule.active ? "text-green-600 font-medium" : "text-ayana-muted font-medium"}>{existingSchedule.active ? "active" : "paused"}</span></span>
-            </div>
-          )}
         </div>
 
         <DialogFooter className="p-6 pt-4 sticky bottom-0 bg-ayana-bg border-t border-ayana-line mt-2">
