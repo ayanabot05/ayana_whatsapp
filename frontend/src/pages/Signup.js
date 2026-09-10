@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { Loader2 } from "lucide-react";
+import { Loader2, Heart } from "lucide-react";
 import { Logo } from "@/components/Logo";
 import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -118,7 +118,7 @@ export default function Signup() {
       } else if (inviteToken) {
         navigate(`/invite/${inviteToken}`);
       } else {
-        toast.success("Account created. Let's set up their care circle.");
+        toast.success("Welcome! Let's bring Ayana into your parents' day. 💛");
         navigate("/onboarding");
       }
     } catch (err) {
@@ -132,12 +132,17 @@ export default function Signup() {
     }
   };
 
+  const inputBaseClass = "mt-1.5 w-full px-4 py-3 rounded-xl border bg-white focus:outline-none focus:ring-2 transition";
+  const inputOk = "border-ayana-line focus:ring-ayana-gold/40 focus:border-ayana-gold";
+  const inputErr = "border-red-400 focus:ring-red-200 focus:border-red-400";
+
   return (
     <div className="min-h-screen grid lg:grid-cols-2 bg-warm-cream">
       <AuthBrandPanel
         headline="A few minutes now. Warmth for them, every day after."
-        bullets={["Set up in minutes", "No app for your parents", "Their language, their time"]}
-        footer="AYANA supports your care — it never replaces it."
+        bullets={["Set up in under 5 minutes", "No app for your parents — just WhatsApp", "Their language, their time, their comfort"]}
+        emotionalQuote="You may live in another country, but your parents should never have to spend the day waiting to hear from you."
+        footer="Ayana supports your care — it never replaces it."
         showPhone
       />
 
@@ -146,8 +151,8 @@ export default function Signup() {
           <Link to="/" className="lg:hidden flex items-center justify-center mb-8">
             <Logo size={36} />
           </Link>
-          <h1 className="font-display text-3xl font-semibold text-ayana-text">Create your account</h1>
-          <p className="mt-2 text-ayana-secondary">Begin their care circle today.</p>
+          <h1 className="font-display text-3xl font-semibold text-ayana-text">Set up Ayana for your parents</h1>
+          <p className="mt-2 text-ayana-secondary text-[15px]">Takes a few minutes. Your parents only need WhatsApp.</p>
 
           <form onSubmit={submit} className="mt-8 space-y-4" data-testid="signup-form" noValidate>
             <div>
@@ -158,7 +163,7 @@ export default function Signup() {
                 onChange={upd("name")}
                 data-testid="signup-name"
                 placeholder="Your full name"
-                className={`mt-1.5 w-full px-4 py-3 rounded-xl border bg-white focus:outline-none focus:ring-2 transition ${fieldErrors.name? "border-red-400 focus:ring-red-200 focus:border-red-400" : "border-ayana-line focus:ring-ayana-bright/50 focus:border-ayana-bright"}`}
+                className={`${inputBaseClass} ${fieldErrors.name ? inputErr : inputOk}`}
               />
               {fieldErrors.name && <p className="mt-1 text-xs text-red-600">{fieldErrors.name}</p>}
             </div>
@@ -172,7 +177,7 @@ export default function Signup() {
                 onChange={upd("email")}
                 data-testid="signup-email"
                 placeholder="you@example.com"
-                className={`mt-1.5 w-full px-4 py-3 rounded-xl border bg-white focus:outline-none focus:ring-2 transition ${fieldErrors.email? "border-red-400 focus:ring-red-200 focus:border-red-400" : "border-ayana-line focus:ring-ayana-bright/50 focus:border-ayana-bright"}`}
+                className={`${inputBaseClass} ${fieldErrors.email ? inputErr : inputOk}`}
               />
               {fieldErrors.email && <p className="mt-1 text-xs text-red-600">{fieldErrors.email}</p>}
             </div>
@@ -198,7 +203,7 @@ export default function Signup() {
                 onChange={upd("password")}
                 data-testid="signup-password"
                 placeholder="8+ chars, 1 uppercase, 1 number"
-                className={`mt-1.5 w-full px-4 py-3 rounded-xl border bg-white focus:outline-none focus:ring-2 transition ${fieldErrors.password? "border-red-400 focus:ring-red-200 focus:border-red-400" : "border-ayana-line focus:ring-ayana-bright/50 focus:border-ayana-bright"}`}
+                className={`${inputBaseClass} ${fieldErrors.password ? inputErr : inputOk}`}
               />
               <PasswordStrength password={form.password} testid="signup-password-strength" />
               {fieldErrors.password && <p className="mt-1 text-xs text-red-600">{fieldErrors.password}</p>}
@@ -226,19 +231,25 @@ export default function Signup() {
               data-testid="signup-submit"
               className="w-full btn-saffron flex items-center justify-center gap-2 px-6 py-3.5 rounded-full font-semibold disabled:opacity-60"
             >
-              {loading && <Loader2 className="w-4 h-4 animate-spin" />} Create account
+              {loading && <Loader2 className="w-4 h-4 animate-spin" />} Start caring between calls
             </button>
 
             <p className="text-xs text-ayana-muted text-center">
               By continuing you agree to our{" "}
-              <Link to="/terms" className="underline text-ayana-bright">Terms</Link> &{" "}
-              <Link to="/privacy" className="underline text-ayana-bright">Privacy Policy</Link>.
+              <Link to="/terms" className="underline text-ayana-gold">Terms</Link> &{" "}
+              <Link to="/privacy" className="underline text-ayana-gold">Privacy Policy</Link>.
             </p>
           </form>
 
-          <p className="mt-6 text-sm text-ayana-secondary text-center">
+          {/* Emotional nudge */}
+          <div className="mt-6 flex items-center gap-2.5 bg-amber-50/80 border border-amber-200/50 rounded-xl px-4 py-3">
+            <Heart className="w-4 h-4 text-ayana-gold shrink-0" fill="currentColor" />
+            <p className="text-xs text-ayana-secondary leading-relaxed">Your parents don't need to learn anything new. Ayana reaches them on WhatsApp, in their language.</p>
+          </div>
+
+          <p className="mt-5 text-sm text-ayana-secondary text-center">
             Already have an account?{" "}
-            <Link to="/login" className="text-ayana-bright font-semibold hover:underline" data-testid="signup-to-login">
+            <Link to="/login" className="text-ayana-gold font-semibold hover:underline" data-testid="signup-to-login">
               Log in
             </Link>
           </p>

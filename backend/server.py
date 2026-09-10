@@ -108,13 +108,14 @@ from auth import (
     hash_password, verify_password, create_access_token, serialize,
     get_current_user, get_current_admin, seed_admin,
     create_refresh_token, _secret, validate_csrf_token, JWT_ALGORITHM,
-    revoke_token, _is_token_blacklisted, set_auth_cookies, clear_auth_cookies,
+    revoke_token, set_auth_cookies, clear_auth_cookies,
     generate_csrf_token, set_csrf_cookie,
 )
 from templates_data import (
-    LANGUAGES, RELATIONSHIPS, DEFAULT_EMERGENCY_KEYWORDS,
+    LANGUAGES, RELATIONSHIPS,
     public_categories, category_type,
     render_slot_body, render_slot_buttons,
+    CHECKIN_CATEGORIES,
 )
 from pricing import PLANS, CURRENCIES, PLAN_BY_ID, plan_limits, resolve_plan_id
 from scheduler import start_scheduler, shutdown_scheduler
@@ -328,6 +329,43 @@ async def _run_startup_migrations():
         """)
         await conn.execute("create index if not exists idx_ccsiblings_owner on care_circle_siblings(owner_id)")
         await conn.execute("create unique index if not exists idx_ccsiblings_owner_phone on care_circle_siblings(owner_id, phone)")
+
+        # ─── NEW: Granular user‑configured schedules ───────────────────────
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS parent_checkins (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                parent_id UUID NOT NULL REFERENCES parents(id) ON DELETE CASCADE,
+                category TEXT NOT NULL,
+                time TEXT NOT NULL,
+                is_active BOOLEAN DEFAULT TRUE,
+                created_at TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_parent_checkins_parent ON parent_checkins(parent_id)")
+
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS parent_health_reminders (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                parent_id UUID NOT NULL REFERENCES parents(id) ON DELETE CASCADE,
+                category TEXT NOT NULL,
+                time TEXT NOT NULL,
+                is_active BOOLEAN DEFAULT TRUE,
+                created_at TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_parent_health_reminders_parent ON parent_health_reminders(parent_id)")
+
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS parent_routines (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                parent_id UUID NOT NULL REFERENCES parents(id) ON DELETE CASCADE,
+                category TEXT NOT NULL,
+                time TEXT NOT NULL,
+                is_active BOOLEAN DEFAULT TRUE,
+                created_at TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_parent_routines_parent ON parent_routines(parent_id)")
 
 def _parse_jsonb_field(value, default=None):
     """Safe parser for jsonb columns that may come back as str, dict/list, or None after Mongo->Postgres migration."""
@@ -1695,6 +1733,323 @@ async def end_recovery(schedule_id: str, user: dict = Depends(get_current_user),
         )
     await audit(user["id"], "recovery_end", {"schedule_id": schedule_id, "archived": len(recovery_messages)})
     return {"ok": True, "archived": len(recovery_messages)}
+
+
+# ═══════════════ NEW: GRANULAR CHECK-INS / HEALTH REMINDERS / ROUTINES ═════
+# NOTE: define this against your real category list before shipping — this
+# is inferred from templates_data.public_categories() / _CATEGORY_LABEL and
+# is NOT guaranteed to match your product's actual check-in categories.
+CHECKIN_CATEGORIES = {
+    "morning_wish", "breakfast", "lunch", "dinner",
+    "afternoon_checkin", "goodnight", "love_note"
+}
+
+# ─── GRANULAR CHECK-INS ────────────────────────────────────────────────
+
+@api.get("/parents/{parent_id}/checkins")
+async def list_checkins(parent_id: str, user: dict = Depends(get_current_user)):
+    """List all active check‑ins for a parent."""
+    async with get_pool().acquire() as conn:
+        parent = await conn.fetchrow(
+            "SELECT * FROM parents WHERE id = $1::uuid AND user_id = $2 AND deleted_at IS NULL",
+            parent_id, scope(user),
+        )
+        if not parent:
+            raise HTTPException(status_code=404, detail="Parent not found")
+        rows = await conn.fetch(
+            "SELECT * FROM parent_checkins WHERE parent_id = $1::uuid AND is_active = TRUE ORDER BY time",
+            parent_id,
+        )
+    return [serialize(r) for r in rows]
+
+
+@api.post("/parents/{parent_id}/checkins")
+async def add_checkin(parent_id: str, payload: dict, user: dict = Depends(get_current_user), _csrf: None = Depends(validate_csrf_token)):
+    """Add or update a check‑in (replaces if category already exists)."""
+    category = payload.get("category")
+    time_str = payload.get("time")  # "08:00"
+    if not category or not time_str:
+        raise HTTPException(status_code=400, detail="category and time required")
+    if category not in CHECKIN_CATEGORIES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid category. Must be one of: {', '.join(CHECKIN_CATEGORIES)}"
+        )
+    async with get_pool().acquire() as conn:
+        parent = await conn.fetchrow(
+            "SELECT * FROM parents WHERE id = $1::uuid AND user_id = $2 AND deleted_at IS NULL",
+            parent_id, scope(user),
+        )
+        if not parent:
+            raise HTTPException(status_code=404, detail="Parent not found")
+        # Replace existing entry for this category
+        await conn.execute(
+            "DELETE FROM parent_checkins WHERE parent_id = $1::uuid AND category = $2",
+            parent_id, category,
+        )
+        row = await conn.fetchrow(
+            """
+            INSERT INTO parent_checkins (parent_id, category, time, is_active)
+            VALUES ($1::uuid, $2, $3, TRUE)
+            RETURNING *
+            """,
+            parent_id, category, time_str,
+        )
+    await audit(user["id"], "add_checkin", {"parent_id": parent_id, "category": category, "time": time_str})
+    return serialize(row)
+
+@api.delete("/parents/{parent_id}/checkins/all")
+async def delete_all_checkins(parent_id: str, user: dict = Depends(get_current_user), _csrf: None = Depends(validate_csrf_token)):
+    """Deactivate all check-ins for a parent at once."""
+    async with get_pool().acquire() as conn:
+        parent = await conn.fetchrow(
+            "SELECT * FROM parents WHERE id = $1::uuid AND user_id = $2 AND deleted_at IS NULL",
+            parent_id, scope(user),
+        )
+        if not parent:
+            raise HTTPException(status_code=404, detail="Parent not found")
+        await conn.execute(
+            "UPDATE parent_checkins SET is_active = FALSE WHERE parent_id = $1::uuid",
+            parent_id,
+        )
+    await audit(user["id"], "delete_all_checkins", {"parent_id": parent_id})
+    return {"ok": True}
+
+@api.delete("/parents/{parent_id}/checkins/{category}")
+async def delete_checkin(parent_id: str, category: str, user: dict = Depends(get_current_user), _csrf: None = Depends(validate_csrf_token)):
+    """Soft‑delete a check‑in (set is_active = FALSE)."""
+    async with get_pool().acquire() as conn:
+        parent = await conn.fetchrow(
+            "SELECT * FROM parents WHERE id = $1::uuid AND user_id = $2 AND deleted_at IS NULL",
+            parent_id, scope(user),
+        )
+        if not parent:
+            raise HTTPException(status_code=404, detail="Parent not found")
+        await conn.execute(
+            "UPDATE parent_checkins SET is_active = FALSE WHERE parent_id = $1::uuid AND category = $2",
+            parent_id, category,
+        )
+    await audit(user["id"], "delete_checkin", {"parent_id": parent_id, "category": category})
+    return {"ok": True}
+
+
+# ─── HEALTH REMINDERS ──────────────────────────────────────────────────
+
+HEALTH_CATEGORIES = {"water", "bp_check", "sugar_check", "health_check"}
+
+@api.get("/parents/{parent_id}/health-reminders")
+async def list_health_reminders(parent_id: str, user: dict = Depends(get_current_user)):
+    async with get_pool().acquire() as conn:
+        parent = await conn.fetchrow(
+            "SELECT * FROM parents WHERE id = $1::uuid AND user_id = $2 AND deleted_at IS NULL",
+            parent_id, scope(user),
+        )
+        if not parent:
+            raise HTTPException(status_code=404, detail="Parent not found")
+        rows = await conn.fetch(
+            "SELECT * FROM parent_health_reminders WHERE parent_id = $1::uuid AND is_active = TRUE ORDER BY time",
+            parent_id,
+        )
+    return [serialize(r) for r in rows]
+
+
+@api.post("/parents/{parent_id}/health-reminders")
+async def add_health_reminder(parent_id: str, payload: dict, user: dict = Depends(get_current_user), _csrf: None = Depends(validate_csrf_token)):
+    category = payload.get("category")
+    time_str = payload.get("time")
+    if not category or not time_str:
+        raise HTTPException(status_code=400, detail="category and time required")
+    if category not in HEALTH_CATEGORIES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid category. Must be one of: {', '.join(HEALTH_CATEGORIES)}"
+        )
+    async with get_pool().acquire() as conn:
+        parent = await conn.fetchrow(
+            "SELECT * FROM parents WHERE id = $1::uuid AND user_id = $2 AND deleted_at IS NULL",
+            parent_id, scope(user),
+        )
+        if not parent:
+            raise HTTPException(status_code=404, detail="Parent not found")
+        await conn.execute(
+            "DELETE FROM parent_health_reminders WHERE parent_id = $1::uuid AND category = $2",
+            parent_id, category,
+        )
+        row = await conn.fetchrow(
+            """
+            INSERT INTO parent_health_reminders (parent_id, category, time, is_active)
+            VALUES ($1::uuid, $2, $3, TRUE)
+            RETURNING *
+            """,
+            parent_id, category, time_str,
+        )
+    await audit(user["id"], "add_health_reminder", {"parent_id": parent_id, "category": category, "time": time_str})
+    return serialize(row)
+
+
+@api.delete("/parents/{parent_id}/health-reminders/{category}")
+async def delete_health_reminder(parent_id: str, category: str, user: dict = Depends(get_current_user), _csrf: None = Depends(validate_csrf_token)):
+    async with get_pool().acquire() as conn:
+        parent = await conn.fetchrow(
+            "SELECT * FROM parents WHERE id = $1::uuid AND user_id = $2 AND deleted_at IS NULL",
+            parent_id, scope(user),
+        )
+        if not parent:
+            raise HTTPException(status_code=404, detail="Parent not found")
+        await conn.execute(
+            "UPDATE parent_health_reminders SET is_active = FALSE WHERE parent_id = $1::uuid AND category = $2",
+            parent_id, category,
+        )
+    await audit(user["id"], "delete_health_reminder", {"parent_id": parent_id, "category": category})
+    return {"ok": True}
+
+
+# ─── ROUTINES ──────────────────────────────────────────────────────────
+
+ROUTINE_CATEGORIES = {"tea_check", "walk_check"}
+
+@api.get("/parents/{parent_id}/routines")
+async def list_routines(parent_id: str, user: dict = Depends(get_current_user)):
+    async with get_pool().acquire() as conn:
+        parent = await conn.fetchrow(
+            "SELECT * FROM parents WHERE id = $1::uuid AND user_id = $2 AND deleted_at IS NULL",
+            parent_id, scope(user),
+        )
+        if not parent:
+            raise HTTPException(status_code=404, detail="Parent not found")
+        rows = await conn.fetch(
+            "SELECT * FROM parent_routines WHERE parent_id = $1::uuid AND is_active = TRUE ORDER BY time",
+            parent_id,
+        )
+    return [serialize(r) for r in rows]
+
+
+@api.post("/parents/{parent_id}/routines")
+async def add_routine(parent_id: str, payload: dict, user: dict = Depends(get_current_user), _csrf: None = Depends(validate_csrf_token)):
+    category = payload.get("category")
+    time_str = payload.get("time")
+    if not category or not time_str:
+        raise HTTPException(status_code=400, detail="category and time required")
+    if category not in ROUTINE_CATEGORIES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid category. Must be one of: {', '.join(ROUTINE_CATEGORIES)}"
+        )
+    async with get_pool().acquire() as conn:
+        parent = await conn.fetchrow(
+            "SELECT * FROM parents WHERE id = $1::uuid AND user_id = $2 AND deleted_at IS NULL",
+            parent_id, scope(user),
+        )
+        if not parent:
+            raise HTTPException(status_code=404, detail="Parent not found")
+        await conn.execute(
+            "DELETE FROM parent_routines WHERE parent_id = $1::uuid AND category = $2",
+            parent_id, category,
+        )
+        row = await conn.fetchrow(
+            """
+            INSERT INTO parent_routines (parent_id, category, time, is_active)
+            VALUES ($1::uuid, $2, $3, TRUE)
+            RETURNING *
+            """,
+            parent_id, category, time_str,
+        )
+    await audit(user["id"], "add_routine", {"parent_id": parent_id, "category": category, "time": time_str})
+    return serialize(row)
+
+@api.delete("/parents/{parent_id}/routines/{category}")
+async def delete_routine(parent_id: str, category: str, user: dict = Depends(get_current_user), _csrf: None = Depends(validate_csrf_token)):
+    async with get_pool().acquire() as conn:
+        parent = await conn.fetchrow(
+            "SELECT * FROM parents WHERE id = $1::uuid AND user_id = $2 AND deleted_at IS NULL",
+            parent_id, scope(user),
+        )
+        if not parent:
+            raise HTTPException(status_code=404, detail="Parent not found")
+        await conn.execute(
+            "UPDATE parent_routines SET is_active = FALSE WHERE parent_id = $1::uuid AND category = $2",
+            parent_id, category,
+        )
+    await audit(user["id"], "delete_routine", {"parent_id": parent_id, "category": category})
+    return {"ok": True}
+
+
+@api.delete("/parents/{parent_id}/routines/{category}")
+async def delete_routine(parent_id: str, category: str, user: dict = Depends(get_current_user), _csrf: None = Depends(validate_csrf_token)):
+    async with get_pool().acquire() as conn:
+        parent = await conn.fetchrow(
+            "SELECT * FROM parents WHERE id = $1::uuid AND user_id = $2 AND deleted_at IS NULL",
+            parent_id, scope(user),
+        )
+        if not parent:
+            raise HTTPException(status_code=404, detail="Parent not found")
+        await conn.execute(
+            "UPDATE parent_routines SET is_active = FALSE WHERE parent_id = $1::uuid AND category = $2",
+            parent_id, category,
+        )
+    await audit(user["id"], "delete_routine", {"parent_id": parent_id, "category": category})
+    return {"ok": True}
+
+# ─── MEDICINES ──────────────────────────────────────────────────────────
+
+@api.get("/parents/{parent_id}/medicines")
+async def list_medicines(parent_id: str, user: dict = Depends(get_current_user)):
+    async with get_pool().acquire() as conn:
+        parent = await conn.fetchrow(
+            "SELECT * FROM parents WHERE id = $1::uuid AND user_id = $2 AND deleted_at IS NULL",
+            parent_id, scope(user),
+        )
+        if not parent:
+            raise HTTPException(status_code=404, detail="Parent not found")
+        rows = await conn.fetch(
+            "SELECT * FROM medicines WHERE parent_id = $1::uuid AND is_active = TRUE ORDER BY created_at",
+            parent_id,
+        )
+    return [serialize(r) for r in rows]
+
+@api.post("/parents/{parent_id}/medicines")
+async def add_medicine(parent_id: str, payload: dict, user: dict = Depends(get_current_user), _csrf: None = Depends(validate_csrf_token)):
+    name = payload.get("name")
+    dosage = payload.get("dosage", "")
+    shape = payload.get("shape", "")
+    colour = payload.get("colour", "")
+    food_timing = payload.get("food_timing", "")
+    reminder_times = payload.get("reminder_times", [])
+    if not name:
+        raise HTTPException(status_code=400, detail="name required")
+    async with get_pool().acquire() as conn:
+        parent = await conn.fetchrow(
+            "SELECT * FROM parents WHERE id = $1::uuid AND user_id = $2 AND deleted_at IS NULL",
+            parent_id, scope(user),
+        )
+        if not parent:
+            raise HTTPException(status_code=404, detail="Parent not found")
+        row = await conn.fetchrow(
+            """
+            INSERT INTO medicines (parent_id, name, dosage, shape, colour, food_timing, reminder_times, is_active)
+            VALUES ($1::uuid, $2, $3, $4, $5, $6, $7::jsonb, TRUE)
+            RETURNING *
+            """,
+            parent_id, name, dosage, shape, colour, food_timing, json.dumps(reminder_times),
+        )
+    await audit(user["id"], "add_medicine", {"parent_id": parent_id, "name": name})
+    return serialize(row)
+
+@api.delete("/parents/{parent_id}/medicines/all")
+async def delete_all_medicines(parent_id: str, user: dict = Depends(get_current_user), _csrf: None = Depends(validate_csrf_token)):
+    async with get_pool().acquire() as conn:
+        parent = await conn.fetchrow(
+            "SELECT * FROM parents WHERE id = $1::uuid AND user_id = $2 AND deleted_at IS NULL",
+            parent_id, scope(user),
+        )
+        if not parent:
+            raise HTTPException(status_code=404, detail="Parent not found")
+        await conn.execute(
+            "UPDATE medicines SET is_active = FALSE WHERE parent_id = $1::uuid",
+            parent_id,
+        )
+    await audit(user["id"], "delete_all_medicines", {"parent_id": parent_id})
+    return {"ok": True}
 
 # ---------------- Consent & Preferences ----------------
 @api.post("/consent")

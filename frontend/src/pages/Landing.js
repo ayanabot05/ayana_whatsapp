@@ -201,7 +201,9 @@ export default function Landing() {
 
   const steps        = t("how.steps");
   const faqItems     = t("faq.items");
-  const globalPoints = t("global.points");
+  const benefitsT    = t("benefits");
+  const painT        = t("pain");
+  const noAppT       = t("noApp");
   const safetyT      = t("safety");
   const extrasT      = t("extras");
   const demoT        = t("whatsappDemo");
@@ -271,6 +273,9 @@ export default function Landing() {
                   {t("hero.ctaSecondary")}
                 </a>
               </div>
+              <div className="mt-4 text-sm text-ayana-secondary font-medium pl-2">
+                Takes a few minutes. Your parents only need WhatsApp.
+              </div>
 
               <div className="mt-10 flex flex-wrap gap-x-7 gap-y-3">
                 {[{ icon: Languages, text: t("hero.t1") }, { icon: Clock, text: t("hero.t2") }, { icon: Check, text: t("hero.t3") }].map(({ icon: Icon, text }) => (
@@ -299,6 +304,38 @@ export default function Landing() {
             </div>
           </div>
         </section>
+
+        {/* THE PAIN */}
+        <section className="bg-warm-cream">
+          <div className="max-w-7xl mx-auto px-5 sm:px-8 py-20 lg:py-28">
+            <div className="max-w-3xl mx-auto text-center">
+              <h2 className="font-display font-extrabold text-3xl sm:text-4xl lg:text-5xl leading-[1.05] text-ayana-text">
+                {painT.title}
+              </h2>
+              <p className="font-serif text-xl sm:text-2xl text-ayana-secondary mt-6 leading-snug">
+                {painT.sub}
+              </p>
+              
+              <div className="mt-10 flex flex-col sm:flex-row justify-center gap-4 text-left">
+                {painT.feelings && painT.feelings.map((feeling, i) => (
+                  <div key={i} className="bg-white px-5 py-4 rounded-2xl shadow-sm border border-ayana-line">
+                    <p className="text-ayana-secondary italic text-[15px]">{feeling}</p>
+                  </div>
+                ))}
+              </div>
+
+              <div className="mt-12 bg-warm-peach border border-ayana-gold/30 rounded-3xl p-8 sm:p-10 shadow-lg">
+                <h3 className="font-display font-bold text-2xl sm:text-3xl text-ayana-text mb-4">
+                  {painT.pivot}
+                </h3>
+                <p className="font-serif text-xl text-ayana-secondary">
+                  {painT.compassion}
+                </p>
+              </div>
+            </div>
+          </div>
+        </section>
+
 
         {/* HOW IT WORKS: editorial numbered */}
         <section id="how" className="bg-warm-cream">
@@ -444,41 +481,46 @@ export default function Landing() {
           </div>
         </section>
 
-        {/* GLOBAL: big statement */}
+        {/* BENEFITS: For Parents / For You */}
         <section className="bg-warm-peach relative overflow-hidden">
-          <div className="max-w-7xl mx-auto px-5 sm:px-8 py-20 lg:py-28 grid lg:grid-cols-12 gap-14 items-center">
-            <div className="lg:col-span-7">
-              <Eyebrow><span className="inline-flex items-center gap-2"><Globe className="w-4 h-4" /> {t("global.label")}</span></Eyebrow>
-              <h2 className="font-display font-extrabold text-3xl sm:text-4xl lg:text-[3.2rem] leading-[1.03] text-ayana-text">
-                <HighlightText text={t("global.title")} ranges={[[0, 0.28]]} colors={["text-gradient-gold"]} />
+          <div className="max-w-7xl mx-auto px-5 sm:px-8 py-20 lg:py-28">
+            <div className="text-center max-w-2xl mx-auto mb-16">
+              <Eyebrow center>{benefitsT.label}</Eyebrow>
+              <h2 className="font-display font-extrabold text-3xl sm:text-4xl lg:text-5xl leading-[1.05] text-ayana-text">
+                <HighlightText text={benefitsT.title || "A daily feeling of being remembered."} ranges={[[0.4, 1.0]]} colors={["text-gradient-gold"]} />
               </h2>
-              <p className="font-serif text-xl sm:text-2xl text-ayana-secondary mt-5 leading-snug max-w-2xl">{t("global.sub")}</p>
-              <ul className="mt-9 space-y-4 max-w-xl">
-                {globalPoints.map((p, i) => (
-                  <li key={i} className="flex items-start gap-4">
-                    <span className="icon-well-gold w-9 h-9 rounded-lg flex items-center justify-center shrink-0 mt-0.5">
-                      {[<Clock key="c" className="w-4 h-4" />, <Mic key="m" className="w-4 h-4" />, <ShieldCheck key="s" className="w-4 h-4" />][i]}
-                    </span>
-                    <span className="text-ayana-text/80 leading-relaxed pt-1">{p}</span>
-                  </li>
-                ))}
-              </ul>
+              <p className="font-serif text-xl sm:text-2xl text-ayana-secondary mt-4 leading-snug">{benefitsT.sub}</p>
             </div>
-            <div className="lg:col-span-5">
-              <div className="relative">
-                <div className="absolute -inset-3 rounded-[2.5rem] blur-2xl" style={{ background: "linear-gradient(135deg, rgba(232,89,12,0.16), rgba(212,150,10,0.24))" }} />
-                <div className="relative rounded-[2rem] overflow-hidden shadow-xl ring-1 ring-ayana-gold/20">
-                  <img src={IMG.child} alt="Adult child staying connected from abroad" className="w-full h-[400px] sm:h-[480px] object-cover" />
-                </div>
-                <div className="absolute -bottom-5 -left-5 rounded-2xl px-5 py-3.5 flex items-center gap-3 animate-float shadow-lg border border-ayana-line bg-white">
-                  <span className="w-9 h-9 rounded-full flex items-center justify-center" style={{ background: "rgba(37,211,102,0.15)" }}>
-                    <MessageCircle className="w-4 h-4" style={{ color: "#25D366" }} fill="currentColor" />
-                  </span>
-                  <div>
-                    <p className="text-xs font-bold text-ayana-text">Message delivered</p>
-                    <p className="text-xs text-ayana-muted">{'Amma: "Feeling good 😊"'}</p>
-                  </div>
-                </div>
+
+            <div className="grid md:grid-cols-2 gap-10 lg:gap-16">
+              <div className="bg-white/60 rounded-3xl p-8 sm:p-10 border border-ayana-line">
+                <h3 className="font-display text-2xl font-bold text-ayana-text mb-6 flex items-center gap-3">
+                  <span className="w-10 h-10 rounded-full bg-ayana-gold/20 flex items-center justify-center text-xl">👵</span>
+                  {benefitsT.parentsTitle}
+                </h3>
+                <ul className="space-y-4">
+                  {benefitsT.parentsItems && benefitsT.parentsItems.map((item, i) => (
+                    <li key={i} className="flex items-start gap-3">
+                      <Heart className="w-5 h-5 text-ayana-gold shrink-0 mt-0.5" strokeWidth={2.5} />
+                      <span className="text-ayana-text/80 leading-relaxed text-[17px]">{item}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              <div className="bg-white/60 rounded-3xl p-8 sm:p-10 border border-ayana-line">
+                <h3 className="font-display text-2xl font-bold text-ayana-text mb-6 flex items-center gap-3">
+                  <span className="w-10 h-10 rounded-full bg-amber-500/10 flex items-center justify-center text-xl">💛</span>
+                  {benefitsT.childTitle}
+                </h3>
+                <ul className="space-y-4">
+                  {benefitsT.childItems && benefitsT.childItems.map((item, i) => (
+                    <li key={i} className="flex items-start gap-3">
+                      <ShieldCheck className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" strokeWidth={2.5} />
+                      <span className="text-ayana-text/80 leading-relaxed text-[17px]">{item}</span>
+                    </li>
+                  ))}
+                </ul>
               </div>
             </div>
           </div>
@@ -567,7 +609,7 @@ export default function Landing() {
               </h2>
               <p className="font-serif text-xl sm:text-2xl text-ayana-secondary mt-4 leading-snug">{t("trust.sub")}</p>
               <div className="mt-8 space-y-4">
-                {["note2", "note3"].map((key) => (
+                {["note2", "note3", "note4"].map((key) => (
                   <div key={key} className="flex items-start gap-4 rounded-2xl border border-ayana-line bg-white p-5 shadow-sm">
                     <span className="icon-well-gold w-9 h-9 rounded-lg flex items-center justify-center shrink-0 mt-0.5">
                       <Heart className="w-4 h-4" strokeWidth={2} />
@@ -579,6 +621,27 @@ export default function Landing() {
             </div>
           </div>
         </section>
+
+        
+        {/* NO NEW APP CALLOUT */}
+        <section className="bg-warm-gold py-16">
+          <div className="max-w-4xl mx-auto px-5 sm:px-8 text-center">
+            <h2 className="font-display font-extrabold text-3xl sm:text-4xl text-ayana-text mb-4">
+              {noAppT.title}
+            </h2>
+            <p className="font-serif text-xl sm:text-2xl text-ayana-secondary mb-8">
+              {noAppT.sub}
+            </p>
+            <div className="flex flex-wrap justify-center gap-4">
+              {noAppT.items && noAppT.items.map((item, i) => (
+                <span key={i} className="bg-white px-5 py-2.5 rounded-full border border-ayana-line text-ayana-text font-medium text-[15px] shadow-sm">
+                  {item}
+                </span>
+              ))}
+            </div>
+          </div>
+        </section>
+
 
         {/* A LITTLE MORE LOVE: emotional feature highlights */}
         <section className="bg-warm-gold">

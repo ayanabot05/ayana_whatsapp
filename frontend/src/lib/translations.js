@@ -2,34 +2,58 @@ export const translations = {
   en: {
     nav: { how: "How it works", see: "What parents see", safety: "Safety", trust: "Our promise", pricing: "Pricing", faq: "FAQ", login: "Log in", signup: "Get started" },
     hero: {
-      badge: "For families living far apart",
-      title: "Never miss a day with the ones who raised you.",
-      subtitle: "AYANA sends your parents a warm hello every day on WhatsApp, in their own language. They tap one button or send a voice note, and you instantly know they're okay.",
-      ctaPrimary: "Start connecting",
-      ctaSecondary: "See how it works",
+      badge: "For children living away from their parents",
+      title: "You love your parents. Life just gets in the way of calling.",
+      subtitle: "When life gets busy, Ayana helps you stay close to your parents. Ayana sends caring WhatsApp check-ins to your parents based on their daily routine, reminds them about important activities or medicines, and lets you know when they respond.",
+      ctaPrimary: "Set up Ayana for my parents",
+      ctaSecondary: "See a sample conversation",
       t1: "In their language", t2: "On their time", t3: "No new app for them",
     },
+    pain: {
+      title: "You meant to call. Then the day got busy.",
+      sub: "A meeting became three. A deadline ran late. The time zone made it difficult. You thought, 'I'll call tomorrow.' Meanwhile, your parents may be waiting for that call.",
+      feelings: [
+        "\"My child is too busy for me.\"",
+        "\"Nobody asked how my day was.\"",
+        "\"I feel alone today.\""
+      ],
+      pivot: "Ayana helps fill the silent gaps between your calls.",
+      compassion: "You are not careless. You are busy. Ayana helps you care consistently."
+    },
     how: {
-      label: "Simple for everyone",
-      title: "A gentle daily hello. The way your parents already chat.",
-      sub: "No app to install. Messages arrive on their normal WhatsApp, in Telugu, Hindi or English.",
+      label: "How Ayana works",
+      title: "Ayana fills the gaps between your calls.",
+      sub: "No technical skills needed. Just simple, caring check-ins.",
       steps: [
-        { title: "Add your parent", desc: "Their name, WhatsApp number and the language they love." },
-        { title: "Choose the messages", desc: "Morning hellos, meal and medicine reminders, goodnights." },
-        { title: "They reply in one tap", desc: "Good, Okay, or Not well, or a quick voice note." },
-        { title: "You get told right away", desc: "A ping reaches you the moment they reply." },
-        { title: "AYANA remembers birthdays & festivals", desc: "Sankranti, Diwali, Holi, their birthday: warm wishes in their language, automatically." },
+        { title: "1. You set it up once", desc: "Create your account, add your parent's details, location, preferred language, routines, check-in times, and medicines." },
+        { title: "2. Ayana checks in through WhatsApp", desc: "At the right time in your parent's local time, Ayana sends a simple message or reminder." },
+        { title: "3. Your parent replies easily", desc: "They can tap a button, type a short reply, or send a voice note in their comfortable language." },
+        { title: "4. You receive an update", desc: "You are notified when your parent responds, so you know they are engaged and okay." },
+        { title: "5. You stay connected", desc: "You still call, talk, and spend time together. Ayana simply helps you stay present between calls." },
       ],
     },
-    global: {
-      label: "Across any distance",
-      title: "Miles apart. Close every single day.",
-      sub: "Whether you're in New York, London, Dubai or Bangalore, AYANA keeps a thread of care running home, with dignity and privacy, never surveillance.",
-      points: [
-        "Sent in your parent's timezone, so mornings feel like mornings",
-        "Voice replies reach you untouched, in their own voice",
-        "You control everything; delete your data anytime",
+    benefits: {
+      label: "More than reminders",
+      title: "A daily feeling of being remembered.",
+      sub: "Ayana changes how your parents feel during the day, and gives you peace of mind.",
+      parentsTitle: "For your parents",
+      parentsItems: [
+        "They receive regular attention during the day.",
+        "They feel remembered and connected.",
+        "They can respond without learning a new app.",
+        "They can use voice notes instead of typing.",
+        "They receive reminders based on their routine.",
+        "They can communicate in a familiar language."
       ],
+      childTitle: "For you",
+      childItems: [
+        "You know whether they checked in.",
+        "You receive important updates.",
+        "You reduce the anxiety of unanswered calls.",
+        "You can notice changes in their routine.",
+        "You can stay involved despite distance.",
+        "You feel more consistent as a son or daughter."
+      ]
     },
     trust: {
       label: "Where we are today",
@@ -38,6 +62,7 @@ export const translations = {
       note1: "Built by an engineer whose own parents are in Hyderabad. This isn't a corporate feature. It's personal.",
       note2: "Every check-in is tested on real WhatsApp, in real Telugu, Hindi and English, before it ever reaches a family.",
       note3: "No inflated numbers here. When real families start using AYANA, we'll show you exactly who they are, not a stock statistic.",
+      note4: "Ayana helps your child stay connected with you. Your child has set up Ayana to check in with you every day. A welcome message introduces Ayana honestly: 'Hi Amma, I'm Ayana. Your child has set me up to check in with you and help them know how you are doing.'",
     },
     pricing: {
       label: "Simple, honest pricing",
@@ -70,7 +95,7 @@ export const translations = {
         { q: "Can I stop or delete everything?", a: "Yes, anytime, from your dashboard." },
       ],
     },
-    finalCta: { title: "Give them a hello tonight.", sub: "In a few minutes, your parents can start their mornings knowing you're right there.", cta: "Start connecting" },
+    finalCta: { title: "You can't call every moment. But you can help them feel remembered every day.", sub: "Less worrying for you. Less loneliness for them.", cta: "Set up Ayana for my parents" },
     footer: { tagline: "A warm companion that helps you stay close to your parents from afar. AYANA supports your care; it never replaces it.", disclaimer: "AYANA is not an emergency or medical service. In a crisis, contact local emergency services." },
 
     whatsappDemo: {
@@ -94,6 +119,16 @@ export const translations = {
       note: "Emergency alerts go to you, your Care Circle, and emergency contacts, all at once.",
     },
 
+    noApp: {
+      title: "Your parents do not need another app",
+      sub: "No complicated dashboard for your parents. No new app to learn. Just WhatsApp and a familiar conversation.",
+      items: [
+        "Tap a button",
+        "Reply with a message",
+        "Send a voice note",
+        "Respond in their own language"
+      ]
+    },
     extras: {
       label: "A little more love",
       title: "The details that make it feel like family.",

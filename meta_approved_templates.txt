@@ -46,10 +46,230 @@ ayana_report_ready_en
 ayana_report_ready_te 
 ayana_report_ready_hi 
 
-standard footer - 
-नीचे टैप करें या वॉइस नोट भेजें
-Tap below or send a voice note
-కింద ఆప్షన్‌ను నొక్కండి లేదా వాయిస్ నోట్ పంపడానికి మైక్‌ను ప
+
+# AYANA - ALL WHATSAPP TEMPLATES - 3 Languages (English, Telugu, Hindi)
+# Ready to submit to Meta Dashboard
+# Category: Utility
+# Why templates needed: WhatsApp only allows free-form text within 24h of user's last message.
+# Outside 24h window, you MUST use approved template. Child warnings and safety returns often outside window → need templates.
+
+# =============================================================================
+# SECTION 5: SAFETY & RETURN CHECK-INS (5 categories × 3 langs = 15 templates)
+# =============================================================================
+
+# 1. OFFICE/WORK RETURN - ayana_office_return_en / _te / _hi
+
+Template Name: ayana_office_return_en
+Language: en
+Category: Utility
+Body: Hi {{1}}, did you reach home from office/work? 💼 How was your day? Did you come back safely? 💛
+Variables: {{1}} = Parent name (e.g., Amma, Nanna)
+Buttons: [Reached home 🏡] [On the way 🚶] [Yes safe 💛]
+
+Template Name: ayana_office_return_te
+Language: te
+Category: Utility
+Body: హాయ్ {{1}}, ఆఫీస్/పని నుండి ఇంటికి వచ్చారా? 💼 ఈరోజు పని ఎలా ఉంది? సురక్షితంగా వచ్చారా? 💛
+Variables: {{1}} = పేరు
+Buttons: [ఇంటికి వచ్చా 🏡] [దారిలో 🚶] [సేఫ్ 💛]
+
+Template Name: ayana_office_return_hi
+Language: hi
+Category: Utility
+Body: हाय {{1}}, क्या आप ऑफिस/काम से घर आ गए? 💼 आज काम कैसा रहा? सुरक्षित पहुँचे? 💛
+Variables: {{1}} = नाम
+Buttons: [घर पहुँचा 🏡] [रास्ते में 🚶] [सुरक्षित 💛]
+
+# 2. MARKET RETURN - ayana_market_return_en / _te / _hi
+
+Template Name: ayana_market_return_en
+Language: en
+Category: Utility
+Body: Hi {{1}}, did you come back from market safely? 🛒 Did you reach home? How was market? 💛
+Variables: {{1}} = Parent name
+Buttons: [Reached 🏡] [Shopping done 🛒] [Yes safe 💛]
+
+Template Name: ayana_market_return_te
+Language: te
+Category: Utility
+Body: హాయ్ {{1}}, మార్కెట్ నుండి సురక్షితంగా వచ్చారా? 🛒 ఇంటికి చేరారా? మార్కెట్ ఎలా ఉంది? 💛
+Variables: {{1}} = పేరు
+Buttons: [వచ్చా 🏡] [షాపింగ్ అయ్యింది 🛒] [సేఫ్ 💛]
+
+Template Name: ayana_market_return_hi
+Language: hi
+Category: Utility
+Body: हाय {{1}}, क्या आप बाजार से सुरक्षित आ गए? 🛒 घर पहुँचे? बाजार कैसा रहा? 💛
+Variables: {{1}} = नाम
+Buttons: [पहुँचा 🏡] [शॉपिंग हो गई 🛒] [सुरक्षित 💛]
+
+# 3. SHOPPING RETURN - ayana_shopping_return_en / _te / _hi
+# Has 2 variables: name + custom label (Dmart, etc.)
+
+Template Name: ayana_shopping_return_en
+Language: en
+Category: Utility
+Body: Hi {{1}}, did you come back from {{2}} shopping? 🛍️ How was your shopping? Are you home safely? 💛
+Variables: {{1}} = Parent name, {{2}} = Custom label (e.g., Dmart, Wednesday Market)
+Buttons: [Done 🛍️] [Reached home 🏡] [Yes safe]
+
+Template Name: ayana_shopping_return_te
+Language: te
+Category: Utility
+Body: హాయ్ {{1}}, {{2}} షాపింగ్ నుండి తిరిగి వచ్చారా? 🛍️ షాపింగ్ ఎలా జరిగింది? సురక్షితంగా ఇంటికి చేరారా? 💛
+Variables: {{1}} = పేరు, {{2}} = కస్టమ్ లేబుల్
+Buttons: [అయ్యింది 🛍️] [ఇంటికి వచ్చా 🏡] [సేఫ్]
+
+Template Name: ayana_shopping_return_hi
+Language: hi
+Category: Utility
+Body: हाय {{1}}, क्या आप {{2}} शॉपिंग से वापस आ गए? 🛍️ शॉपिंग कैसी रही? सुरक्षित घर पहुँचे? 💛
+Variables: {{1}} = नाम, {{2}} = कस्टम लेबल
+Buttons: [हो गई 🛍️] [घर पहुँचा 🏡] [सुरक्षित]
+
+# 4. TEMPLE RETURN - ayana_temple_return_en / _te / _hi
+
+Template Name: ayana_temple_return_en
+Language: en
+Category: Utility
+Body: Hi {{1}}, did you come back from temple? 🛕 How was darshan? Reached home safely? 💛
+Variables: {{1}} = Parent name
+Buttons: [Darshan done 🛕] [Reached 🏡] [Yes]
+
+Template Name: ayana_temple_return_te
+Language: te
+Category: Utility
+Body: హాయ్ {{1}}, గుడి నుండి తిరిగి వచ్చారా? 🛕 దర్శనం ఎలా జరిగింది? సురక్షితంగా ఇంటికి చేరారా? 💛
+Variables: {{1}} = పేరు
+Buttons: [దర్శనం అయ్యింది 🛕] [వచ్చా 🏡] [అవును]
+
+Template Name: ayana_temple_return_hi
+Language: hi
+Category: Utility
+Body: हाय {{1}}, क्या आप मंदिर से वापस आ गए? 🛕 दर्शन कैसा रहा? सुरक्षित घर पहुँचे? 💛
+Variables: {{1}} = नाम
+Buttons: [दर्शन हो गया 🛕] [पहुँचा 🏡] [हाँ]
+
+# 5. OUTING RETURN - ayana_outing_return_en / _te / _hi (Generic safe return)
+
+Template Name: ayana_outing_return_en
+Language: en
+Category: Utility
+Body: Hi {{1}}, did you reach home safely? 🏡 Are you back? How was your outing? 💛
+Variables: {{1}} = Parent name
+Buttons: [Home safe 🏡] [Reached 💛] [Yes]
+
+Template Name: ayana_outing_return_te
+Language: te
+Category: Utility
+Body: హాయ్ {{1}}, సురక్షితంగా ఇంటికి చేరారా? 🏡 ఇంటికి తిరిగి వచ్చారా? బయటకు వెళ్లడం ఎలా ఉంది? 💛
+Variables: {{1}} = పేరు
+Buttons: [సేఫ్ గా ఇంట్లో 🏡] [వచ్చా 💛] [అవును]
+
+Template Name: ayana_outing_return_hi
+Language: hi
+Category: Utility
+Body: हाय {{1}}, क्या आप सुरक्षित घर पहुँच गए? 🏡 वापस आ गए? बाहर जाना कैसा रहा? 💛
+Variables: {{1}} = नाम
+Buttons: [घर सुरक्षित 🏡] [पहुँचा 💛] [हाँ]
+
+# =============================================================================
+# WARNINGS (Section 2-window logic) - 3 categories × 3 langs = 9 templates
+# These MUST be templates because child is often outside 24h window
+# =============================================================================
+
+# 6. FIRST WARNING TO CHILD at 2pm (6am-2pm no reply) - ayana_first_warn_child_en / _te / _hi
+
+Template Name: ayana_first_warn_child_en
+Language: en
+Category: Utility
+Body: 💛 {{1}} didn't reply this morning (6am-2pm). We just sent another check-in. We'll update you at 10pm if still no reply.
+Variables: {{1}} = Parent name (e.g., Amma, Dad)
+Buttons: [Call now 📞] [Okay 👍]
+
+Template Name: ayana_first_warn_child_te
+Language: te
+Category: Utility
+Body: 💛 {{1}} ఈ ఉదయం (6am-2pm) స్పందించలేదు. మేము మళ్ళీ చెక్-ఇన్ పంపాము. 10pm వరకు స్పందన లేకపోతే మీకు తెలియజేస్తాము.
+Variables: {{1}} = పేరు
+Buttons: [కాల్ చేయి 📞] [సరే 👍]
+
+Template Name: ayana_first_warn_child_hi
+Language: hi
+Category: Utility
+Body: 💛 {{1}} ने आज सुबह (6am-2pm) जवाब नहीं दिया। हमने दोबारा चेक-इन भेजा है। रात 10 बजे तक जवाब नहीं आया तो आपको बताएंगे।
+Variables: {{1}} = नाम
+Buttons: [कॉल करो 📞] [ठीक है 👍]
+
+# 7. MAIN WARNING TO CHILD at 10pm (no reply whole day) - ayana_main_warn_child_en / _te / _hi
+# Has 2 variables: name + missed count
+
+Template Name: ayana_main_warn_child_en
+Language: en
+Category: Utility
+Body: ⚠️ {{1}} didn't reply at all today (since morning 6am). Please consider calling. Missed {{2}} check-ins.
+Variables: {{1}} = Parent name, {{2}} = Missed count (e.g., 4)
+Buttons: [Call now 📞] [Okay, will call]
+
+Template Name: ayana_main_warn_child_te
+Language: te
+Category: Utility
+Body: ⚠️ {{1}} ఈరోజు ఉదయం 6గంటల నుండి అస్సలు స్పందించలేదు. దయచేసి కాల్ చేయండి. {{2}} చెక్-ఇన్లు మిస్ అయ్యాయి.
+Variables: {{1}} = పేరు, {{2}} = మిస్ కౌంట్
+Buttons: [కాల్ చేయి 📞] [కాల్ చేస్తా]
+
+Template Name: ayana_main_warn_child_hi
+Language: hi
+Category: Utility
+Body: ⚠️ {{1}} ने आज सुबह 6 बजे से बिल्कुल जवाब नहीं दिया। कृपया कॉल करें। {{2}} चेक-इन मिस हुए।
+Variables: {{1}} = नाम, {{2}} = मिस काउंट
+Buttons: [कॉल करो 📞] [कॉल करता हूँ]
+
+# 8. FIRST WARNING TO PARENT at 2pm (nudge) - ayana_first_warn_parent_en / _te / _hi
+
+Template Name: ayana_first_warn_parent_en
+Language: en
+Category: Utility
+Body: {{1}}, we missed you this morning. Just checking in again 💛 Are you okay?
+Variables: {{1}} = Parent name
+Buttons: [Yes, okay 💛] [Slept well 😴] [Not well 😟]
+
+Template Name: ayana_first_warn_parent_te
+Language: te
+Category: Utility
+Body: {{1}}, ఈ ఉదయం మీ నుండి వార్త లేదు. మళ్ళీ చెక్ చేస్తున్నాం 💛 బాగున్నారా?
+Variables: {{1}} = పేరు
+Buttons: [బాగున్నా 💛] [నిద్ర బాగా 😴] [బాగోలేదు 😟]
+
+Template Name: ayana_first_warn_parent_hi
+Language: hi
+Category: Utility
+Body: {{1}}, आज सुबह आपसे बात नहीं हुई। फिर से चेक कर रहे हैं 💛 आप ठीक हैं?
+Variables: {{1}} = नाम
+Buttons: [ठीक हूँ 💛] [अच्छी नींद 😴] [ठीक नहीं 😟]
+
+# =============================================================================
+# WHY NOT WRITE WITHOUT TEMPLATES? EXPLANATION
+# =============================================================================
+
+# WhatsApp Rule:
+# - Within 24h of user's last message: You can send FREE-FORM text (send_whatsapp)
+# - Outside 24h: You MUST use APPROVED TEMPLATE, free-form fails with error:
+#   "Failed to send message: Outside allowed window"
+
+# Example:
+# Morning: You send check-in at 8am (template, opens 24h window)
+# Parent replies at 8:05am (window extended to next day 8:05am)
+# 
+# Case 1: Safety check at 7pm same day (within 24h) -> free-form WORKS (no template needed)
+# Case 2: Parent didn't reply morning, safety check at 7pm next day (outside 24h) -> free-form FAILS, need template
+# Case 3: Child warnings at 2pm/10pm - child rarely replies -> always outside 24h -> MUST need template
+
+# Code already handles both:
+# - Tries template first (works outside window)
+# - If template not found (not approved yet), falls back to free-form (works only within window)
+
+
 
 
 
