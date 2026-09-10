@@ -1,155 +1,307 @@
 
 """
-monthly_report.py — FIXED: Now generates PDF and sends it on WhatsApp along with template
-
-Fixes your issue:
-1. Previously _notify_report_ready only called send_report_ready (text)
-2. Now it also generates PDF, uploads to storage, and calls send_report_pdf_with_link + media-id fallback
-
-Requires: reportlab (pip install reportlab)
+monthly_report.py — FIXED: NEW Monthly Care Report with REAL AYANA logo emblem
 """
-
 import logging
 import json
 from datetime import datetime, timezone, timedelta
 from calendar import monthrange
 from zoneinfo import ZoneInfo
 from io import BytesIO
-
 from database import get_pool
 from pricing import plan_limits, PLAN_BY_ID
 from whatsapp import send_report_ready, send_report_pdf_with_link, send_document_link
 from storage import put_object, signed_url, is_enabled as storage_enabled
-
 logger = logging.getLogger("ayana.monthly_report")
-
 _FEELING_SCORE = {"good": 1.0, "okay": 0.5, "not_well": 0.0}
-
-def _tz(tz_name: str | None):
+def _tz(tz_name):
     try:
         return ZoneInfo(tz_name or "Asia/Kolkata")
     except Exception:
         return ZoneInfo("Asia/Kolkata")
-
-def _local_day(dt: datetime, tz) -> str:
+def _local_day(dt, tz):
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
     return dt.astimezone(tz).strftime("%Y-%m-%d")
-
-def _month_bounds(year: int, month: int) -> tuple[str, str]:
+def _month_bounds(year, month):
     last_day = monthrange(year, month)[1]
     return f"{year:04d}-{month:02d}-01", f"{year:04d}-{month:02d}-{last_day:02d}"
-
-def _day_key_to_dt(day_key: str) -> datetime:
+def _day_key_to_dt(day_key):
     return datetime.strptime(day_key, "%Y-%m-%d").replace(tzinfo=timezone.utc)
 
-# --- PDF GENERATION ---
+"""
+monthly_report.py — FIXED: NEW Monthly Care Report with REAL AYANA logo emblem
+"""
+import logging
+import json
+from datetime import datetime, timezone, timedelta
+from calendar import monthrange
+from zoneinfo import ZoneInfo
+from io import BytesIO
+from database import get_pool
+from pricing import plan_limits, PLAN_BY_ID
+from whatsapp import send_report_ready, send_report_pdf_with_link, send_document_link
+from storage import put_object, signed_url, is_enabled as storage_enabled
+logger = logging.getLogger("ayana.monthly_report")
+_FEELING_SCORE = {"good": 1.0, "okay": 0.5, "not_well": 0.0}
+def _tz(tz_name):
+    try:
+        return ZoneInfo(tz_name or "Asia/Kolkata")
+    except Exception:
+        return ZoneInfo("Asia/Kolkata")
+def _local_day(dt, tz):
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(tz).strftime("%Y-%m-%d")
+def _month_bounds(year, month):
+    last_day = monthrange(year, month)[1]
+    return f"{year:04d}-{month:02d}-01", f"{year:04d}-{month:02d}-{last_day:02d}"
+def _day_key_to_dt(day_key):
+    return datetime.strptime(day_key, "%Y-%m-%d").replace(tzinfo=timezone.utc)
 
-def _generate_pdf_bytes(report: dict, details: dict) -> bytes:
-    """Generate a simple but clean monthly report PDF"""
+
+def _generate_pdf_bytes(report, details):
     try:
         from reportlab.lib.pagesizes import A4
-        from reportlab.lib.units import inch
-        from reportlab.lib.colors import HexColor
-        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
-        from reportlab.lib.styles import getSampleStyleSheet
-        from reportlab.lib import colors
+        from reportlab.pdfgen import canvas
+        from reportlab.lib.colors import HexColor, Color
+        from reportlab.lib.utils import ImageReader
+        import os
     except ImportError:
-        logger.error("[monthly_report] reportlab not installed, cannot generate PDF")
+        logger.error("[monthly_report] reportlab not installed")
         return None
-
     buffer = BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=A4, 
-                            rightMargin=50, leftMargin=50, topMargin=50, bottomMargin=50)
-    styles = getSampleStyleSheet()
-    story = []
-
-    # Colors
-    primary = HexColor("#8B5CF6")
-    
-    # Title
+    c = canvas.Canvas(buffer, pagesize=A4)
+    page_w, page_h = A4
+    margin_x = 14 * 2.83465
+    content_w = page_w - margin_x*2
+    primary = Color(15/255, 61/255, 46/255)
+    primary_soft = Color(232/255, 242/255, 236/255)
+    border_col = Color(239/255, 232/255, 216/255)
+    row_alt = Color(250/255, 246/255, 236/255)
+    muted = Color(154/255, 145/255, 131/255)
+    text_col = Color(26/255, 26/255, 26/255)
+    dot_replied = Color(16/255, 150/255, 72/255)
+    dot_pending = Color(206/255, 199/255, 181/255)
+    pill_idle = Color(244/255, 244/255, 241/255)
     parent_name = details.get("parent_name", report.get("parent_id", "Parent"))
     period = report.get("period", "")
-    title = f"<font color='#8B5CF6'><b>AYANA Wellness Report - {parent_name}</b></font><br/><font size=10>{period}</font>"
-    story.append(Paragraph(title, styles['Title']))
-    story.append(Spacer(1, 0.3*inch))
-
-    # Summary
-    story.append(Paragraph(f"<b>Summary</b>", styles['Heading2']))
-    summary_data = [
-        ["Total Check-ins", str(report.get("total_touches", 0))],
-        ["Delivered", str(report.get("delivered", 0))],
-        ["Replied", str(report.get("replied", 0))],
-        ["Reply Rate", f"{report.get('reply_rate',0)*100:.0f}%"],
-        ["Voice Replies", str(report.get("voice_replies", 0))],
-        ["Plan", report.get("plan", "")],
-    ]
-    t = Table(summary_data, colWidths=[2.5*inch, 2.5*inch])
-    t.setStyle(TableStyle([
-        ('BACKGROUND', (0,0), (0,-1), colors.HexColor("#F3F0FF")),
-        ('TEXTCOLOR', (0,0), (-1,-1), colors.black),
-        ('ALIGN', (0,0), (-1,-1), 'LEFT'),
-        ('FONTNAME', (0,0), (-1,-1), 'Helvetica'),
-        ('FONTSIZE', (0,0), (-1,-1), 10),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 8),
-        ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor("#E5E7EB")),
-    ]))
-    story.append(t)
-    story.append(Spacer(1, 0.3*inch))
-
-    # By Category
-    by_category = details.get("by_category", {})
-    if by_category:
-        story.append(Paragraph(f"<b>By Category</b>", styles['Heading2']))
-        cat_data = [["Category", "Sent", "Replied"]]
-        for cat, vals in by_category.items():
-            cat_data.append([cat, str(vals.get("sent",0)), str(vals.get("replied",0))])
-        ct = Table(cat_data, colWidths=[2.5*inch, 1.25*inch, 1.25*inch])
-        ct.setStyle(TableStyle([
-            ('BACKGROUND', (0,0), (-1,0), primary),
-            ('TEXTCOLOR', (0,0), (-1,0), colors.white),
-            ('ALIGN', (0,0), (-1,-1), 'LEFT'),
-            ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0,0), (-1,-1), 9),
-            ('BOTTOMPADDING', (0,0), (-1,-1), 6),
-            ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor("#E5E7EB")),
-        ]))
-        story.append(ct)
-        story.append(Spacer(1, 0.3*inch))
-
-    # Day by day
+    try:
+        y_, m_ = period.split("-")
+        month_label = datetime(int(y_), int(m_), 1).strftime("%B %Y")
+    except:
+        month_label = period
     days = details.get("days", [])
-    if days:
-        story.append(Paragraph(f"<b>Day by Day</b>", styles['Heading2']))
-        day_data = [["Day", "Sent", "Replied"]]
-        for d in sorted(days, key=lambda x: x.get("day",""))[-15:]:  # last 15 days
-            day_data.append([d.get("day",""), str(d.get("sent",0)), str(d.get("replied",0))])
-        dt = Table(day_data, colWidths=[2*inch, 1.5*inch, 1.5*inch])
-        dt.setStyle(TableStyle([
-            ('BACKGROUND', (0,0), (-1,0), primary),
-            ('TEXTCOLOR', (0,0), (-1,0), colors.white),
-            ('ALIGN', (0,0), (-1,-1), 'LEFT'),
-            ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0,0), (-1,-1), 8),
-            ('BOTTOMPADDING', (0,0), (-1,-1), 5),
-            ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor("#E5E7EB")),
-        ]))
-        story.append(dt)
-        story.append(Spacer(1, 0.3*inch))
-
-    # Trend note
-    if report.get("trend_note"):
-        story.append(Paragraph(f"<b>Note:</b> {report.get('trend_note')}", styles['Normal']))
-
-    story.append(Spacer(1, 0.5*inch))
-    story.append(Paragraph(f"<font size=8 color='#6B7280'>Generated by AYANA on {datetime.now().strftime('%Y-%m-%d %H:%M')} IST | ayana.care</font>", styles['Normal']))
-
-    doc.build(story)
+    total_sent = sum(d.get("sent",0) for d in days) or report.get("total_touches",0) or report.get("delivered",0)
+    total_replied = sum(d.get("replied",0) for d in days) or report.get("replied",0)
+    completion = round((total_replied/total_sent*100) if total_sent else 0)
+    skipped = report.get("skipped",0) or 0
+    voice = report.get("voice_replies",0) or 0
+    feelings = details.get("feelings", {})
+    medicine = details.get("medicine", {})
+    emergencies = details.get("emergencies",0)
+    by_category = details.get("by_category", {})
+    def draw_tracked(txt, x, y_pos, size=7.5, spacing=0.7):
+        c.setFont("Helvetica", size)
+        cx = x
+        for ch in txt:
+            c.drawString(cx, y_pos, ch)
+            cx += c.stringWidth(ch, "Helvetica", size) + spacing
+    def draw_footer():
+        c.setStrokeColor(border_col)
+        c.setLineWidth(0.5)
+        c.line(margin_x, 14*2.83465, page_w-margin_x, 14*2.83465)
+        c.setFont("Helvetica", 7)
+        c.setFillColor(muted)
+        c.drawString(margin_x, 9*2.83465, "AYANA is not an emergency or medical service. This report summarises WhatsApp check-in activity only.")
+        c.drawRightString(page_w-margin_x, 9*2.83465, "ayana.care")
+    def ensure_space(needed):
+        nonlocal y
+        if y - needed < 18*2.83465:
+            draw_footer()
+            c.showPage()
+            y = page_h - 16*2.83465
+            try:
+                logo_path = "/mnt/data/ayana_emblem_400.png"
+                if os.path.exists(logo_path):
+                    c.saveState()
+                    c.setFillAlpha(0.05)
+                    c.drawImage(ImageReader(logo_path), page_w/2 - 30*2.83465, page_h/2 - 30*2.83465, 60*2.83465, 60*2.83465, preserveAspectRatio=True, mask='auto')
+                    c.restoreState()
+            except:
+                pass
+    y = page_h - 16*2.83465
+    try:
+        logo_path = "/mnt/data/ayana_emblem_400.png"
+        if os.path.exists(logo_path):
+            c.saveState()
+            c.setFillAlpha(0.05)
+            c.drawImage(ImageReader(logo_path), page_w/2 - 30*2.83465, page_h/2 - 30*2.83465, 60*2.83465, 60*2.83465, preserveAspectRatio=True, mask='auto')
+            c.restoreState()
+    except:
+        pass
+    try:
+        logo_path = "/mnt/data/ayana_emblem_400.png"
+        if os.path.exists(logo_path):
+            c.drawImage(ImageReader(logo_path), margin_x, y-10*2.83465, 10*2.83465, 10*2.83465, preserveAspectRatio=True, mask='auto')
+        else:
+            c.setFillColor(primary)
+            c.roundRect(margin_x, y-10*2.83465, 10*2.83465, 10*2.83465, 2*2.83465, fill=1, stroke=0)
+            c.setFillColor(HexColor("#FFFFFF"))
+            c.setFont("Times-Bold", 9)
+            c.drawCentredString(margin_x+5*2.83465, y-4*2.83465, "A")
+    except:
+        c.setFillColor(primary)
+        c.roundRect(margin_x, y-10*2.83465, 10*2.83465, 10*2.83465, 2*2.83465, fill=1, stroke=0)
+        c.setFillColor(HexColor("#FFFFFF"))
+        c.setFont("Times-Bold", 9)
+        c.drawCentredString(margin_x+5*2.83465, y-4*2.83465, "A")
+    c.setFillColor(muted)
+    c.setFont("Helvetica", 7.5)
+    draw_tracked("MONTHLY CARE REPORT", margin_x+14*2.83465, y-2*2.83465, 7.5, 0.7)
+    c.setFillColor(text_col)
+    c.setFont("Times-Bold", 18)
+    c.drawString(margin_x+14*2.83465, y-8*2.83465, f"{parent_name} · {month_label}")
+    c.setFont("Helvetica", 8.5)
+    c.setFillColor(muted)
+    now_str = datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%m/%d/%Y, %I:%M:%S %p")
+    c.drawRightString(page_w-margin_x, y-2*2.83465, f"Generated {now_str}")
+    c.setFont("Times-Bold", 11)
+    c.setFillColor(primary)
+    c.drawRightString(page_w-margin_x, y-7*2.83465, "AYANA")
+    y -= 18*2.83465
+    c.setStrokeColor(border_col)
+    c.setLineWidth(0.5)
+    c.line(margin_x, y, page_w-margin_x, y)
+    y -= 8*2.83465
+    strongest = ""
+    if by_category:
+        best = max(by_category.items(), key=lambda kv: (kv[1].get("replied",0)/kv[1].get("sent",1)) if kv[1].get("sent") else 0, default=None)
+        if best and best[1].get("sent",0)>0:
+            rate = best[1].get("replied",0)/best[1].get("sent",1)*100
+            if rate>=90:
+                strongest = f" — strongest with {best[0].replace('_', ' ')} ({rate:.0f}%)."
+    c.setFont("Helvetica", 9)
+    c.setFillColor(text_col)
+    summary_text = f"{parent_name} completed {completion}% of check-ins this month across {len(by_category)} message types{strongest}"
+    c.drawString(margin_x, y, summary_text[:115])
+    y -= 10*2.83465
+    card_gap = 4*2.83465
+    card_w = (content_w - card_gap*3)/4
+    card_h = 22*2.83465
+    def draw_stat_card(x, value, label, sub=None):
+        c.setFillColor(HexColor("#FFFFFF"))
+        c.setStrokeColor(border_col)
+        c.roundRect(x, y-card_h, card_w, card_h, 2*2.83465, fill=1, stroke=1)
+        c.setFont("Times-Bold", 16)
+        c.setFillColor(text_col)
+        c.drawString(x+4*2.83465, y-7*2.83465, str(value))
+        c.setFont("Helvetica", 8.5)
+        c.setFillColor(muted)
+        c.drawString(x+4*2.83465, y-11*2.83465, label)
+        if sub:
+            c.setFont("Helvetica", 7.5)
+            c.drawString(x+4*2.83465, y-15*2.83465, sub)
+    draw_stat_card(margin_x, total_sent, "Messages sent", month_label)
+    draw_stat_card(margin_x+card_w+card_gap, f"{completion}%", "Completion rate", f"{total_replied} completed")
+    draw_stat_card(margin_x+(card_w+card_gap)*2, skipped, "Skipped", None)
+    draw_stat_card(margin_x+(card_w+card_gap)*3, voice, "Voice notes", None)
+    y -= card_h + 6*2.83465
+    row2_w = (content_w - card_gap*2)/3
+    row2_h = 20*2.83465
+    def draw_info_card(x, title, body):
+        c.setStrokeColor(border_col)
+        c.setFillColor(HexColor("#FFFFFF"))
+        c.roundRect(x, y-row2_h, row2_w, row2_h, 2*2.83465, fill=1, stroke=1)
+        c.setFont("Helvetica-Bold", 8.5)
+        c.setFillColor(text_col)
+        c.drawString(x+4*2.83465, y-6*2.83465, title)
+        c.setFont("Helvetica", 8)
+        c.setFillColor(muted)
+        c.drawString(x+4*2.83465, y-11*2.83465, body[:46])
+        if len(body)>46:
+            c.drawString(x+4*2.83465, y-14*2.83465, body[46:92])
+    feelings_line = "No feelings recorded yet"
+    if feelings and sum(feelings.values())>0:
+        feelings_line = "  ".join([f"{k.replace('_', ' ')} x{v}" for k,v in feelings.items() if v>0])
+    medicine_line = f"Taken {medicine.get('done',0)}   Skipped {medicine.get('skipped',0)}"
+    alerts_line = f"{emergencies} alerts" if emergencies else "No alerts this month"
+    draw_info_card(margin_x, "How they responded", feelings_line)
+    draw_info_card(margin_x+row2_w+card_gap, "Medicine", medicine_line)
+    draw_info_card(margin_x+(row2_w+card_gap)*2, "Attention alerts", alerts_line)
+    y -= row2_h + 10*2.83465
+    ensure_space(16*2.83465)
+    c.setFont("Times-Bold", 13)
+    c.setFillColor(text_col)
+    c.drawString(margin_x, y, f"Message Breakdown — {parent_name}")
+    y -= 6*2.83465
+    c.setFillColor(primary_soft)
+    c.rect(margin_x, y-7*2.83465, content_w, 7*2.83465, fill=1, stroke=0)
+    c.setFont("Helvetica", 8.5)
+    c.setFillColor(muted)
+    c.drawString(margin_x+3*2.83465, y-4.5*2.83465, "Message")
+    c.drawRightString(margin_x+content_w-14*2.83465, y-4.5*2.83465, "Sent")
+    c.drawRightString(margin_x+content_w-3*2.83465, y-4.5*2.83465, "Replied")
+    y -= 7*2.83465
+    for i, (cat, vals) in enumerate(by_category.items()):
+        ensure_space(8*2.83465)
+        if i%2==1:
+            c.setFillColor(row_alt)
+            c.rect(margin_x, y-7*2.83465, content_w, 7*2.83465, fill=1, stroke=0)
+        c.setFillColor(text_col)
+        c.setFont("Helvetica", 9)
+        c.drawString(margin_x+3*2.83465, y-4.5*2.83465, cat.replace("_"," "))
+        c.drawRightString(margin_x+content_w-14*2.83465, y-4.5*2.83465, str(vals.get("sent",0)))
+        c.drawRightString(margin_x+content_w-3*2.83465, y-4.5*2.83465, str(vals.get("replied",0)))
+        c.setStrokeColor(border_col)
+        c.line(margin_x, y-7*2.83465, margin_x+content_w, y-7*2.83465)
+        y -= 7*2.83465
+    y -= 6*2.83465
+    ensure_space(16*2.83465)
+    c.setFont("Times-Bold", 13)
+    c.setFillColor(text_col)
+    c.drawString(margin_x, y, f"Daily Activity — {parent_name}")
+    y -= 8*2.83465
+    for d in sorted(days, key=lambda x: x.get("day",""), reverse=True)[:20]:
+        ensure_space(12*2.83465)
+        day_str = d.get("day","")[5:]
+        replied = d.get("replied",0)
+        sent = d.get("sent",0)
+        c.setFont("Helvetica", 8.5)
+        c.setFillColor(muted)
+        c.drawString(margin_x, y-2*2.83465, day_str)
+        c.setFillColor(text_col)
+        c.drawRightString(margin_x+content_w, y-2*2.83465, f"{replied}/{sent} replied")
+        px = margin_x + 30*2.83465
+        pill_y = y
+        items = d.get("items", []) or []
+        for m in items[:6]:
+            replied_flag = m.get("replied") or m.get("reply_status")=="done"
+            label = f"{m.get('time','')} {m.get('category','').replace('_',' ')}".strip()
+            c.setFont("Helvetica", 7)
+            text_w = c.stringWidth(label, "Helvetica", 7)
+            w = text_w + 10*2.83465
+            if px + w > margin_x+content_w-5*2.83465:
+                px = margin_x + 30*2.83465
+                pill_y -= 6*2.83465
+                ensure_space(10*2.83465)
+            c.setFillColor(primary_soft if replied_flag else pill_idle)
+            c.roundRect(px, pill_y-5.5*2.83465, w, 5.5*2.83465, 2*2.83465, fill=1, stroke=0)
+            c.setFillColor(dot_replied if replied_flag else dot_pending)
+            c.circle(px+3.4*2.83465, pill_y-2.6*2.83465, 1*2.83465, fill=1, stroke=0)
+            c.setFillColor(primary if replied_flag else muted)
+            c.drawString(px+6.2*2.83465, pill_y-2*2.83465, label)
+            px += w + 2*2.83465
+        y = pill_y - 9*2.83465
+    draw_footer()
+    c.showPage()
+    c.save()
     pdf_bytes = buffer.getvalue()
     buffer.close()
     return pdf_bytes
 
-async def _mood_series(conn, parent_id, start_day: str, end_day: str, tz_name: str | None = None) -> list[dict]:
+
+async def _mood_series(conn, parent_id, start_day: str, end_day: str, tz_name: str = None) -> list:
     tz = _tz(tz_name)
     range_start = _day_key_to_dt(start_day)
     range_end = _day_key_to_dt(end_day) + timedelta(days=1)
@@ -172,7 +324,7 @@ async def _mood_series(conn, parent_id, start_day: str, end_day: str, tz_name: s
         series.append({"day": day, "feeling": feeling, "score": _FEELING_SCORE.get(feeling)})
     return series
 
-async def _daily_details(conn, parent_id, start_day: str, end_day: str, tz_name: str | None = None) -> dict:
+async def _daily_details(conn, parent_id, start_day: str, end_day: str, tz_name: str = None) -> dict:
     tz = _tz(tz_name)
     range_start = _day_key_to_dt(start_day)
     range_end = _day_key_to_dt(end_day) + timedelta(days=1)
@@ -207,8 +359,8 @@ async def _daily_details(conn, parent_id, start_day: str, end_day: str, tz_name:
         replies_by_day.setdefault(_local_day(r["created_at"], tz), []).append(r)
     consumed_by_day: dict[str, list] = {dk: [False] * len(rs) for dk, rs in replies_by_day.items()}
 
-    days: dict[str, dict] = {}
-    by_category: dict[str, dict] = {}
+    days: dict = {}
+    by_category: dict = {}
 
     for log in logs:
         dk = _local_day(log["created_at"], tz)
@@ -269,7 +421,7 @@ async def _daily_details(conn, parent_id, start_day: str, end_day: str, tz_name:
         "total_replies": len(replies),
     }
 
-def _trend_note(series: list[dict]) -> str:
+def _trend_note(series: list) -> str:
     if not series or len(series) < 3:
         return "Mood stayed fairly steady this month."
     scores = [s.get("score", 0.5) for s in series if s.get("score") is not None]
@@ -484,3 +636,4 @@ async def generate_reports_for_month(year: int, month: int):
             await generate_monthly_report(parent["user_id"], parent["id"], plan_id, year, month, notify=True)
         except Exception as e:
             logger.error("[monthly_report] Failed for parent %s: %s", parent["id"], e, exc_info=True)
+

@@ -1,3 +1,4 @@
+
 """
 test_single_7032.py — Force send PDF ONLY to +917032538448
 Usage: python test_single_7032.py --year 2025 --month 8
@@ -60,10 +61,10 @@ async def main(year, month):
         "total_touches": sum(d["sent"] for d in details["days"]),
         "delivered": sum(d["sent"] for d in details["days"]),
         "replied": sum(d["replied"] for d in details["days"]),
-        "reply_rate": 0.8,
+        "reply_rate": round(sum(d["replied"] for d in details["days"]) / max(1, sum(d["sent"] for d in details["days"])), 3),
         "voice_replies": 0,
         "plan": plan_id,
-        "trend_note": "Test report for +917032538448",
+        "trend_note": f"Monthly report for {parent['name']} - {year}-{month:02d}",
     }
 
     pdf_bytes = _generate_pdf_bytes(report, details)
@@ -91,7 +92,8 @@ async def main(year, month):
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument("--year", type=int, default=2025)
-    parser.add_argument("--month", type=int, default=8)
+    parser.add_argument("--year", type=int, default=2026)
+    parser.add_argument("--month", type=int, default=9)
     args = parser.parse_args()
     asyncio.run(main(args.year, args.month))
+

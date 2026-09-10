@@ -1,6 +1,11 @@
 """
 templates_data.py — AYANA v2 message templates.
-Conversational, warm, and fully button‑matched to Meta‑approved strings.
+Conversational, warm, and fully button-matched to Meta-approved strings.
+
+IMPORTANT:
+- Template names are unchanged.
+- Language codes are unchanged: en, te, hi.
+- Button responses are matched to the question/category.
 """
 
 import logging
@@ -18,23 +23,53 @@ STATIC_LANGUAGES = frozenset(("en", "te", "hi"))
 
 RELATIONSHIPS = ["mother", "father"]
 
+
 # ── Category → underlying approved template type (5 templates total) ───────
 CATEGORY_TO_TEMPLATE = {
     "morning_wish": "opener",
-    "medicine": "medicine", "water": "medicine", "bp_check": "medicine",
-    "sugar_check": "medicine", "health_check": "medicine",
-    "breakfast": "meal", "lunch": "meal", "dinner": "meal",
-    "afternoon_checkin": "meal", "tea_check": "meal", "walk_check": "meal",
-    "how_feeling": "mood", "goodnight": "mood", "love_note": "mood",
+
+    "medicine": "medicine",
+    "water": "medicine",
+    "bp_check": "medicine",
+    "sugar_check": "medicine",
+    "health_check": "medicine",
+
+    "breakfast": "meal",
+    "lunch": "meal",
+    "dinner": "meal",
+    "afternoon_checkin": "meal",
+    "tea_check": "meal",
+    "walk_check": "meal",
+
+    "how_feeling": "mood",
+    "goodnight": "mood",
+    "love_note": "mood",
 }
+
 
 CHECKIN_CATEGORIES = {
-    "morning_wish", "breakfast", "lunch", "dinner", "afternoon_checkin",
-    "goodnight", "love_note",
+    "morning_wish",
+    "breakfast",
+    "lunch",
+    "dinner",
+    "afternoon_checkin",
+    "goodnight",
+    "love_note",
 }
 
-REMINDER_CATEGORIES = {"medicine", "water", "bp_check", "sugar_check", "health_check"}
-ACTIVITY_CATEGORIES = {"walk_check", "tea_check", "how_feeling"}
+REMINDER_CATEGORIES = {
+    "medicine",
+    "water",
+    "bp_check",
+    "sugar_check",
+    "health_check",
+}
+
+ACTIVITY_CATEGORIES = {
+    "walk_check",
+    "tea_check",
+    "how_feeling",
+}
 
 
 def category_type(category: str) -> str:
@@ -49,11 +84,20 @@ def get_template_sid_key(category: str) -> str:
     return CATEGORY_TO_TEMPLATE.get(category, "opener")
 
 
-# ── Relationship label ─────────────────────────────────────────────────────────
+# ── Relationship label ──────────────────────────────────────────────────────
 RELATION_LABEL = {
-    "mother": {"en": "Amma", "te": "అమ్మ", "hi": "माँ"},
-    "father": {"en": "Nanna", "te": "నాన్న", "hi": "पापा"},
+    "mother": {
+        "en": "Amma",
+        "te": "అమ్మ",
+        "hi": "माँ",
+    },
+    "father": {
+        "en": "Nanna",
+        "te": "నాన్న",
+        "hi": "पापा",
+    },
 }
+
 
 def parent_relation_label(parent: dict, language: str) -> str:
     rel = parent.get("relationship", "mother")
@@ -63,14 +107,35 @@ def parent_relation_label(parent: dict, language: str) -> str:
 
 # ── Seasonal greeting ────────────────────────────────────────────────────────
 _SEASON_PHRASES = {
-    "winter": {"en": "a bit cold", "te": "చలిగా ఉందా", "hi": "थोड़ी ठंड है"},
-    "summer": {"en": "quite warm", "te": "ఎండగా ఉందా", "hi": "गर्मी है"},
-    "monsoon": {"en": "rainy", "te": "వర్షం పడుతోందా", "hi": "बारिश हो रही है"},
-    "pleasant": {"en": "pleasant", "te": "ఎలా ఉంది", "hi": "मौसम अच्छा है"},
+    "winter": {
+        "en": "a bit cold",
+        "te": "చలిగా ఉందా",
+        "hi": "थोड़ी ठंड है",
+    },
+    "summer": {
+        "en": "quite warm",
+        "te": "ఎండగా ఉందా",
+        "hi": "गर्मी है",
+    },
+    "monsoon": {
+        "en": "rainy",
+        "te": "వర్షం పడుతోందా",
+        "hi": "बारिश हो रही है",
+    },
+    "pleasant": {
+        "en": "pleasant",
+        "te": "ఎలా ఉంది",
+        "hi": "मौसम अच्छा है",
+    },
 }
 
-def seasonal_greeting(language: str = "en", month: int | None = None) -> str:
+
+def seasonal_greeting(
+    language: str = "en",
+    month: int | None = None,
+) -> str:
     m = month or datetime.now(timezone.utc).month
+
     if m in (12, 1, 2):
         key = "winter"
     elif m in (3, 4, 5):
@@ -79,22 +144,56 @@ def seasonal_greeting(language: str = "en", month: int | None = None) -> str:
         key = "monsoon"
     else:
         key = "pleasant"
-    return _SEASON_PHRASES[key].get(language, _SEASON_PHRASES[key]["en"])
+
+    return _SEASON_PHRASES[key].get(
+        language,
+        _SEASON_PHRASES[key]["en"],
+    )
 
 
-# ── Nickname rotation ──────────────────────────────────────────────────────
-def get_nicknames_for_day(parent: dict, day_index: int) -> tuple[str, str, str]:
-    fallback = parent.get("preferred_name") or parent.get("name") or "Amma"
-    nicks = [n for n in (parent.get("nicknames") or []) if n] or [fallback]
+# ── Nickname rotation ───────────────────────────────────────────────────────
+def get_nicknames_for_day(
+    parent: dict,
+    day_index: int,
+) -> tuple[str, str, str]:
+
+    fallback = (
+        parent.get("preferred_name")
+        or parent.get("name")
+        or "Amma"
+    )
+
+    nicks = [
+        n
+        for n in (parent.get("nicknames") or [])
+        if n
+    ] or [fallback]
+
     while len(nicks) < 3:
-        nicks.append(nicks[len(nicks) % len(nicks)])
+        nicks.append(
+            nicks[len(nicks) % len(nicks)]
+        )
+
     n = len(nicks)
     i = day_index % n
-    return nicks[i], nicks[(i + 1) % n], nicks[(i + 2) % n]
+
+    return (
+        nicks[i],
+        nicks[(i + 1) % n],
+        nicks[(i + 2) % n],
+    )
 
 
-# ── SLOT_VARIANTS — conversational, culturally warm copy ──────────────────
+# ────────────────────────────────────────────────────────────────────────────
+# SLOT_VARIANTS
+# ────────────────────────────────────────────────────────────────────────────
+
 SLOT_VARIANTS: dict[str, dict[str, list[str]]] = {
+
+    # ────────────────────────────────────────────────────────────────────────
+    # MORNING
+    # Question → How did you sleep?
+    # ────────────────────────────────────────────────────────────────────────
     "morning_wish": {
         "en": [
             "Good morning {nick1} ☀️ How did you sleep? Stay hydrated.",
@@ -118,310 +217,872 @@ SLOT_VARIANTS: dict[str, dict[str, list[str]]] = {
             "जाओ {nick2}! आज की शुरुआत हँसी से करो। 😄",
         ],
     },
+
+
+    # ────────────────────────────────────────────────────────────────────────
+    # BREAKFAST
+    # ────────────────────────────────────────────────────────────────────────
     "breakfast": {
-        "en": ["{nick1}, had breakfast? What did you eat? 🍵",
-               "Tiffin done, {nick2}?",
-               "{nick1}, eat well, don't rush 😊",
-               "Breakfast time {nick3} — have you eaten yet?",
-               "{nick1}, don't skip breakfast today."],
-        "te": ["{nick1}, టిఫిన్ అయ్యిందా? ఏం తిన్నావ్? 🍵",
-               "టిఫిన్ అయ్యిందా, {nick2}?",
-               "{nick1}, తొందర పడకుండా తిను 😊",
-               "బ్రేక్ఫాస్ట్ టైం {nick3} — తిన్నావా?",
-               "{nick1}, ఈరోజు టిఫిన్ మానకు."],
-        "hi": ["{nick1}, नाश्ता हो गया? क्या खाया? 🍵",
-               "नाश्ता हो गया, {nick2}?",
-               "{nick1}, आराम से खाना, जल्दबाज़ी मत करना 😊",
-               "नाश्ते का समय {nick3} — कुछ खाया?",
-               "{nick1}, आज नाश्ता मत छोड़ना।"],
+        "en": [
+            "{nick1}, had breakfast? 🍵",
+            "Breakfast time, {nick2}. Have you eaten?",
+            "{nick1}, don't skip breakfast today 😊",
+            "Tiffin time, {nick3} — eaten yet?",
+            "{nick1}, have you had something to eat?",
+        ],
+        "te": [
+            "{nick1}, టిఫిన్ అయ్యిందా? 🍵",
+            "టిఫిన్ టైం, {nick2}. తిన్నావా?",
+            "{nick1}, ఈరోజు టిఫిన్ మానకు 😊",
+            "టిఫిన్ టైం {nick3} — తిన్నావా?",
+            "{nick1}, ఏమైనా తిన్నావా?",
+        ],
+        "hi": [
+            "{nick1}, नाश्ता हो गया? 🍵",
+            "नाश्ते का समय है, {nick2}. कुछ खाया?",
+            "{nick1}, आज नाश्ता मत छोड़ना 😊",
+            "नाश्ते का समय {nick3} — खाया?",
+            "{nick1}, कुछ खाया है?",
+        ],
     },
+
+
+    # ────────────────────────────────────────────────────────────────────────
+    # LUNCH
+    # ────────────────────────────────────────────────────────────────────────
     "lunch": {
-        "en": ["{nick1}, lunch time! 🍽 What did you cook today?",
-               "Bhojanam ayindha, {nick2}?",
-               "{nick1}, did {other_parent} have lunch too?",
-               "Lunch done, {nick3}? Don't skip.",
-               "{nick1}, eating on time today?"],
-        "te": ["{nick1}, భోజనం చేసావా? ఏం వండారు? 🍽",
-               "భోజనం అయ్యిందా, {nick2}?",
-               "{nick1}, {other_parent} కూడా భోజనం చేశారా?",
-               "లంచ్ అయ్యిందా, {nick3}? మానకు.",
-               "{nick1}, టైంకి తింటున్నావా ఈరోజు?"],
-        "hi": ["{nick1}, खाना खाया? क्या बना है? 🍽",
-               "खाना खाया, {nick2}?",
-               "{nick1}, {other_parent} ने भी खाना खाया?",
-               "लंच हो गया, {nick3}? छोड़ना मत।",
-               "{nick1}, आज समय पर खाना खाया?"],
+        "en": [
+            "{nick1}, lunch time! 🍽️ Have you eaten?",
+            "Bhojanam time, {nick2}. Lunch done?",
+            "{nick1}, have you had lunch yet?",
+            "Lunch time {nick3} — don't skip it.",
+            "{nick1}, eating on time today?",
+        ],
+        "te": [
+            "{nick1}, భోజనం టైం! 🍽️ తిన్నావా?",
+            "భోజనం టైం, {nick2}. భోజనం అయ్యిందా?",
+            "{nick1}, భోజనం చేశావా?",
+            "లంచ్ టైం {nick3} — మానకు.",
+            "{nick1}, ఈరోజు టైంకి తింటున్నావా?",
+        ],
+        "hi": [
+            "{nick1}, खाने का समय! 🍽️ खाना खाया?",
+            "खाने का समय है, {nick2}. खाना हो गया?",
+            "{nick1}, खाना खा लिया?",
+            "लंच का समय {nick3} — खाना मत छोड़ना।",
+            "{nick1}, आज समय पर खाना खाया?",
+        ],
     },
+
+
+    # ────────────────────────────────────────────────────────────────────────
+    # DINNER
+    # ────────────────────────────────────────────────────────────────────────
     "dinner": {
-        "en": ["{nick1}, dinner time! 🌙 Eat well and rest.",
-               "Ratri bhojanam ayindha, {nick2}?",
-               "{nick1}, did {other_parent} have dinner too?",
-               "Dinner done, {nick3}? Don't skip.",
-               "{nick1}, eating dinner on time today?"],
-        "te": ["{nick1}, రాత్రి భోజనం చేసావా? ఏం తిన్నావ్? 🌙",
-               "రాత్రి భోజనం అయ్యిందా, {nick2}?",
-               "{nick1}, {other_parent} కూడా రాత్రి భోజనం చేశారా?",
-               "డిన్నర్ అయ్యిందా, {nick3}? మానకు.",
-               "{nick1}, రాత్రి టైంకి తింటున్నావా?"],
-        "hi": ["{nick1}, रात का खाना खाया? क्या खाया? 🌙",
-               "रात का खाना खाया, {nick2}?",
-               "{nick1}, {other_parent} ने भी रात का खाना खाया?",
-               "डिनर हो गया, {nick3}? छोड़ना मत।",
-               "{nick1}, आज समय पर रात का खाना खाया?"],
+        "en": [
+            "{nick1}, dinner time! 🌙 Have you eaten?",
+            "Dinner time, {nick2}. Eat well and rest.",
+            "{nick1}, have you had dinner yet?",
+            "Dinner done, {nick3}? Don't skip.",
+            "{nick1}, eating dinner on time today?",
+        ],
+        "te": [
+            "{nick1}, రాత్రి భోజనం టైం! 🌙 తిన్నావా?",
+            "డిన్నర్ టైం, {nick2}. బాగా తిని రెస్ట్ తీసుకో.",
+            "{nick1}, రాత్రి భోజనం చేశావా?",
+            "డిన్నర్ అయ్యిందా, {nick3}? మానకు.",
+            "{nick1}, రాత్రి టైంకి తింటున్నావా?",
+        ],
+        "hi": [
+            "{nick1}, रात के खाने का समय! 🌙 खाना खाया?",
+            "डिनर का समय है, {nick2}. अच्छे से खाना और आराम करना।",
+            "{nick1}, रात का खाना खा लिया?",
+            "डिनर हो गया, {nick3}? छोड़ना मत।",
+            "{nick1}, आज समय पर रात का खाना खाया?",
+        ],
     },
+
+
+    # ────────────────────────────────────────────────────────────────────────
+    # AFTERNOON CHECK-IN
+    # ────────────────────────────────────────────────────────────────────────
     "afternoon_checkin": {
-        "en": ["{nick1}, what are you up to? 🌼 Take rest in the afternoon.",
-               "{nick2}, resting a little?",
-               "{nick1}, afternoon check-in — all good?",
-               "{nick3}, don't overdo it this afternoon.",
-               "{nick1}, how's the afternoon going?"],
-        "te": ["{nick1}, ఏం చేస్తున్నావ్? 🌼 మధ్యాహ్నం కాసేపు పడుకో.",
-               "{nick2}, కాసేపు రెస్ట్ తీసుకున్నావా?",
-               "{nick1}, మధ్యాహ్నం చెక్-ఇన్ — బాగున్నావా?",
-               "{nick3}, మధ్యాహ్నం ఎక్కువ కష్టపడకు.",
-               "{nick1}, మధ్యాహ్నం ఎలా గడుస్తోంది?"],
-        "hi": ["{nick1}, क्या कर रही हैं? 🌼 दोपहर में थोड़ा आराम कर लेना।",
-               "{nick2}, थोड़ा आराम किया?",
-               "{nick1}, दोपहर का हाल — सब ठीक?",
-               "{nick3}, दोपहर में ज़्यादा मेहनत मत करना।",
-               "{nick1}, दोपहर कैसी जा रही है?"],
+        "en": [
+            "{nick1}, what are you up to? 🌼 Take some rest this afternoon.",
+            "{nick2}, what are you doing right now?",
+            "{nick1}, afternoon check-in — how's your day going?",
+            "{nick3}, taking a little break this afternoon?",
+            "{nick1}, how's your afternoon going?",
+        ],
+        "te": [
+            "{nick1}, ఏం చేస్తున్నావ్? 🌼 మధ్యాహ్నం కాసేపు రెస్ట్ తీసుకో.",
+            "{nick2}, ఇప్పుడు ఏం చేస్తున్నావ్?",
+            "{nick1}, మధ్యాహ్నం చెక్-ఇన్ — రోజు ఎలా గడుస్తోంది?",
+            "{nick3}, మధ్యాహ్నం కాసేపు రెస్ట్ తీసుకుంటున్నావా?",
+            "{nick1}, మధ్యాహ్నం ఎలా గడుస్తోంది?",
+        ],
+        "hi": [
+            "{nick1}, क्या कर रही हैं? 🌼 दोपहर में थोड़ा आराम कर लेना।",
+            "{nick2}, अभी क्या कर रही हैं?",
+            "{nick1}, दोपहर का हाल — दिन कैसा जा रहा है?",
+            "{nick3}, दोपहर में थोड़ा आराम कर रही हैं?",
+            "{nick1}, दोपहर कैसी जा रही है?",
+        ],
     },
+
+
+    # ────────────────────────────────────────────────────────────────────────
+    # TEA
+    # ────────────────────────────────────────────────────────────────────────
     "tea_check": {
-        "en": ["{nick1}, had your {tea_type}? ☕",
-               "Tea time, {nick2}?",
-               "{nick1}, did {other_parent} have {tea_type} too?",
-               "Evening tea done, {nick3}?",
-               "Hi {nick1}, tea break? ☕"],
-        "te": ["{nick1}, {tea_type} తాగారా? ☕",
-               "టీ టైం, {nick2}?",
-               "{nick1}, {other_parent} కూడా టీ తాగారా?",
-               "సాయంత్రం టీ అయ్యిందా, {nick3}?",
-               "హాయ్ {nick1}, టీ బ్రేకా? ☕"],
-        "hi": ["{nick1}, {tea_type} पी ली? ☕",
-               "चाय का समय, {nick2}?",
-               "{nick1}, {other_parent} ने भी चाय पी?",
-               "शाम की चाय हो गई, {nick3}?",
-               "हाय {nick1}, चाय ब्रेक? ☕"],
+        "en": [
+            "{nick1}, had your {tea_type}? ☕",
+            "Tea time, {nick2}? Have you had your {tea_type}?",
+            "{nick1}, ready for your {tea_type} break?",
+            "Evening {tea_type} done, {nick3}?",
+            "Hi {nick1}, having your {tea_type}? ☕",
+        ],
+        "te": [
+            "{nick1}, {tea_type} తాగారా? ☕",
+            "టీ టైం, {nick2}? {tea_type} తాగారా?",
+            "{nick1}, {tea_type} తాగడానికి రెడీనా?",
+            "సాయంత్రం {tea_type} అయ్యిందా, {nick3}?",
+            "హాయ్ {nick1}, {tea_type} తాగుతున్నావా? ☕",
+        ],
+        "hi": [
+            "{nick1}, {tea_type} पी ली? ☕",
+            "चाय का समय, {nick2}? {tea_type} पी ली?",
+            "{nick1}, {tea_type} के लिए तैयार?",
+            "शाम की {tea_type} हो गई, {nick3}?",
+            "हाय {nick1}, {tea_type} पी रहे हैं? ☕",
+        ],
     },
+
+
+    # ────────────────────────────────────────────────────────────────────────
+    # WALK
+    # ────────────────────────────────────────────────────────────────────────
     "walk_check": {
-        "en": ["{nick1}, walk done today? 🚶‍♀️",
-               "{nick2}, went for a walk?",
-               "{nick1}, evening walk time — going out?",
-               "{nick3}, a short walk today?",
-               "{nick2}, walk done? 🚶"],
-        "te": ["{nick1}, ఈరోజు వాకింగ్ అయ్యిందా? 🚶‍♀️",
-               "{nick2}, వాకింగ్‌కి వెళ్ళావా?",
-               "{nick1}, సాయంత్రం వాక్ టైం — వెళ్తున్నావా?",
-               "{nick3}, ఈరోజు కాసేపు వాక్?",
-               "{nick2}, వాకింగ్ అయ్యిందా? 🚶"],
-        "hi": ["{nick1}, आज सैर हो गई? 🚶‍♀️",
-               "{nick2}, टहलने गईं?",
-               "{nick1}, शाम की सैर का समय — जा रही हैं?",
-               "{nick3}, आज थोड़ी टहलना?",
-               "{nick2}, सैर हो गई? 🚶"],
+        "en": [
+            "{nick1}, walk done today? 🚶‍♀️",
+            "{nick2}, did you go for your walk?",
+            "{nick1}, evening walk time — going out?",
+            "{nick3}, planning a short walk today?",
+            "{nick2}, got your steps in today? 🚶",
+        ],
+        "te": [
+            "{nick1}, ఈరోజు వాకింగ్ అయ్యిందా? 🚶‍♀️",
+            "{nick2}, వాకింగ్‌కి వెళ్ళావా?",
+            "{nick1}, సాయంత్రం వాక్ టైం — వెళ్తున్నావా?",
+            "{nick3}, ఈరోజు కాసేపు వాక్‌కి వెళ్తావా?",
+            "{nick2}, ఈరోజు వాకింగ్ చేశావా? 🚶",
+        ],
+        "hi": [
+            "{nick1}, आज सैर हो गई? 🚶‍♀️",
+            "{nick2}, टहलने गए?",
+            "{nick1}, शाम की सैर का समय — जा रहे हैं?",
+            "{nick3}, आज थोड़ी सैर करने का मन है?",
+            "{nick2}, आज टहलना हुआ? 🚶",
+        ],
     },
+
+
+    # ────────────────────────────────────────────────────────────────────────
+    # HOW FEELING
+    # ────────────────────────────────────────────────────────────────────────
     "how_feeling": {
-        "en": ["{nick1}, how are you feeling right now? 💛",
-               "Ela unnav, {nick2}? Thinking of you 💛",
-               "{nick1}, just checking in on you.",
-               "{nick3}, all good today?",
-               "{nick2}, feeling okay? 💛"],
-        "te": ["{nick1}, ఇప్పుడు ఎలా ఉన్నావ్? 💛",
-               "ఏం చేస్తున్నావ్, {nick2}? నీ గురించే ఆలోచిస్తున్నా 💛",
-               "{nick1}, నీ గురించి కులాసానా అని అడగాలనిపించింది.",
-               "{nick3}, ఈరోజు బాగున్నావా?",
-               "{nick2}, బాగున్నావా? 💛"],
-        "hi": ["{nick1}, अभी कैसा महसूस हो रहा है? 💛",
-               "क्या कर रही हैं, {nick2}? आपकी याद आ रही थी 💛",
-               "{nick1}, बस आपका हाल पूछ रहा हूँ।",
-               "{nick3}, आज सब ठीक?",
-               "{nick2}, ठीक महसूस हो रहा है? 💛"],
+        "en": [
+            "{nick1}, how are you feeling right now? 💛",
+            "How are you doing, {nick2}? Thinking of you 💛",
+            "{nick1}, just checking in on you.",
+            "{nick3}, how are you feeling today?",
+            "{nick2}, feeling okay today? 💛",
+        ],
+        "te": [
+            "{nick1}, ఇప్పుడు ఎలా ఉన్నావ్? 💛",
+            "ఎలా ఉన్నావ్, {nick2}? నీ గురించే ఆలోచిస్తున్నా 💛",
+            "{nick1}, నీ గురించి అడగాలనిపించింది.",
+            "{nick3}, ఈరోజు ఎలా అనిపిస్తోంది?",
+            "{nick2}, బాగానే అనిపిస్తుందా? 💛",
+        ],
+        "hi": [
+            "{nick1}, अभी कैसा महसूस हो रहा है? 💛",
+            "कैसी हैं, {nick2}? आपकी याद आ रही थी 💛",
+            "{nick1}, बस आपका हाल पूछ रहा हूँ।",
+            "{nick3}, आज कैसा महसूस हो रहा है?",
+            "{nick2}, आज ठीक महसूस हो रहा है? 💛",
+        ],
     },
+
+
+    # ────────────────────────────────────────────────────────────────────────
+    # GOODNIGHT
+    # ────────────────────────────────────────────────────────────────────────
     "goodnight": {
-        "en": ["Goodnight {nick1} 🌟 How was your day? Sleep well, love you.",
-               "Sleep tight, {nick2} ✨ Miss you.",
-               "{nick1}, how did today go? Rest well.",
-               "{nick3}, time to wind down.",
-               "Goodnight {nick1} — talk tomorrow!"],
-        "te": ["శుభరాత్రి {nick1} 🌟 ఈరోజు ఎలా జరిగింది? హాయిగా నిద్రపో, లవ్ యూ.",
-               "బజ్జోవే {nick2} ✨ నిన్ను మిస్ అవుతున్నా.",
-               "{nick1}, ఈరోజు ఎలా గడిచింది? రెస్ట్ తీసుకో.",
-               "{nick3}, ఇక నిద్రపోయే టైం.",
-               "శుభరాత్రి {nick1} — రేపు మాట్లాడదాం!"],
-        "hi": ["शुभ रात्रि {nick1} 🌟 आज का दिन कैसा रहा? चैन से सोना, लव यू।",
-               "सो जाओ, {nick2} ✨ याद आती है।",
-               "{nick1}, आज कैसा रहा दिन? आराम करना।",
-               "{nick3}, अब सोने का समय हो गया।",
-               "शुभ रात्रि {nick1} — कल बात करते हैं!"],
+        "en": [
+            "Goodnight {nick1} 🌟 How was your day?",
+            "Sleep tight, {nick2} ✨ How did today go?",
+            "{nick1}, how was your day? Rest well.",
+            "{nick3}, time to wind down. How was today?",
+            "Goodnight {nick1} — how did today treat you?",
+        ],
+        "te": [
+            "శుభరాత్రి {nick1} 🌟 ఈరోజు ఎలా జరిగింది?",
+            "హాయిగా నిద్రపో, {nick2} ✨ ఈరోజు ఎలా గడిచింది?",
+            "{nick1}, ఈరోజు ఎలా గడిచింది? రెస్ట్ తీసుకో.",
+            "{nick3}, ఇక నిద్రపోయే టైం. ఈరోజు ఎలా ఉంది?",
+            "శుభరాత్రి {nick1} — ఈరోజు ఎలా అనిపించింది?",
+        ],
+        "hi": [
+            "शुभ रात्रि {nick1} 🌟 आज का दिन कैसा रहा?",
+            "सो जाइए, {nick2} ✨ आज का दिन कैसा रहा?",
+            "{nick1}, आज दिन कैसा रहा? आराम करना।",
+            "{nick3}, अब आराम करने का समय है। आज का दिन कैसा रहा?",
+            "शुभ रात्रि {nick1} — आज का दिन कैसा रहा?",
+        ],
     },
+
+
+    # ────────────────────────────────────────────────────────────────────────
+    # LOVE NOTE
+    # ────────────────────────────────────────────────────────────────────────
     "love_note": {
-        "en": ["Just wanted to say I love you {nick1} ❤ Distance means nothing.",
-               "Miss you a lot, {nick2} ❤",
-               "{nick1}, you're always on my mind.",
-               "{nick3}, sending you love today ❤",
-               "{nick2}, just a little love note for you today ❤"],
-        "te": ["నిన్ను చాలా ప్రేమిస్తున్నా {nick1} ❤ దూరం పెద్ద విషయం కాదు.",
-               "చాలా మిస్ అవుతున్నా, {nick2} ❤",
-               "{nick1}, ఎప్పుడూ నీ గురించే ఆలోచన.",
-               "{nick3}, ఈరోజు నీకు ప్రేమ పంపిస్తున్నా ❤",
-               "{nick2}, ఈరోజు ఒక చిన్న ప్రేమ సందేశం ❤"],
-        "hi": ["बस इतना कहना था, बहुत प्यार करता/करती हूँ {nick1} ❤ दूरी कोई मायने नहीं रखती।",
-               "बहुत याद आती है, {nick2} ❤",
-               "{nick1}, हमेशा आपका ख्याल रहता है।",
-               "{nick3}, आज आपके लिए प्यार भेज रहा/रही हूँ ❤",
-               "{nick2}, आज बस एक छोटा प्यार भरा संदेश ❤"],
+        "en": [
+            "Just wanted to say I love you {nick1} ❤️",
+            "Miss you a lot, {nick2} ❤️",
+            "{nick1}, you're always on my mind.",
+            "{nick3}, sending you lots of love today ❤️",
+            "{nick2}, just a little love note for you today ❤️",
+        ],
+        "te": [
+            "నిన్ను చాలా ప్రేమిస్తున్నా {nick1} ❤️",
+            "చాలా మిస్ అవుతున్నా, {nick2} ❤️",
+            "{nick1}, ఎప్పుడూ నీ గురించే ఆలోచిస్తున్నా.",
+            "{nick3}, ఈరోజు నీకు చాలా ప్రేమ పంపిస్తున్నా ❤️",
+            "{nick2}, ఈరోజు నీ కోసం ఒక చిన్న ప్రేమ సందేశం ❤️",
+        ],
+        "hi": [
+            "बस इतना कहना था, बहुत प्यार करता/करती हूँ {nick1} ❤️",
+            "बहुत याद आती है, {nick2} ❤️",
+            "{nick1}, हमेशा आपका ख्याल रहता है।",
+            "{nick3}, आज आपके लिए ढेर सारा प्यार ❤️",
+            "{nick2}, आज बस आपके लिए एक छोटा सा प्यार भरा संदेश ❤️",
+        ],
     },
+
+
+    # ────────────────────────────────────────────────────────────────────────
+    # MEDICINE
+    # ────────────────────────────────────────────────────────────────────────
     "medicine": {
-        "en": ["{nick1}, medicine time 💊 Please take your {medicine} — don't forget!",
-               "Mandulu vesukunnava, {nick2}?",
-               "{nick1}, time for {medicine}.",
-               "{nick3}, please don't skip your {medicine} today.",
-               "{nick2}, take care — {medicine} time."],
-        "te": ["{nick1}, మందు టైమ్ 💊 {medicine} వేసుకున్నావా? మర్చిపోకు ప్లీజ్.",
-               "మందులు వేసుకున్నావా, {nick2}?",
-               "{nick1}, {medicine} టైం అయ్యింది.",
-               "{nick3}, ఈరోజు {medicine} మానకు.",
-               "{nick2}, ఆరోగ్యం జాగ్రత్త — {medicine} టైం."],
-        "hi": ["{nick1}, दवा का समय है 💊 {medicine} ले ली? भूलना मत प्लीज़।",
-               "दवाई ली, {nick2}?",
-               "{nick1}, {medicine} का समय हो गया।",
-               "{nick3}, आज {medicine} मत छोड़ना।",
-               "{nick2}, सेहत का ख्याल — {medicine} का समय।"],
+        "en": [
+            "{nick1}, medicine time 💊 Please take your {medicine}.",
+            "Did you take your {medicine}, {nick2}?",
+            "{nick1}, it's time for {medicine}.",
+            "{nick3}, please don't forget your {medicine} today.",
+            "{nick2}, take care — {medicine} time.",
+        ],
+        "te": [
+            "{nick1}, మందు టైమ్ 💊 {medicine} వేసుకున్నావా?",
+            "{nick2}, {medicine} వేసుకున్నావా?",
+            "{nick1}, {medicine} టైం అయ్యింది.",
+            "{nick3}, ఈరోజు {medicine} మర్చిపోకు.",
+            "{nick2}, ఆరోగ్యం జాగ్రత్త — {medicine} టైం.",
+        ],
+        "hi": [
+            "{nick1}, दवा का समय है 💊 {medicine} ले ली?",
+            "{nick2}, {medicine} ले ली?",
+            "{nick1}, {medicine} का समय हो गया।",
+            "{nick3}, आज {medicine} लेना मत भूलना।",
+            "{nick2}, सेहत का ख्याल — {medicine} का समय।",
+        ],
     },
+
+
+    # ────────────────────────────────────────────────────────────────────────
+    # WATER
+    # ────────────────────────────────────────────────────────────────────────
     "water": {
-        "en": ["{nick1}, drink some water 💧 Even a small sip helps!",
-               "{nick2}, had water recently?",
-               "{nick1}, stay hydrated today 💧"],
-        "te": ["{nick1}, కొంచెం నీళ్ళు తాగు 💧 చిన్న సిప్ అయినా సరే!",
-               "{nick2}, ఇటీవల నీళ్ళు తాగావా?",
-               "{nick1}, ఈరోజు హైడ్రేటెడ్‌గా ఉండు 💧"],
-        "hi": ["{nick1}, थोड़ा पानी पी लो 💧 थोड़ा सा ही सही!",
-               "{nick2}, हाल ही में पानी पिया?",
-               "{nick1}, आज हाइड्रेटेड रहना 💧"],
+        "en": [
+            "{nick1}, drink some water 💧 Even a small sip helps!",
+            "{nick2}, have you had water recently?",
+            "{nick1}, time for some water 💧",
+        ],
+        "te": [
+            "{nick1}, కొంచెం నీళ్ళు తాగు 💧 చిన్న సిప్ అయినా సరే!",
+            "{nick2}, ఇటీవల నీళ్ళు తాగావా?",
+            "{nick1}, కాస్త నీళ్ళు తాగే టైం 💧",
+        ],
+        "hi": [
+            "{nick1}, थोड़ा पानी पी लो 💧 थोड़ा सा ही सही!",
+            "{nick2}, हाल ही में पानी पिया?",
+            "{nick1}, थोड़ा पानी पीने का समय 💧",
+        ],
     },
+
+
+    # ────────────────────────────────────────────────────────────────────────
+    # HEALTH CHECK
+    # ────────────────────────────────────────────────────────────────────────
     "health_check": {
-        "en": ["{nick1}, how's your health today? 🩺 Any pain?",
-               "{nick2}, feeling okay physically?",
-               "{nick1}, quick health check-in 🩺"],
-        "te": ["{nick1}, ఈరోజు ఆరోగ్యం ఎలా ఉంది? 🩺 ఏమైనా నొప్పి ఉందా?",
-               "{nick2}, శారీరకంగా బాగున్నావా?",
-               "{nick1}, చిన్న హెల్త్ చెక్-ఇన్ 🩺"],
-        "hi": ["{nick1}, आज तबीयत कैसी है? 🩺 कोई दर्द या तकलीफ़?",
-               "{nick2}, शारीरिक रूप से ठीक हैं?",
-               "{nick1}, छोटा हेल्थ चेक-इन 🩺"],
+        "en": [
+            "{nick1}, how's your health today? 🩺 Any pain?",
+            "{nick2}, are you feeling okay physically?",
+            "{nick1}, quick health check-in 🩺 How are you feeling?",
+        ],
+        "te": [
+            "{nick1}, ఈరోజు ఆరోగ్యం ఎలా ఉంది? 🩺 ఏమైనా నొప్పి ఉందా?",
+            "{nick2}, శారీరకంగా బాగున్నావా?",
+            "{nick1}, చిన్న హెల్త్ చెక్-ఇన్ 🩺 ఎలా అనిపిస్తోంది?",
+        ],
+        "hi": [
+            "{nick1}, आज तबीयत कैसी है? 🩺 कोई दर्द या तकलीफ़?",
+            "{nick2}, शारीरिक रूप से ठीक हैं?",
+            "{nick1}, छोटा हेल्थ चेक-इन 🩺 कैसा महसूस हो रहा है?",
+        ],
     },
+
+
+    # ────────────────────────────────────────────────────────────────────────
+    # BP CHECK
+    # ────────────────────────────────────────────────────────────────────────
     "bp_check": {
-        "en": ["{nick1}, time to check your BP 🩸 Note it down for the doctor.",
-               "{nick2}, BP checked today?",
-               "{nick1}, BP check reminder 🩸"],
-        "te": ["{nick1}, బీపీ చెక్ చేసుకునే టైం 🩸 డాక్టర్ కోసం రాసిపెట్టు.",
-               "{nick2}, ఈరోజు బీపీ చెక్ చేసుకున్నావా?",
-               "{nick1}, బీపీ చెక్ రిమైండర్ 🩸"],
-        "hi": ["{nick1}, बीपी चेक करने का समय 🩸 डॉक्टर के लिए लिख लेना।",
-               "{nick2}, आज बीपी चेक किया?",
-               "{nick1}, बीपी चेक रिमाइंडर 🩸"],
+        "en": [
+            "{nick1}, time to check your BP 🩸",
+            "{nick2}, have you checked your BP today?",
+            "{nick1}, BP check time 🩸 Remember to note the reading.",
+        ],
+        "te": [
+            "{nick1}, బీపీ చెక్ చేసుకునే టైం 🩸",
+            "{nick2}, ఈరోజు బీపీ చెక్ చేసుకున్నావా?",
+            "{nick1}, బీపీ చెక్ టైం 🩸 రీడింగ్ రాసిపెట్టు.",
+        ],
+        "hi": [
+            "{nick1}, बीपी चेक करने का समय 🩸",
+            "{nick2}, आज बीपी चेक किया?",
+            "{nick1}, बीपी चेक का समय 🩸 रीडिंग लिख लेना।",
+        ],
     },
+
+
+    # ────────────────────────────────────────────────────────────────────────
+    # SUGAR CHECK
+    # ────────────────────────────────────────────────────────────────────────
     "sugar_check": {
-        "en": ["{nick1}, please check your sugar levels 🩸 Before eating, okay?",
-               "{nick2}, sugar checked today?",
-               "{nick1}, sugar check reminder 🩸"],
-        "te": ["{nick1}, తినే ముందు షుగర్ చెక్ చేసుకో 🩸 సరేనా?",
-               "{nick2}, ఈరోజు షుగర్ చెక్ చేసుకున్నావా?",
-               "{nick1}, షుగర్ చెక్ రిమైండర్ 🩸"],
-        "hi": ["{nick1}, खाने से पहले शुगर चेक कर लेना 🩸 ठीक है?",
-               "{nick2}, आज शुगर चेक किया?",
-               "{nick1}, शुगर चेक रिमाइंडर 🩸"],
+        "en": [
+            "{nick1}, time to check your sugar 🩸",
+            "{nick2}, have you checked your sugar today?",
+            "{nick1}, sugar check time 🩸",
+        ],
+        "te": [
+            "{nick1}, షుగర్ చెక్ చేసుకునే టైం 🩸",
+            "{nick2}, ఈరోజు షుగర్ చెక్ చేసుకున్నావా?",
+            "{nick1}, షుగర్ చెక్ టైం 🩸",
+        ],
+        "hi": [
+            "{nick1}, शुगर चेक करने का समय 🩸",
+            "{nick2}, आज शुगर चेक किया?",
+            "{nick1}, शुगर चेक का समय 🩸",
+        ],
     },
 }
 
 
-# ── BUTTONS — exact strings matched to Meta-approved templates ─────────────
+# ────────────────────────────────────────────────────────────────────────────
+# BUTTONS
+#
+# IMPORTANT PRODUCT PRINCIPLE:
+#
+# Buttons must answer the question above them.
+#
+# Morning:
+#   "How did you sleep?"
+#   → Sleep-specific answers
+#
+# Goodnight:
+#   "How was your day?"
+#   → Day-specific answers
+#
+# How feeling:
+#   "How are you feeling?"
+#   → Feeling-specific answers
+#
+# Meals:
+#   "Have you eaten?"
+#   → Meal-specific answers
+#
+# Medicine:
+#   "Did you take your medicine?"
+#   → Medicine-specific answers
+# ────────────────────────────────────────────────────────────────────────────
+
 BUTTONS: dict[str, dict[str, list[tuple[str, str]]]] = {
-    # Morning Wish / Mood / Feeling / Goodnight
+
+    # ────────────────────────────────────────────────────────────────────────
+    # MORNING WISH
+    # Question: How did you sleep?
+    # ────────────────────────────────────────────────────────────────────────
     "morning_wish": {
-        "en": [("Slept well 😴", "feeling:good"), ("So-so 🙂", "feeling:okay"), ("Couldn't sleep 😔", "feeling:not_well")],
-        "te": [("బాగున్నాను 😊", "feeling:good"), ("పరవాలేదు 🙂", "feeling:okay"), ("బాగోలేదు 😟", "feeling:not_well")],
-        "hi": [("अच्छा 😊", "feeling:good"), ("ठीक है 🙂", "feeling:okay"), ("ठीक नहीं हूँ 😟", "feeling:not_well")],
+        "en": [
+            ("Slept really well 😴", "sleep:good"),
+            ("Not bad 🙂", "sleep:okay"),
+            ("Didn't sleep well 😔", "sleep:poor"),
+        ],
+        "te": [
+            ("బాగా నిద్రపోయాను 😴", "sleep:good"),
+            ("పర్లేదు 🙂", "sleep:okay"),
+            ("సరిగ్గా నిద్రపోలేదు 😔", "sleep:poor"),
+        ],
+        "hi": [
+            ("बहुत अच्छी नींद आई 😴", "sleep:good"),
+            ("ठीक-ठाक थी 🙂", "sleep:okay"),
+            ("अच्छी नींद नहीं आई 😔", "sleep:poor"),
+        ],
     },
+
+
+    # ────────────────────────────────────────────────────────────────────────
+    # HOW FEELING
+    # Question: How are you feeling?
+    # ────────────────────────────────────────────────────────────────────────
     "how_feeling": {
-        "en": [("Good 😊", "feeling:good"), ("Okay 🙂", "feeling:okay"), ("Not well 😟", "feeling:not_well")],
-        "te": [("బాగున్నాను 😊", "feeling:good"), ("పరవాలేదు 🙂", "feeling:okay"), ("బాగోలేదు 😟", "feeling:not_well")],
-        "hi": [("अच्छा 😊", "feeling:good"), ("ठीक है 🙂", "feeling:okay"), ("ठीक नहीं हूँ 😟", "feeling:not_well")],
+        "en": [
+            ("Feeling good 😊", "feeling:good"),
+            ("A little tired 😌", "feeling:tired"),
+            ("Not feeling well 😟", "feeling:not_well"),
+        ],
+        "te": [
+            ("బాగున్నాను 😊", "feeling:good"),
+            ("కాస్త అలసటగా ఉంది 😌", "feeling:tired"),
+            ("బాగోలేదు 😟", "feeling:not_well"),
+        ],
+        "hi": [
+            ("अच्छा लग रहा है 😊", "feeling:good"),
+            ("थोड़ी थकान है 😌", "feeling:tired"),
+            ("ठीक नहीं लग रहा 😟", "feeling:not_well"),
+        ],
     },
+
+
+    # ────────────────────────────────────────────────────────────────────────
+    # GOODNIGHT
+    # Question: How was your day?
+    # ────────────────────────────────────────────────────────────────────────
     "goodnight": {
-        "en": [("Good day 😊", "feeling:good"), ("Average 🙂", "feeling:okay"), ("Tired 😟", "feeling:not_well")],
-        "te": [("బాగున్నాను 😊", "feeling:good"), ("పరవాలేదు 🙂", "feeling:okay"), ("బాగోలేదు 😟", "feeling:not_well")],
-        "hi": [("अच्छा 😊", "feeling:good"), ("ठीक है 🙂", "feeling:okay"), ("ठीक नहीं हूँ 😟", "feeling:not_well")],
+        "en": [
+            ("It was a good day 😊", "day:good"),
+            ("It was okay 🙂", "day:okay"),
+            ("It was tiring 😴", "day:tiring"),
+        ],
+        "te": [
+            ("ఈరోజు బాగుంది 😊", "day:good"),
+            ("పర్లేదు 🙂", "day:okay"),
+            ("చాలా అలసటగా ఉంది 😴", "day:tiring"),
+        ],
+        "hi": [
+            ("दिन अच्छा था 😊", "day:good"),
+            ("ठीक-ठाक था 🙂", "day:okay"),
+            ("दिन थकाने वाला था 😴", "day:tiring"),
+        ],
     },
+
+
+    # ────────────────────────────────────────────────────────────────────────
+    # LOVE NOTE
+    # Emotional response — NOT a health survey.
+    # ────────────────────────────────────────────────────────────────────────
+    "love_note": {
+        "en": [
+            ("Love you too ❤️", "love:reply"),
+            ("Miss you too 🥰", "love:miss_you"),
+            ("Call me when free 📞", "love:call"),
+        ],
+        "te": [
+            ("నేను కూడా ప్రేమిస్తున్నా ❤️", "love:reply"),
+            ("నేను కూడా మిస్ అవుతున్నా 🥰", "love:miss_you"),
+            ("టైం దొరికినప్పుడు కాల్ చెయ్ 📞", "love:call"),
+        ],
+        "hi": [
+            ("मैं भी तुमसे प्यार करता/करती हूँ ❤️", "love:reply"),
+            ("मुझे भी तुम्हारी याद आती है 🥰", "love:miss_you"),
+            ("समय मिले तो कॉल करना 📞", "love:call"),
+        ],
+    },
+
+
+    # ────────────────────────────────────────────────────────────────────────
+    # HEALTH CHECK
+    # Question: How's your health? Any pain?
+    # ────────────────────────────────────────────────────────────────────────
     "health_check": {
-        "en": [("All good 🩺", "feeling:good"), ("Some pain", "feeling:not_well"), ("Bad day 😟", "emergency:health")],
-        "te": [("బాగున్నాను 🩺", "feeling:good"), ("నొప్పి 😟", "feeling:not_well"), ("బాలేదు 🚨", "emergency:health")],
-        "hi": [("ठीक है 🩺", "feeling:good"), ("दर्द है 😟", "feeling:not_well"), ("खराब 🚨", "emergency:health")],
+        "en": [
+            ("Feeling fine 🩺", "health:fine"),
+            ("I have some pain 😟", "health:pain"),
+            ("I need help 🚨", "emergency:health"),
+        ],
+        "te": [
+            ("బాగానే ఉన్నాను 🩺", "health:fine"),
+            ("కొంచెం నొప్పిగా ఉంది 😟", "health:pain"),
+            ("నాకు సహాయం కావాలి 🚨", "emergency:health"),
+        ],
+        "hi": [
+            ("ठीक हूँ 🩺", "health:fine"),
+            ("थोड़ा दर्द है 😟", "health:pain"),
+            ("मुझे मदद चाहिए 🚨", "emergency:health"),
+        ],
     },
-    # Medicine
+
+
+    # ────────────────────────────────────────────────────────────────────────
+    # MEDICINE
+    # Question: Did you take your medicine?
+    # ────────────────────────────────────────────────────────────────────────
     "medicine": {
-        "en": [("Done ✅", "done:medicine"), ("Not yet", "pending:medicine"), ("Skipped", "skip:medicine")],
-        "te": [("వేసుకున్నా ✅", "done:medicine"), ("ఇంకా లేదు ⏰", "pending:medicine"), ("వేసుకోలేదు ❌", "skip:medicine")],
-        "hi": [("ले लिया ✅", "done:medicine"), ("अभी नहीं ⏰", "pending:medicine"), ("छोड़ दिया ❌", "skip:medicine")],
+        "en": [
+            ("Taken ✅", "done:medicine"),
+            ("I'll take it now ⏰", "pending:medicine"),
+            ("Skipped today ❌", "skip:medicine"),
+        ],
+        "te": [
+            ("వేసుకున్నా ✅", "done:medicine"),
+            ("ఇప్పుడు వేసుకుంటా ⏰", "pending:medicine"),
+            ("ఈరోజు వేసుకోలేదు ❌", "skip:medicine"),
+        ],
+        "hi": [
+            ("ले ली ✅", "done:medicine"),
+            ("अभी ले लूँगा/लूँगी ⏰", "pending:medicine"),
+            ("आज नहीं ली ❌", "skip:medicine"),
+        ],
     },
+
+
+    # ────────────────────────────────────────────────────────────────────────
+    # WATER
+    # Question: Did you drink water?
+    # ────────────────────────────────────────────────────────────────────────
     "water": {
-        "en": [("Done 💧", "done:water"), ("Will now", "pending:water"), ("Forgot", "skip:water")],
-        "te": [("తాగాను 💧", "done:water"), ("ఇప్పుడు ⏰", "pending:water"), ("మర్చిపోయా ❌", "skip:water")],
-        "hi": [("पी लिया 💧", "done:water"), ("अभी ⏰", "pending:water"), ("भूल गई ❌", "skip:water")],
+        "en": [
+            ("Just drank some 💧", "done:water"),
+            ("I'll drink now 💧", "pending:water"),
+            ("I forgot 😅", "skip:water"),
+        ],
+        "te": [
+            ("ఇప్పుడే తాగాను 💧", "done:water"),
+            ("ఇప్పుడు తాగుతా 💧", "pending:water"),
+            ("మర్చిపోయా 😅", "skip:water"),
+        ],
+        "hi": [
+            ("अभी पानी पिया 💧", "done:water"),
+            ("अभी पीता/पीती हूँ 💧", "pending:water"),
+            ("भूल गया/गई 😅", "skip:water"),
+        ],
     },
+
+
+    # ────────────────────────────────────────────────────────────────────────
+    # BP CHECK
+    # Question: Did you check your BP?
+    # ────────────────────────────────────────────────────────────────────────
     "bp_check": {
-        "en": [("Checked ✅", "done:bp"), ("Not yet", "pending:bp"), ("No machine", "skip:bp")],
-        "te": [("చెక్ చేసా ✅", "done:bp"), ("ఇంకా లేదు ⏰", "pending:bp"), ("మెషిన్ లేదు ❌", "skip:bp")],
-        "hi": [("चेक किया ✅", "done:bp"), ("अभी नहीं ⏰", "pending:bp"), ("मशीन नहीं ❌", "skip:bp")],
+        "en": [
+            ("Checked it ✅", "done:bp"),
+            ("I'll check now ⏰", "pending:bp"),
+            ("No machine here", "skip:bp"),
+        ],
+        "te": [
+            ("చెక్ చేసుకున్నా ✅", "done:bp"),
+            ("ఇప్పుడు చెక్ చేసుకుంటా ⏰", "pending:bp"),
+            ("ఇక్కడ మెషిన్ లేదు", "skip:bp"),
+        ],
+        "hi": [
+            ("चेक कर लिया ✅", "done:bp"),
+            ("अभी चेक करूँगा/करूँगी ⏰", "pending:bp"),
+            ("यहाँ मशीन नहीं है", "skip:bp"),
+        ],
     },
+
+
+    # ────────────────────────────────────────────────────────────────────────
+    # SUGAR CHECK
+    # Question: Did you check your sugar?
+    # ────────────────────────────────────────────────────────────────────────
     "sugar_check": {
-        "en": [("Checked ✅", "done:sugar"), ("Not yet", "pending:sugar"), ("No machine", "skip:sugar")],
-        "te": [("చెక్ చేసా ✅", "done:sugar"), ("ఇంకా లేదు ⏰", "pending:sugar"), ("మెషిన్ లేదు ❌", "skip:sugar")],
-        "hi": [("चेक किया ✅", "done:sugar"), ("अभी नहीं ⏰", "pending:sugar"), ("मशीन नहीं ❌", "skip:sugar")],
+        "en": [
+            ("Checked it ✅", "done:sugar"),
+            ("I'll check now ⏰", "pending:sugar"),
+            ("No machine here", "skip:sugar"),
+        ],
+        "te": [
+            ("చెక్ చేసుకున్నా ✅", "done:sugar"),
+            ("ఇప్పుడు చెక్ చేసుకుంటా ⏰", "pending:sugar"),
+            ("ఇక్కడ మెషిన్ లేదు", "skip:sugar"),
+        ],
+        "hi": [
+            ("चेक कर लिया ✅", "done:sugar"),
+            ("अभी चेक करूँगा/करूँगी ⏰", "pending:sugar"),
+            ("यहाँ मशीन नहीं है", "skip:sugar"),
+        ],
     },
-    # Meals
+
+
+    # ────────────────────────────────────────────────────────────────────────
+    # BREAKFAST
+    # Question: Did you eat breakfast?
+    # ────────────────────────────────────────────────────────────────────────
     "breakfast": {
-        "en": [("Had it 🍵", "done:breakfast"), ("Having now", "pending:breakfast"), ("Not hungry", "skip:breakfast")],
-        "te": [("తిన్నాను ✅", "done:breakfast"), ("తింటాను ⏰", "pending:breakfast"), ("తినను ❌", "skip:breakfast")],
-        "hi": [("मैंने खा लिया ✅", "done:breakfast"), ("खा लेंगे ⏰", "pending:breakfast"), ("नहीं खाना ❌", "skip:breakfast")],
+        "en": [
+            ("Had breakfast 🍽️", "done:breakfast"),
+            ("Eating now ⏰", "pending:breakfast"),
+            ("Skipped it ❌", "skip:breakfast"),
+        ],
+        "te": [
+            ("టిఫిన్ తిన్నాను 🍽️", "done:breakfast"),
+            ("ఇప్పుడు తింటున్నా ⏰", "pending:breakfast"),
+            ("టిఫిన్ మానేశాను ❌", "skip:breakfast"),
+        ],
+        "hi": [
+            ("नाश्ता कर लिया 🍽️", "done:breakfast"),
+            ("अभी कर रहा/रही हूँ ⏰", "pending:breakfast"),
+            ("नाश्ता नहीं किया ❌", "skip:breakfast"),
+        ],
     },
+
+
+    # ────────────────────────────────────────────────────────────────────────
+    # LUNCH
+    # Question: Did you eat lunch?
+    # ────────────────────────────────────────────────────────────────────────
     "lunch": {
-        "en": [("Had it 🍽", "done:lunch"), ("Not yet", "pending:lunch"), ("Not hungry", "skip:lunch")],
-        "te": [("తిన్నాను ✅", "done:lunch"), ("తింటాను ⏰", "pending:lunch"), ("తినను ❌", "skip:lunch")],
-        "hi": [("खा लिया ✅", "done:lunch"), ("बाद में ⏰", "pending:lunch"), ("नहीं खाना ❌", "skip:lunch")],
+        "en": [
+            ("Had lunch 🍽️", "done:lunch"),
+            ("Not yet ⏰", "pending:lunch"),
+            ("Skipped lunch ❌", "skip:lunch"),
+        ],
+        "te": [
+            ("భోజనం చేశాను 🍽️", "done:lunch"),
+            ("ఇంకా చేయలేదు ⏰", "pending:lunch"),
+            ("భోజనం మానేశాను ❌", "skip:lunch"),
+        ],
+        "hi": [
+            ("खाना खा लिया 🍽️", "done:lunch"),
+            ("अभी नहीं ⏰", "pending:lunch"),
+            ("खाना छोड़ दिया ❌", "skip:lunch"),
+        ],
     },
+
+
+    # ────────────────────────────────────────────────────────────────────────
+    # DINNER
+    # Question: Did you eat dinner?
+    # ────────────────────────────────────────────────────────────────────────
     "dinner": {
-        "en": [("Done 🌙", "done:dinner"), ("Not yet", "pending:dinner"), ("Skipping", "skip:dinner")],
-        "te": [("తిన్నాను 🌙", "done:dinner"), ("తింటాను ⏰", "pending:dinner"), ("తినను ❌", "skip:dinner")],
-        "hi": [("खा लिया 🌙", "done:dinner"), ("बाद में ⏰", "pending:dinner"), ("नहीं खाना ❌", "skip:dinner")],
+        "en": [
+            ("Had dinner 🌙", "done:dinner"),
+            ("Eating now ⏰", "pending:dinner"),
+            ("Skipping tonight ❌", "skip:dinner"),
+        ],
+        "te": [
+            ("తిన్నాను 🌙", "done:dinner"),
+            ("ఇప్పుడు తింటున్నా ⏰", "pending:dinner"),
+            ("ఈరోజు మానేశాను ❌", "skip:dinner"),
+        ],
+        "hi": [
+            ("खा लिया 🌙", "done:dinner"),
+            ("अभी खा रहा/रही हूँ ⏰", "pending:dinner"),
+            ("आज नहीं खाऊँगा/खाऊँगी ❌", "skip:dinner"),
+        ],
     },
-    # Routines
+
+
+    # ────────────────────────────────────────────────────────────────────────
+    # AFTERNOON CHECK-IN
+    # Question: What are you doing?
+    # ────────────────────────────────────────────────────────────────────────
     "afternoon_checkin": {
-        "en": [("Resting 🛌", "done:rest"), ("Busy", "pending:rest"), ("Not well 😟", "feeling:not_well")],
-        "te": [("రెస్ట్ 🛌", "done:rest"), ("బిజీ ⏰", "pending:rest"), ("బాగోలేదు 😟", "feeling:not_well")],
-        "hi": [("आराम 🛌", "done:rest"), ("व्यस्त ⏰", "pending:rest"), ("ठीक नहीं 😟", "feeling:not_well")],
+        "en": [
+            ("Just resting 🛌", "activity:resting"),
+            ("Doing some work 🏠", "activity:busy"),
+            ("Out for something 🚶", "activity:out"),
+        ],
+        "te": [
+            ("కాసేపు రెస్ట్ 🛌", "activity:resting"),
+            ("పని చేస్తున్నా 🏠", "activity:busy"),
+            ("బయటికి వెళ్లాను 🚶", "activity:out"),
+        ],
+        "hi": [
+            ("बस आराम 🛌", "activity:resting"),
+            ("कुछ काम कर रहा/रही हूँ 🏠", "activity:busy"),
+            ("बाहर गया/गई हूँ 🚶", "activity:out"),
+        ],
     },
+
+
+    # ────────────────────────────────────────────────────────────────────────
+    # TEA CHECK
+    # Question: Did you have tea/coffee?
+    # ────────────────────────────────────────────────────────────────────────
     "tea_check": {
-        "en": [("Done ☕", "done:tea"), ("Now", "pending:tea"), ("Skipped", "skip:tea")],
-        "te": [("తాగాను ☕", "done:tea"), ("ఇప్పుడు ⏰", "pending:tea"), ("లేదు ❌", "skip:tea")],
-        "hi": [("पी लिया ☕", "done:tea"), ("अभी ⏰", "pending:tea"), ("नहीं ❌", "skip:tea")],
+        "en": [
+            ("Had it ☕", "done:tea"),
+            ("Having it now ☕", "pending:tea"),
+            ("Skipped it", "skip:tea"),
+        ],
+        "te": [
+            ("తాగాను ☕", "done:tea"),
+            ("ఇప్పుడు తాగుతున్నా ☕", "pending:tea"),
+            ("మానేశాను", "skip:tea"),
+        ],
+        "hi": [
+            ("पी ली ☕", "done:tea"),
+            ("अभी पी रहा/रही हूँ ☕", "pending:tea"),
+            ("नहीं पी", "skip:tea"),
+        ],
     },
+
+
+    # ────────────────────────────────────────────────────────────────────────
+    # WALK CHECK
+    # Question: Did you go for a walk?
+    # ────────────────────────────────────────────────────────────────────────
     "walk_check": {
-        "en": [("Done 🚶‍♀️", "done:walk"), ("Later", "pending:walk"), ("Not today", "skip:walk")],
-        "te": [("వెళ్ళాను 🚶‍♀️", "done:walk"), ("తర్వాత ⏰", "pending:walk"), ("ఈరోజు లేదు ❌", "skip:walk")],
-        "hi": [("हो गया 🚶‍♀️", "done:walk"), ("बाद में ⏰", "pending:walk"), ("आज नहीं ❌", "skip:walk")],
+        "en": [
+            ("Yes, done 🚶", "done:walk"),
+            ("Going later ⏰", "pending:walk"),
+            ("Not today", "skip:walk"),
+        ],
+        "te": [
+            ("అవును, చేశాను 🚶", "done:walk"),
+            ("తర్వాత వెళ్తాను ⏰", "pending:walk"),
+            ("ఈరోజు లేదు", "skip:walk"),
+        ],
+        "hi": [
+            ("हाँ, हो गई 🚶", "done:walk"),
+            ("बाद में जाऊँगा/जाऊँगी ⏰", "pending:walk"),
+            ("आज नहीं", "skip:walk"),
+        ],
     },
 }
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
-def render_slot_buttons(category: str, language: str = "en") -> list[tuple[str, str]]:
-    slot = BUTTONS.get(category, BUTTONS["how_feeling"])
-    return slot.get(language, slot["en"])[:3]
+
+def render_slot_buttons(
+    category: str,
+    language: str = "en",
+) -> list[tuple[str, str]]:
+    """
+    Return the three buttons for a category/language.
+
+    Falls back safely to how_feeling/en if a category or language
+    is unexpectedly missing.
+    """
+
+    slot = BUTTONS.get(
+        category,
+        BUTTONS["how_feeling"],
+    )
+
+    return slot.get(
+        language,
+        slot["en"],
+    )[:3]
 
 
-def trim_variants_for_plan(variants: list[str], variants_per_slot: int) -> list[str]:
+def trim_variants_for_plan(
+    variants: list[str],
+    variants_per_slot: int,
+) -> list[str]:
     return variants[:max(1, variants_per_slot)]
+
+
+def _render_slot(
+    category: str,
+    language: str,
+    parent: dict,
+    day_index: int = 0,
+    medicine_name: str = "your medicine",
+    variants_per_slot: int = 7,
+) -> str:
+
+    bucket = SLOT_VARIANTS.get(
+        category
+    ) or SLOT_VARIANTS.get(
+        "how_feeling",
+        {},
+    )
+
+    variants = (
+        bucket.get(language)
+        or bucket.get(
+            "en",
+            ["{nick1}, thinking of you 💛"],
+        )
+    )
+
+    variants = trim_variants_for_plan(
+        variants,
+        variants_per_slot,
+    )
+
+    template = variants[
+        day_index % len(variants)
+    ]
+
+    nick1, nick2, nick3 = get_nicknames_for_day(
+        parent,
+        day_index,
+    )
+
+    habits = parent.get("habits") or {}
+
+    stories = parent.get("stories") or []
+
+    story = (
+        stories[day_index % len(stories)]
+        if stories
+        else ""
+    )
+
+    tea_type_raw = habits.get(
+        "tea_type",
+        "tea",
+    )
+
+    if language == "te":
+        tea_display = (
+            "కాఫీ"
+            if tea_type_raw == "coffee"
+            else "టీ"
+        )
+
+    elif language == "hi":
+        tea_display = (
+            "कॉफ़ी"
+            if tea_type_raw == "coffee"
+            else "चाय"
+        )
+
+    else:
+        tea_display = tea_type_raw
+
+    return template.format(
+        nick1=nick1,
+        nick2=nick2,
+        nick3=nick3,
+        city=parent.get("city") or "your city",
+        season=seasonal_greeting(language),
+        other_parent=(
+            parent.get("other_parent_name")
+            or (
+                "Amma"
+                if parent.get("relationship") == "father"
+                else "Nanna"
+            )
+        ),
+        story=story,
+        medicine=medicine_name,
+        tea_type=tea_display,
+    )
 
 
 def render_slot_body(
@@ -432,32 +1093,14 @@ def render_slot_body(
     medicine_name: str = "your medicine",
     variants_per_slot: int = 7,
 ) -> str:
-    bucket = SLOT_VARIANTS.get(category) or SLOT_VARIANTS.get("how_feeling", {})
-    variants = bucket.get(language) or bucket.get("en", ["{nick1}, thinking of you 💛"])
-    variants = trim_variants_for_plan(variants, variants_per_slot)
-    template = variants[day_index % len(variants)]
 
-    nick1, nick2, nick3 = get_nicknames_for_day(parent, day_index)
-    habits = parent.get("habits") or {}
-    stories = parent.get("stories") or []
-    story = stories[day_index % len(stories)] if stories else ""
-
-    tea_type_raw = habits.get("tea_type", "tea")
-    if language == "te":
-        tea_display = "కాఫీ" if tea_type_raw == "coffee" else "టీ"
-    elif language == "hi":
-        tea_display = "कॉफ़ी" if tea_type_raw == "coffee" else "चाय"
-    else:
-        tea_display = tea_type_raw
-
-    return template.format(
-        nick1=nick1, nick2=nick2, nick3=nick3,
-        city=parent.get("city") or "your city",
-        season=seasonal_greeting(language),
-        other_parent=parent.get("other_parent_name") or ("Amma" if parent.get("relationship") == "father" else "Nanna"),
-        story=story,
-        medicine=medicine_name,
-        tea_type=tea_display,
+    return _render_slot(
+        category=category,
+        language=language,
+        parent=parent,
+        day_index=day_index,
+        medicine_name=medicine_name,
+        variants_per_slot=variants_per_slot,
     )
 
 
@@ -469,43 +1112,63 @@ async def render_slot_body_async(
     medicine_name: str = "your medicine",
     variants_per_slot: int = 7,
 ) -> str:
-    bucket = SLOT_VARIANTS.get(category) or SLOT_VARIANTS.get("how_feeling", {})
-    variants = bucket.get(language) or bucket.get("en", ["{nick1}, thinking of you 💛"])
-    variants = trim_variants_for_plan(variants, variants_per_slot)
-    template = variants[day_index % len(variants)]
 
-    nick1, nick2, nick3 = get_nicknames_for_day(parent, day_index)
-    habits = parent.get("habits") or {}
-    stories = parent.get("stories") or []
-    story = stories[day_index % len(stories)] if stories else ""
-
-    tea_type_raw = habits.get("tea_type", "tea")
-    if language == "te":
-        tea_display = "కాఫీ" if tea_type_raw == "coffee" else "టీ"
-    elif language == "hi":
-        tea_display = "कॉफ़ी" if tea_type_raw == "coffee" else "चाय"
-    else:
-        tea_display = tea_type_raw
-
-    return template.format(
-        nick1=nick1, nick2=nick2, nick3=nick3,
-        city=parent.get("city") or "your city",
-        season=seasonal_greeting(language),
-        other_parent=parent.get("other_parent_name") or ("Amma" if parent.get("relationship") == "father" else "Nanna"),
-        story=story,
-        medicine=medicine_name,
-        tea_type=tea_display,
+    return _render_slot(
+        category=category,
+        language=language,
+        parent=parent,
+        day_index=day_index,
+        medicine_name=medicine_name,
+        variants_per_slot=variants_per_slot,
     )
 
 
+# ── Emergency keywords ───────────────────────────────────────────────────────
+
 DEFAULT_EMERGENCY_KEYWORDS = [
-    "help", "emergency", "pain", "fell", "fall", "hospital", "chest pain", "breathless", "dizzy",
-    "not well", "sick", "so sick",
-    "సహాయం", "అత్యవసరం", "నొప్పి", "పడిపోయాను", "పడిపోయా", "ఒంట్లో బాలేదు", "బాలేదు",
-    "తల తిరుగుతోంది", "గుండె నొప్పి",
-    "मदद", "आपातकाल", "दर्द", "गिर गया", "तबीयत ठीक नहीं", "तबीयत खराब", "सांस नहीं", "सीने में दर्द",
+    # English
+    "help",
+    "emergency",
+    "pain",
+    "fell",
+    "fall",
+    "hospital",
+    "chest pain",
+    "breathless",
+    "dizzy",
+    "not well",
+    "sick",
+    "so sick",
+
+    # Telugu
+    "సహాయం",
+    "అత్యవసరం",
+    "నొప్పి",
+    "పడిపోయాను",
+    "పడిపోయా",
+    "ఒంట్లో బాలేదు",
+    "బాలేదు",
+    "తల తిరుగుతోంది",
+    "గుండె నొప్పి",
+
+    # Hindi
+    "मदद",
+    "आपातकाल",
+    "दर्द",
+    "गिर गया",
+    "तबीयत ठीक नहीं",
+    "तबीयत खराब",
+    "सांस नहीं",
+    "सीने में दर्द",
 ]
 
 
 def public_categories():
-    return [{"key": k, "type": category_type(k)} for k in SLOT_VARIANTS.keys()]
+    return [
+        {
+            "key": k,
+            "type": category_type(k),
+        }
+        for k in SLOT_VARIANTS.keys()
+    ]
+
