@@ -109,11 +109,12 @@ function MiniChatPanel({ langCode, isActive }) {
 // "What YOU see" — the child's WhatsApp notification stream from AYANA,
 // modelled on a real family's chat (mood taps, voice notes, no-reply alert).
 const CHILD_FEED = [
-  { kind: "reply", who: "Amma", mood: "😊", text: "బాగున్నాను", time: "6:17 PM" },
-  { kind: "voice", who: "Amma", text: "sent you a voice note — tap to listen 🎤", time: "6:18 PM" },
-  { kind: "reply", who: "Dady", mood: "😊", text: "బాగున్నాను", time: "7:02 AM" },
-  { kind: "alert", text: "Dady hasn't replied to today's check-ins yet. You may want to give them a call. — AYANA 💛", time: "3:00 PM" },
-  { kind: "reply", who: "Amma", mood: "😟", text: "వేసుకోలేదు", time: "9:00 AM" },
+  { kind: "reply", who: "Amma replied to your morning check-in", mood: "😊", text: "బాగా నిద్రపోయాను", time: "8:17 AM" },
+  { kind: "reply", who: "Amma replied to your medicine", mood: "😟", text: "వేసుకోలేదు", time: "9:00 AM" },
+  { kind: "voice", who: "Amma", text: "sent you a voice note — tap to listen 🎤", time: "11:18 AM" },
+  { kind: "alert", text: "Dady hasn't replied to today's check-ins yet. You may want to give them a call. — AYANA 💛", time: "2:00 PM" },
+  { kind: "reply", who: "Dady replied to your re-engagement", mood: "😊", text: "బాగున్నాను", time: "7:02 PM" },
+  { kind: "reply", who: "Amma replied to your good-night", mood: "😟", text: "ఈరోజు బాగుంది", time: "9:00 AM" },
 ];
 
 function ChildNotificationPanel() {
@@ -190,6 +191,8 @@ function VideoWalkthroughModal({ open, onClose, src }) {
     </div>
   );
 }
+
+
 
 export default function Landing() {
   const { config } = useAuth();
@@ -268,13 +271,19 @@ export default function Landing() {
                   className="btn-saffron btn-tactile inline-flex items-center justify-center gap-2 px-8 py-4 rounded-full font-semibold text-base">
                   {t("hero.ctaPrimary")} <ArrowRight className="w-4 h-4" strokeWidth={2.5} />
                 </button>
-                <a href="#how" data-testid="hero-cta-secondary"
-                  className="btn-outline-warm inline-flex items-center justify-center px-8 py-4 rounded-full font-semibold text-base">
+                <a 
+                  href="https://wa.me/917032759453?text=Hi%20Ayana%2C%20I%27d%20like%20a%20sample%20check-in"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  data-testid="hero-cta-secondary"
+                  onClick={() => trackEvent("cta_click", { id: "try_yourself_hero" })}
+                  className="btn-outline-warm inline-flex items-center justify-center px-8 py-4 rounded-full font-semibold text-base"
+                >
                   {t("hero.ctaSecondary")}
                 </a>
               </div>
               <div className="mt-4 text-sm text-ayana-secondary font-medium pl-2">
-                Takes a few minutes. Your parents only need WhatsApp.
+                {t("hero.trialNote")}
               </div>
 
               <div className="mt-10 flex flex-wrap gap-x-7 gap-y-3">
@@ -337,13 +346,15 @@ export default function Landing() {
         </section>
 
 
+
+
         {/* HOW IT WORKS: editorial numbered */}
         <section id="how" className="bg-warm-cream">
           <div className="max-w-7xl mx-auto px-5 sm:px-8 py-20 lg:py-28 grid lg:grid-cols-2 gap-14 lg:gap-20 items-center">
             <div className="relative order-2 lg:order-1">
               <div className="absolute -inset-3 rounded-[2.5rem] blur-2xl" style={{ background: "linear-gradient(135deg, rgba(212,150,10,0.28), rgba(10,89,64,0.10))" }} />
               <div className="relative rounded-[2rem] overflow-hidden shadow-xl ring-1 ring-ayana-gold/20">
-                <img src={IMG.hands} alt="Elderly hands holding a phone" className="w-full h-[360px] sm:h-[460px] object-cover" />
+                <img src={IMG.hands} alt="Elderly hands holding a phone" loading="lazy" className="w-full h-[360px] sm:h-[460px] object-cover" />
               </div>
             </div>
 
@@ -412,6 +423,8 @@ export default function Landing() {
           </div>
         </section>
 
+
+
         {/* WHAT AMMA SEES: multilingual WhatsApp button demo */}
         <section id="what-they-see" className="bg-warm-cream">
           <div className="max-w-7xl mx-auto px-5 sm:px-8 py-20 lg:py-28">
@@ -459,25 +472,66 @@ export default function Landing() {
           </div>
         </section>
 
-        {/* WHAT THE CHILD SEES — mirrors the Amma section above */}
-        <section id="what-you-see" className="bg-warm-peach">
-          <div className="max-w-7xl mx-auto px-5 sm:px-8 py-20 lg:py-28">
-            <div className="text-center max-w-2xl mx-auto mb-12">
-              <Eyebrow center>What you actually see</Eyebrow>
-              <h2 className="font-display font-extrabold text-3xl sm:text-4xl lg:text-5xl leading-[1.05] text-ayana-text">
-                <HighlightText text="Peace of mind, in one glance." ranges={[[0, 0.35]]} colors={["text-gradient-gold"]} />
+        {/* COMBINED: Mom didn't reply + What you see */}
+        <section id="what-you-see" className="bg-white">
+          <div className="max-w-7xl mx-auto px-5 sm:px-8 py-20 lg:py-28 grid lg:grid-cols-[1.1fr_0.9fr] gap-14 lg:gap-20 items-center">
+            
+            {/* Left Column: Mom didn't reply text */}
+            <div>
+              <Eyebrow>When there's no reply</Eyebrow>
+              <h2 className="font-display font-extrabold text-3xl sm:text-4xl lg:text-[2.75rem] leading-[1.05] text-ayana-text mt-4">
+                Mom didn't reply. Now what?
               </h2>
-              <p className="font-serif text-xl sm:text-2xl text-ayana-secondary mt-4">
-                Every time your parent taps a button or sends a voice note, it lands on your WhatsApp instantly. No app to open — you just know they're okay.
+              <p className="font-serif text-xl sm:text-2xl text-ayana-secondary mt-5 leading-snug">
+                Most care apps just keep sending messages. Parents ignore. Children worry — <em>"Did something happen?"</em>
+                <br className="hidden sm:block mt-2" />
+                <strong className="text-ayana-text"> Ayana doesn't leave you guessing.</strong>
               </p>
+
+              <div className="mt-10 space-y-6">
+                {[
+                  { time: "6 AM", icon: "☀️", color: "bg-amber-50 border border-amber-200", label: "Morning check-in", desc: "Ayana asks Amma if she slept well." },
+                  { time: "2 PM", icon: "💛", color: "bg-yellow-50 border border-yellow-200", label: "Gentle nudge", desc: "If Amma hasn't replied, Ayana sends a soft follow-up." },
+                  { time: "10 PM", icon: "⚠️", color: "bg-red-50 border border-red-200", label: "Real alert", desc: "If she's been silent all day, you get a notification to call her." },
+                  { time: "10 PM–6 AM", icon: "🌙", color: "bg-slate-50 border border-slate-200", label: "Silent hours", desc: "No messages. Parents sleep peacefully." }
+                ].map((step, i) => (
+                  <div key={i} className="flex gap-5 items-start">
+                    <div className={`w-12 h-12 rounded-full flex items-center justify-center text-xl shrink-0 shadow-sm ${step.color}`}>
+                      {step.icon}
+                    </div>
+                    <div className="pt-1">
+                      <h4 className="font-display font-bold text-ayana-text text-lg">{step.time} — {step.label}</h4>
+                      <p className="text-[15px] text-ayana-secondary mt-1">{step.desc}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
-            <ChildNotificationPanel />
-            <div className="mt-8 flex justify-center">
-              <span className="inline-flex items-center gap-2 text-xs font-medium text-ayana-secondary bg-white border border-ayana-line px-4 py-2 rounded-full shadow-sm">
-                <MessageCircle className="w-3.5 h-3.5 text-[#25D366]" />
-                Live updates, plus a gentle nudge if they go quiet
-              </span>
+
+            {/* Right Column: What you actually see */}
+            <div className="relative">
+              <div className="text-center sm:text-left mb-10">
+                <Eyebrow>What you actually see</Eyebrow>
+                <h2 className="font-display font-extrabold text-3xl sm:text-4xl leading-[1.05] text-ayana-text mt-4">
+                  <HighlightText text="Peace of mind, in one glance." ranges={[[0, 0.35]]} colors={["text-gradient-gold"]} />
+                </h2>
+                <p className="font-serif text-lg sm:text-xl text-ayana-secondary mt-4">
+                  Every time your parent taps a button or sends a voice note, it lands on your WhatsApp instantly. No app to open — you just know they're okay.
+                </p>
+              </div>
+              
+              <div className="mx-auto w-full max-w-sm lg:max-w-none">
+                <ChildNotificationPanel />
+              </div>
+              
+              <div className="mt-8 flex justify-center sm:justify-start">
+                <span className="inline-flex items-center gap-2 text-xs font-medium text-ayana-secondary bg-amber-50 border border-amber-200 px-4 py-2 rounded-full shadow-sm">
+                  <MessageCircle className="w-3.5 h-3.5 text-[#25D366]" />
+                  Live updates, plus a gentle nudge if they go quiet
+                </span>
+              </div>
             </div>
+
           </div>
         </section>
 
@@ -589,7 +643,7 @@ export default function Landing() {
               <div className="relative">
                 <div className="absolute -inset-3 rounded-[2.5rem] blur-2xl" style={{ background: "linear-gradient(135deg, rgba(212,150,10,0.28), rgba(10,89,64,0.08))" }} />
                 <div className="relative rounded-[2rem] overflow-hidden shadow-xl ring-1 ring-ayana-gold/20">
-                  <img src={IMG.nanna} alt="A warm elderly Indian couple" className="w-full h-[400px] sm:h-[500px] object-cover" />
+                  <img src={IMG.nanna} alt="A warm elderly Indian couple" loading="lazy" className="w-full h-[400px] sm:h-[500px] object-cover" />
                 </div>
                 <div className="absolute -top-5 -right-5 rounded-2xl px-5 py-3.5 flex items-center gap-3 shadow-lg border border-ayana-line bg-white animate-float">
                   <span className="w-9 h-9 rounded-full flex items-center justify-center" style={{ background: "rgba(212,150,10,0.16)" }}>
@@ -622,7 +676,24 @@ export default function Landing() {
           </div>
         </section>
 
-        
+        {/* FOUNDER / SOCIAL PROOF */}
+        <section className="bg-white">
+          <div className="max-w-3xl mx-auto px-5 sm:px-8 py-20 lg:py-24 text-center">
+            <Eyebrow center>{t("founder.label")}</Eyebrow>
+            <h2 className="font-display font-extrabold text-3xl sm:text-4xl leading-[1.05] text-ayana-text mt-4">
+              {t("founder.title")}
+            </h2>
+            <p className="font-serif text-xl text-ayana-secondary mt-6 leading-relaxed">
+              {t("founder.story")}
+            </p>
+            <div className="mt-8 inline-flex items-center gap-3 bg-amber-50 border border-amber-200 rounded-2xl px-6 py-4 text-left">
+              <span className="text-2xl shrink-0">💛</span>
+              <p className="text-[15px] font-medium text-ayana-text">{t("founder.proof")}</p>
+            </div>
+            <p className="mt-6 text-xs text-ayana-muted italic">{t("founder.videoNote")}</p>
+          </div>
+        </section>
+
         {/* NO NEW APP CALLOUT */}
         <section className="bg-warm-gold py-16">
           <div className="max-w-4xl mx-auto px-5 sm:px-8 text-center">
@@ -723,6 +794,7 @@ export default function Landing() {
                 {t("finalCta.title")}
               </h2>
               <p className="font-serif text-2xl text-white/90 max-w-xl mx-auto mt-5">{t("finalCta.sub")}</p>
+              <p className="text-base text-white/70 max-w-lg mx-auto mt-3">{t("finalCta.urgency")}</p>
               <button data-testid="footer-cta" onClick={() => { trackEvent("cta_click", { id: "footer" }); setModalOpen(true); }}
                 className="btn-tactile mt-10 inline-flex items-center gap-2 px-9 py-4 rounded-full bg-white font-bold shadow-2xl hover:bg-[#FFF8EE] transition-colors text-ayana-accent">
                 {t("finalCta.cta")} <ArrowUpRight className="w-5 h-5" strokeWidth={2.5} />
