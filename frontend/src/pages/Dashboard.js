@@ -24,7 +24,6 @@ import { PhoneInput } from "@/components/PhoneInput";
 import { CareTab, VacationCard } from "@/components/CareTab";
 import { PricingCards } from "@/components/PricingCards";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
-import { MonthlyReportView } from "@/components/MonthlyReportView";
 import { ChangeEmailCard, ChangePasswordCard } from "@/components/SecurityCards";
 
 function TabBoundary({ tab, onRetry, children }) {
@@ -87,7 +86,7 @@ export default function Dashboard() {
     parents.filter((p) => p.language_suggestion && p.language_suggestion !== p.language)
       .map((p) => [p.id, { suggested_language: p.language_suggestion }])
   ), [parents]);
-  const schedules = boot?.schedules ?? []; // still used for display, but we no longer rely on it for editing
+  const schedules = boot?.schedules ?? [];
   const activation = boot?.activation ?? {};
   const payment = boot?.payment ?? { state: { plan: "nitya" } };
   const circle = boot?.circle ?? { role: "owner", members: [], invites: [] };
@@ -812,8 +811,6 @@ function CheckinsTab({ parents, data, catByKey, revealedReplies, setRevealedRepl
   );
 }
 
-// ─── UPDATED ParentDialog – uses granular APIs ──────────────────────────
-
 function ParentDialog({ parent, config, limits, plan, schedules = [], onSaved, trigger }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -821,39 +818,19 @@ function ParentDialog({ parent, config, limits, plan, schedules = [], onSaved, t
   const maxCheckins = limits?.checkins || 2;
   const maxReminders = limits?.reminders || 2;
 
+  const existingSchedule = parent ? schedules.find((s) => s.parent_id === parent.id) : null;
   const getDefaultMessages = () => [
     { time: "08:00", category: "morning_wish", type: "checkin" },
     { time: "13:00", category: "lunch", type: "checkin" },
     { time: "21:00", category: "goodnight", type: "checkin" },
   ].slice(0, maxCheckins);
 
-  // Build form from parent + granular schedule data
-  const buildFormFromParent = async () => {
-    if (!parent) return { ...blankParentForm(), messages: getDefaultMessages(), medicine_list: [] };
-
-    // Fetch granular schedule and medicines
-    const [checkinsRes, healthRes, routinesRes, medsRes] = await Promise.all([
-      api.get(`/parents/${parent.id}/checkins`).then(r => r.data).catch(() => []),
-      api.get(`/parents/${parent.id}/health-reminders`).then(r => r.data).catch(() => []),
-      api.get(`/parents/${parent.id}/routines`).then(r => r.data).catch(() => []),
-      api.get(`/parents/${parent.id}/medicines`).then(r => r.data).catch(() => []),
-    ]);
-
-    const messages = [
-      ...checkinsRes.map(c => ({ category: c.category, time: c.time, type: 'checkin' })),
-      ...healthRes.map(h => ({ category: h.category, time: h.time, type: 'reminder' })),
-      ...routinesRes.map(r => ({ category: r.category, time: r.time, type: 'activity' })),
-    ];
-
-    const medicine_list = medsRes.map(m => ({
-      name: m.name,
-      dose: m.dosage || '',
-      shape: m.shape || '',
-      color: m.colour || '',
-      timing: m.food_timing || '',
-      reminder_time: m.reminder_times?.[0] || '',
-    }));
-
+  const buildFormFromParent = () => {
+    if (!parent) return { ...blankParentForm(), messages: getDefaultMessages() };
+    const sched = schedules.find((s) => s.parent_id === parent.id);
+    const schedMessages = sched?.messages
+      ? sched.messages.filter((m) => m.type !== "reminder" && m.source !== "medicine_sync")
+      : getDefaultMessages();
     return {
       name: parent.name || "",
       relationship: parent.relationship || "mother",
@@ -870,25 +847,24 @@ function ParentDialog({ parent, config, limits, plan, schedules = [], onSaved, t
       activity_window_start: parent.activity_window_start || "06:00",
       activity_window_end: parent.activity_window_end || "22:00",
       auto_activity_detection: false,
-      medicine_list: medicine_list,
+      medicine_list: parent.medicine_list || [],
       habits: parent.habits || blankParentForm().habits,
-      messages: messages.length ? messages : getDefaultMessages(),
-      reengagement_hours: 4,
+      messages: schedMessages.length ? schedMessages : getDefaultMessages(),
+      reengagement_hours: sched?.reengagement_hours ?? 4,
     };
   };
 
-  const [form, setForm] = useState(() => blankParentForm());
+  const [form, setForm] = useState(() => buildFormFromParent());
   const [createdParentId, setCreatedParentId] = useState(null);
 
-  // Load data when dialog opens
   useEffect(() => {
     if (open) {
-      buildFormFromParent().then(f => setForm(f));
+      setForm(buildFormFromParent());
       setNewMed(blankMedicine());
       setCreatedParentId(null);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, parent]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   const save = async () => {
     const checkinCount = form.messages.filter((m) => m.type !== "reminder").length;
@@ -914,59 +890,36 @@ function ParentDialog({ parent, config, limits, plan, schedules = [], onSaved, t
       const { messages, reengagement_hours, medicine_list: _ignoredMedicineList, ...parentData } = form;
       const payload = {
         ...parentData,
+        medicine_list: medicineListToSave,
         habits: cleanHabits(form.habits),
         birthday: cleanOptionalString(form.birthday),
         activity_window_start: cleanOptionalString(form.activity_window_start),
         activity_window_end: cleanOptionalString(form.activity_window_end),
       };
-      // Save parent (medicine_list is no longer used, we'll save separately)
       const targetId = parent?.id || createdParentId;
       const { data } = targetId ? await api.put(`/parents/${targetId}`, payload) : await api.post("/parents", payload);
       const parentId = data?.id || targetId;
       if (!parent) setCreatedParentId(parentId);
 
-      // ---- Save granular schedule ----
-      // Delete all existing granular items
-      await api.delete(`/parents/${parentId}/checkins/all`).catch(() => {});
-      await api.delete(`/parents/${parentId}/health-reminders/all`).catch(() => {});
-      await api.delete(`/parents/${parentId}/routines/all`).catch(() => {});
-      await api.delete(`/parents/${parentId}/medicines/all`).catch(() => {});
-
-      // Insert messages
-      for (const msg of messages) {
-        const { category, time, type } = msg;
-        if (type === 'checkin') {
-          await api.post(`/parents/${parentId}/checkins`, { category, time });
-        } else if (type === 'reminder' && ['water','bp_check','sugar_check','health_check'].includes(category)) {
-          await api.post(`/parents/${parentId}/health-reminders`, { category, time });
-        } else if (type === 'activity' && ['tea_check','walk_check'].includes(category)) {
-          await api.post(`/parents/${parentId}/routines`, { category, time });
-        } else {
-          // fallback: treat as checkin
-          await api.post(`/parents/${parentId}/checkins`, { category, time });
-        }
-      }
-
-      // Insert medicines
-      for (const med of medicineListToSave) {
-        await api.post(`/parents/${parentId}/medicines`, {
-          name: med.name,
-          dosage: med.dose || '',
-          shape: med.shape || '',
-          colour: med.color || '',
-          food_timing: med.timing || '',
-          reminder_times: [med.reminder_time].filter(Boolean),
-        });
+      const schedPayload = {
+        parent_id: parentId,
+        mode: plan?.id || "nitya",
+        messages: messages,
+        active: existingSchedule?.active ?? true,
+        reengagement_hours: reengagement_hours ?? 1,
+      };
+      if (existingSchedule) {
+        await api.put(`/schedules/${existingSchedule.id}`, schedPayload);
+      } else if (messages.length > 0) {
+        await api.post("/schedules", schedPayload);
       }
 
       toast.success(targetId ? "Parent details saved." : `${payload.name} is set up. First check-in tomorrow at 8:00 AM.`);
-      setOpen(false);
-      onSaved();
-    } catch (e) {
-      toast.error(formatAxiosError(e));
-    } finally {
-      setBusy(false);
-    }
+      if (data?.medicine_reminders_dropped?.length) {
+        toast(`Note: Medicine times ${data.medicine_reminders_dropped.join(", ")} did not fit your plan limit (${maxReminders}). Adjust times or upgrade to include them.`, { duration: 8000 });
+      }
+      setOpen(false); onSaved();
+    } catch (e) { toast.error(formatAxiosError(e)); } finally { setBusy(false); }
   };
 
   return (
@@ -991,6 +944,13 @@ function ParentDialog({ parent, config, limits, plan, schedules = [], onSaved, t
               idPrefix="pd"
             />
           </div>
+
+          {existingSchedule && (
+            <div className="flex items-center gap-2 text-xs mt-4">
+              <Power className="w-4 h-4 text-ayana-muted" />
+              <span className="text-ayana-secondary">Currently <span className={existingSchedule.active ? "text-green-600 font-medium" : "text-ayana-muted font-medium"}>{existingSchedule.active ? "active" : "paused"}</span></span>
+            </div>
+          )}
         </div>
 
         <DialogFooter className="p-6 pt-4 sticky bottom-0 bg-ayana-bg border-t border-ayana-line mt-2">
@@ -1253,6 +1213,44 @@ function PlanTab({ plans, currencies, planId, plan, usage, circle, reload, curre
   );
 }
 
+// -----------------------------------------------------------------------
+// Loads the AYANA logo (public/ayana_logo.png) and crops out just the
+// emblem — the "A" mark — dropping the wordmark banner beneath it, so
+// it doesn't duplicate the "AYANA" text already drawn in the header.
+// Used for both the small header icon and the faint watermark in the
+// exported PDF. Resolves to null if the fetch/crop fails, so callers
+// fall back to the previous drawn badge / text watermark.
+// -----------------------------------------------------------------------
+function loadLogoEmblem() {
+  return new Promise((resolve) => {
+    try {
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.onload = () => {
+        try {
+          // Emblem sits in the upper portion of the asset, above the
+          // wordmark banner — crop a square from the top-center.
+          const cropSize = Math.min(img.naturalWidth, img.naturalHeight * 0.62);
+          const canvas = document.createElement("canvas");
+          canvas.width = cropSize;
+          canvas.height = cropSize;
+          const ctx = canvas.getContext("2d");
+          const sx = (img.naturalWidth - cropSize) / 2;
+          ctx.drawImage(img, sx, 0, cropSize, cropSize, 0, 0, cropSize, cropSize);
+          resolve(canvas.toDataURL("image/png"));
+        } catch (e) {
+          console.warn("Logo crop failed, falling back to drawn badge", e);
+          resolve(null);
+        }
+      };
+      img.onerror = () => resolve(null);
+      img.src = "/ayana_logo.png";
+    } catch (e) {
+      resolve(null);
+    }
+  });
+}
+
 function ReportsTab({ parents, plan, user, checkinsData }) {
   const [selectedParentId, setSelectedParentId] = useState("all");
   const [selectedMonth, setSelectedMonth] = useState(() => new Date().toISOString().slice(0, 7));
@@ -1317,6 +1315,25 @@ function ReportsTab({ parents, plan, user, checkinsData }) {
     return { total, replied, skipped, voice, completion: total ? Math.round((replied / total) * 100) : 0 };
   }, [allMessages]);
 
+  const feelingStats = useMemo(() => {
+    const counts = {};
+    allMessages.forEach((m) => {
+      if (m.reply?.feeling) counts[m.reply.feeling] = (counts[m.reply.feeling] || 0) + 1;
+    });
+    return counts;
+  }, [allMessages]);
+
+  const medicineStats = useMemo(() => {
+    let taken = 0, skipped = 0;
+    allMessages.forEach((m) => {
+      if (m.category?.includes("medicine")) {
+        if (m.reply_status === "done" || m.replied) taken++;
+        if (m.reply_status === "skipped") skipped++;
+      }
+    });
+    return { taken, skipped };
+  }, [allMessages]);
+
   const handleDownloadPDF = async () => {
     if (!filteredParents.length) {
       toast.error("No data for selected filters");
@@ -1350,49 +1367,269 @@ function ReportsTab({ parents, plan, user, checkinsData }) {
         return;
       }
 
-      const doc = new jsPDF();
-      const parentName = selectedParentId === "all" ? "All-Parents" : (filteredParents[0]?.name || "Parent");
+      // Load the AYANA logo emblem once up front — used for both the
+      // small header badge and the faint page watermark below. Falls
+      // back to the previous drawn badge/text if this ever resolves null.
+      const emblemDataUrl = await loadLogoEmblem();
 
-      let y = 20;
-      doc.setFontSize(16);
-      doc.text(`AYANA Care Report - ${parentName}`, 14, y);
-      y += 8;
+      // ---------------------------------------------------------------
+      // Styled report layout: header, stat cards, feelings/medicine/
+      // alerts row, a shaded message-type table, and a day-by-day
+      // section with pill badges, plus a footer disclaimer — instead
+      // of a flat doc.text() dump.
+      // ---------------------------------------------------------------
+      const doc = new jsPDF({ unit: "mm", format: "a4" });
+      const parentName = selectedParentId === "all" ? "All parents" : (filteredParents[0]?.name || "Parent");
+      const pageW = doc.internal.pageSize.getWidth();
+      const pageH = doc.internal.pageSize.getHeight();
+      const marginX = 14;
+      const contentW = pageW - marginX * 2;
+
+      const primary = [15, 61, 46];        // #0f3d2e — matches this tab's button color
+      const primarySoft = [232, 242, 236];
+      const border = [239, 232, 216];      // #efe8d8 — matches this tab's card border
+      const rowAlt = [250, 246, 236];      // #faf6ec
+      const muted = [154, 145, 131];       // #9a9183
+      const text = [26, 26, 26];           // #1a1a1a
+      const dotReplied = [16, 150, 72];
+      const dotPending = [206, 199, 181];
+      const pillIdle = [244, 244, 241];
+
+      doc.setFont("helvetica", "normal");
+
+      let y = 0;
+
+      // Prints each character with extra spacing — used for the small
+      // uppercase eyebrow label to give it a tracked, premium feel.
+      const drawTracked = (str, x, yPos, spacing = 0.6) => {
+        let cx = x;
+        str.split("").forEach((ch) => {
+          doc.text(ch, cx, yPos);
+          cx += doc.getTextWidth(ch) + spacing;
+        });
+      };
+
+      // Faint AYANA watermark, redrawn on every page — uses the real
+      // logo emblem when available, otherwise falls back to a rotated
+      // text mark.
+      const drawWatermark = () => {
+        doc.saveGraphicsState();
+        try {
+          doc.setGState(new doc.GState({ opacity: 0.05 }));
+        } catch (e) { /* older jsPDF without GState support */ }
+        if (emblemDataUrl) {
+          const size = 110;
+          doc.addImage(emblemDataUrl, "PNG", pageW / 2 - size / 2, pageH / 2 - size / 2, size, size, undefined, "FAST", 35);
+        } else {
+          doc.setFont("times", "bold");
+          doc.setFontSize(90);
+          doc.setTextColor(...primary);
+          doc.text("AYANA", pageW / 2, pageH / 2, { align: "center", angle: 35 });
+        }
+        doc.restoreGraphicsState();
+        doc.setFont("helvetica", "normal");
+      };
+
+      const drawFooter = () => {
+        doc.setDrawColor(...border);
+        doc.line(marginX, pageH - 14, pageW - marginX, pageH - 14);
+        doc.setFontSize(7);
+        doc.setTextColor(...muted);
+        doc.text(
+          "AYANA is not an emergency or medical service. This report summarises WhatsApp check-in activity only.",
+          marginX,
+          pageH - 9
+        );
+        doc.text("ayanabott.com", pageW - marginX, pageH - 9, { align: "right" });
+      };
+
+      const ensureSpace = (needed) => {
+        if (y + needed > pageH - 18) {
+          drawFooter();
+          doc.addPage();
+          drawWatermark();
+          y = 16;
+        }
+      };
+
+      drawWatermark();
+
+      // ---- Header ----
+      // Small header badge: real logo emblem when available, otherwise
+      // the previous drawn rounded-square "A" badge.
+      if (emblemDataUrl) {
+        doc.addImage(emblemDataUrl, "PNG", marginX, 14, 10, 10);
+      } else {
+        doc.setFillColor(...primary);
+        doc.roundedRect(marginX, 14, 10, 10, 2, 2, "F");
+        doc.setFontSize(9);
+        doc.setTextColor(255, 255, 255);
+        doc.setFont("times", "bold");
+        doc.text("A", marginX + 5, 20.6, { align: "center" });
+        doc.setFont("helvetica", "normal");
+      }
+
+      doc.setFontSize(7.5);
+      doc.setTextColor(...muted);
+      drawTracked("MONTHLY CARE REPORT", marginX + 14, 17.5, 0.7);
+
+      doc.setFontSize(18);
+      doc.setTextColor(...text);
+      doc.setFont("times", "bold");
+      doc.text(`${parentName} \u00b7 ${monthLabel}`, marginX + 14, 25);
+      doc.setFont("helvetica", "normal");
+
+      doc.setFontSize(8.5);
+      doc.setTextColor(...muted);
+      doc.text(`Generated ${new Date().toLocaleString()}`, pageW - marginX, 17.5, { align: "right" });
       doc.setFontSize(11);
-      doc.text(`${monthLabel} (${selectedMonth}) | ${stats.replied}/${stats.total} = ${stats.completion}%`, 14, y);
-      y += 8;
-      doc.text(`Voice: ${stats.voice} | Skipped: ${stats.skipped} | Generated: ${new Date().toLocaleString()}`, 14, y);
-      y += 12;
+      doc.setTextColor(...primary);
+      doc.setFont("times", "bold");
+      doc.text("AYANA", pageW - marginX, 23.5, { align: "right" });
+      doc.setFont("helvetica", "normal");
 
-      doc.setFontSize(12);
-      doc.text("By message type", 14, y);
+      y = 30;
+      doc.setDrawColor(...border);
+      doc.line(marginX, y, pageW - marginX, y);
       y += 8;
-      doc.setFontSize(10);
+
+      // ---- Row 1: headline stat cards ----
+      const cardGap = 4;
+      const cardW = (contentW - cardGap * 3) / 4;
+      const drawStatCard = (x, value, label, sub) => {
+        doc.setFillColor(255, 255, 255);
+        doc.setDrawColor(...border);
+        doc.roundedRect(x, y, cardW, 22, 2, 2, "FD");
+        doc.setFontSize(16);
+        doc.setTextColor(...text);
+        doc.setFont("times", "bold");
+        doc.text(String(value), x + 4, y + 10.5);
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(8.5);
+        doc.setTextColor(...muted);
+        doc.text(label, x + 4, y + 15.5);
+        if (sub) {
+          doc.setFontSize(7.5);
+          doc.text(sub, x + 4, y + 19.5);
+        }
+      };
+      drawStatCard(marginX, stats.total, "Messages sent", monthLabel);
+      drawStatCard(marginX + (cardW + cardGap), `${stats.completion}%`, "Completion rate", `${stats.replied} completed`);
+      drawStatCard(marginX + (cardW + cardGap) * 2, stats.skipped, "Skipped", null);
+      drawStatCard(marginX + (cardW + cardGap) * 3, stats.voice, "Voice notes", null);
+      y += 22 + 6;
+
+      // ---- Row 2: feelings / medicine / attention ----
+      const row2W = (contentW - cardGap * 2) / 3;
+      const drawInfoCard = (x, title, body) => {
+        doc.setDrawColor(...border);
+        doc.roundedRect(x, y, row2W, 20, 2, 2);
+        doc.setFontSize(8.5);
+        doc.setTextColor(...text);
+        doc.setFont(undefined, "bold");
+        doc.text(title, x + 4, y + 6.5);
+        doc.setFont(undefined, "normal");
+        doc.setFontSize(8);
+        doc.setTextColor(...muted);
+        doc.text(body, x + 4, y + 13, { maxWidth: row2W - 8 });
+      };
+      const feelingsLine = Object.keys(feelingStats).length
+        ? Object.entries(feelingStats).map(([f, c]) => `${f.replace(/_/g, " ")} \u00d7${c}`).join("   ")
+        : "No feelings recorded yet";
+      drawInfoCard(marginX, "How they responded", feelingsLine);
+      drawInfoCard(marginX + row2W + cardGap, "Medicine", `Taken ${medicineStats.taken}   Skipped ${medicineStats.skipped}`);
+      drawInfoCard(marginX + (row2W + cardGap) * 2, "Attention alerts", "No alerts this month");
+      y += 20 + 10;
+
+      // ---- By message type table ----
       const byType = {};
       allMessages.forEach((m) => {
         if (!byType[m.category]) byType[m.category] = { sent: 0, done: 0 };
         byType[m.category].sent++;
         if (m.replied || m.reply_status === "done") byType[m.category].done++;
       });
-      Object.entries(byType).forEach(([cat, v]) => {
-        if (y > 270) { doc.addPage(); y = 20; }
-        doc.text(`${cat.replace(/_/g, " ")} - ${v.done}/${v.sent}`, 14, y);
-        y += 6;
-      });
+      const byTypeRows = Object.entries(byType);
 
+      ensureSpace(16 + byTypeRows.length * 7);
+      doc.setFontSize(13);
+      doc.setTextColor(...text);
+      doc.setFont("times", "bold");
+      doc.text(`Message Breakdown \u2014 ${parentName}`, marginX, y);
+      doc.setFont("helvetica", "normal");
       y += 6;
-      if (y > 250) { doc.addPage(); y = 20; }
-      doc.setFontSize(12);
-      doc.text("Day by day", 14, y);
-      y += 8;
+
+      doc.setFillColor(...primarySoft);
+      doc.rect(marginX, y, contentW, 7, "F");
+      doc.setFontSize(8.5);
+      doc.setTextColor(...muted);
+      doc.text("Message", marginX + 3, y + 5);
+      doc.text("Sent", marginX + contentW - 40, y + 5, { align: "right" });
+      doc.text("Replied", marginX + contentW - 3, y + 5, { align: "right" });
+      y += 7;
+
       doc.setFontSize(9);
+      byTypeRows.forEach(([cat, v], i) => {
+        ensureSpace(8);
+        if (i % 2 === 1) {
+          doc.setFillColor(...rowAlt);
+          doc.rect(marginX, y, contentW, 7, "F");
+        }
+        doc.setTextColor(...text);
+        doc.text(cat.replace(/_/g, " "), marginX + 3, y + 5);
+        doc.text(String(v.sent), marginX + contentW - 40, y + 5, { align: "right" });
+        doc.text(String(v.done), marginX + contentW - 3, y + 5, { align: "right" });
+        doc.setDrawColor(...border);
+        doc.line(marginX, y + 7, marginX + contentW, y + 7);
+        y += 7;
+      });
+      y += 10;
+
+      // ---- Daily activity ----
+      ensureSpace(16);
+      doc.setFontSize(13);
+      doc.setFont("times", "bold");
+      doc.setTextColor(...text);
+      doc.text(`Daily Activity \u2014 ${parentName}`, marginX, y);
+      doc.setFont("helvetica", "normal");
+      y += 8;
+
       filteredDays.slice(0, 20).forEach((d) => {
-        if (y > 270) { doc.addPage(); y = 20; }
-        const line = `${d.day_key} - ${d.replied}/${d.total} - ${(d.messages || []).map(m => m.category).join(", ")}`;
-        const split = doc.splitTextToSize(line, 180);
-        doc.text(split, 14, y);
-        y += split.length * 5 + 2;
+        ensureSpace(12);
+        doc.setFontSize(8.5);
+        doc.setTextColor(...muted);
+        const dayLabel = selectedParentId === "all" && d.parentName ? `${d.day_key.slice(5)} \u00b7 ${d.parentName}` : d.day_key.slice(5);
+        doc.text(dayLabel, marginX, y + 4);
+        doc.setTextColor(...text);
+        doc.text(`${d.replied}/${d.total} replied`, marginX + contentW, y + 4, { align: "right" });
+
+        let px = marginX + 30;
+        let pillRowY = y;
+        (d.messages || []).forEach((m) => {
+          // Status is shown with a colored dot rather than a Unicode
+          // checkmark — jsPDF's standard fonts don't support "\u2713",
+          // which otherwise renders as a stray apostrophe.
+          const replied = m.replied || m.reply_status === "done";
+          const label = `${m.time || ""} ${(m.category || "").replace(/_/g, " ")}`.trim();
+          doc.setFontSize(7);
+          const textW = doc.getTextWidth(label);
+          const w = textW + 10;
+          if (px + w > marginX + contentW - 18) {
+            px = marginX + 30;
+            pillRowY += 6;
+            ensureSpace(10);
+          }
+          doc.setFillColor(...(replied ? primarySoft : pillIdle));
+          doc.roundedRect(px, pillRowY - 3.5, w, 5.5, 2, 2, "F");
+          doc.setFillColor(...(replied ? dotReplied : dotPending));
+          doc.circle(px + 3.4, pillRowY - 0.6, 1, "F");
+          doc.setTextColor(...(replied ? primary : muted));
+          doc.text(label, px + 6.2, pillRowY + 0.5);
+          px += w + 2;
+        });
+        y = pillRowY + 9;
       });
 
+      drawFooter();
       doc.save(`AYANA-Report-${parentName}-${selectedMonth}.pdf`);
       toast.success(`PDF downloaded: ${parentName} - ${monthLabel}`);
     } catch (e) {

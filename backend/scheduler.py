@@ -382,7 +382,7 @@ async def _check_reengagement_impl():
                 activation = await conn.fetchrow("SELECT * FROM activation_state WHERE user_id = $1", parent["user_id"])
                 if not activation or not activation["whatsapp_activated"]:
                     continue
-            result = await send_reengagement(dict(parent), 4)
+            result = await send_reengagement(dict(parent), 2)
             if result.get("status") in ("sent", "simulated"):
                 async with get_pool().acquire() as conn:
                     await conn.execute(

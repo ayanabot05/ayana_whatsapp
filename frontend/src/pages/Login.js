@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { Loader2 } from "lucide-react";
+import { Loader2, Heart } from "lucide-react";
 import { Logo } from "@/components/Logo";
 import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -40,7 +40,7 @@ export default function Login() {
     try {
       const { data } = await api.post("/auth/login", { email, password });
       loginWithToken(data.access_token, data.refresh_token, data.user);
-      toast.success(`Welcome back, ${data.user.name.split(" ")[0]}`);
+      toast.success(`Welcome back, ${data.user.name.split(" ")[0]}! Your parents missed you. 💛`);
       if (isSafeRedirect) navigate(redirectTo);
       else if (data.user.role === "admin") navigate("/admin");
       else navigate(data.user.onboarding_complete? "/dashboard" : "/onboarding");
@@ -54,22 +54,30 @@ export default function Login() {
 
   return (
     <div className="min-h-screen grid lg:grid-cols-2 bg-warm-cream">
-      <AuthBrandPanel headline="Welcome back to their care circle." subtext="Your parents are one login away from another warm day. 💛" footer="Care that reaches home, every single day." />
+      <AuthBrandPanel
+        headline="They're waiting to hear from you."
+        subtext="Log in to check how your parents are doing today. One login, and you're right back in their day."
+        emotionalQuote="You can't always call. But you can always care."
+        footer="Ayana — helping you stay present, even from far away."
+      />
       <div className="flex items-center justify-center p-6 sm:p-12">
         <div className="w-full max-w-sm">
           <Link to="/" className="lg:hidden flex items-center justify-center mb-8"><Logo size={36} /></Link>
-          <h1 className="font-display text-3xl font-semibold text-ayana-text">Log in</h1>
+
+          <h1 className="font-display text-3xl font-semibold text-ayana-text">Welcome back</h1>
+          <p className="mt-2 text-ayana-secondary text-[15px]">Your parents are one login away from another warm day. 💛</p>
+
           <form onSubmit={submit} className="mt-8 space-y-4" data-testid="login-form">
             <div>
               <label className="text-sm font-medium text-ayana-text">Email</label>
-              <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} data-testid="login-email" placeholder="you@example.com" className="mt-1.5 w-full px-4 py-3 rounded-xl border border-ayana-line bg-white" />
+              <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} data-testid="login-email" placeholder="you@example.com" className="mt-1.5 w-full px-4 py-3 rounded-xl border border-ayana-line bg-white focus:outline-none focus:ring-2 focus:ring-ayana-gold/40 focus:border-ayana-gold transition" />
             </div>
             <div>
               <label className="text-sm font-medium text-ayana-text">Password</label>
-              <input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} data-testid="login-password" placeholder="••••••••" className="mt-1.5 w-full px-4 py-3 rounded-xl border border-ayana-line bg-white" />
+              <input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} data-testid="login-password" placeholder="••••••••" className="mt-1.5 w-full px-4 py-3 rounded-xl border border-ayana-line bg-white focus:outline-none focus:ring-2 focus:ring-ayana-gold/40 focus:border-ayana-gold transition" />
             </div>
             <div className="flex justify-end -mt-1">
-              <Link to="/forgot-password" className="text-sm text-ayana-bright font-medium hover:underline">Forgot password?</Link>
+              <Link to="/forgot-password" className="text-sm text-ayana-gold font-medium hover:underline">Forgot password?</Link>
             </div>
             {error && (
               <p className="text-sm text-red-600" data-testid="login-error">
@@ -78,9 +86,22 @@ export default function Login() {
               </p>
             )}
             <button type="submit" disabled={loading} className="w-full btn-saffron flex items-center justify-center gap-2 px-6 py-3.5 rounded-full font-semibold disabled:opacity-60">
-              {loading && <Loader2 className="w-4 h-4 animate-spin" />} Log in
+              {loading && <Loader2 className="w-4 h-4 animate-spin" />} Log in to their care circle
             </button>
           </form>
+
+          {/* Emotional nudge */}
+          <div className="mt-6 flex items-center gap-2.5 bg-amber-50/80 border border-amber-200/50 rounded-xl px-4 py-3">
+            <Heart className="w-4 h-4 text-ayana-gold shrink-0" fill="currentColor" />
+            <p className="text-xs text-ayana-secondary leading-relaxed">Every check-in lets your parents know someone is thinking of them.</p>
+          </div>
+
+          <p className="mt-5 text-sm text-ayana-secondary text-center">
+            Don't have an account?{" "}
+            <Link to="/signup" className="text-ayana-gold font-semibold hover:underline" data-testid="login-to-signup">
+              Set up Ayana for your parents
+            </Link>
+          </p>
         </div>
       </div>
     </div>
