@@ -28,6 +28,7 @@ import { ChangeEmailCard, ChangePasswordCard } from "@/components/SecurityCards"
 import { EmailVerificationCard } from "@/components/EmailVerificationCard";
 import { PhoneChangeDialog } from "@/components/PhoneChangeDialog";
 import { CareStatus } from "@/components/CareStatus";
+import { PlanPanel } from '@/features/billing/PlanPanel';
 
 function TabBoundary({ tab, onRetry, children }) {
   return (
@@ -1156,69 +1157,7 @@ function CircleTab({ circle, planId, plan, parents, reload }) {
   );
 }
 
-function PlanTab({ plans, currencies, planId, plan, usage, circle, reload, currentBilling, paymentsEnabled }) {
-  const [busy, setBusy] = useState(false);
-  const queryClient = useQueryClient();
-  if (circle?.role === "member") {
-    return (
-      <div className="max-w-xl bg-white rounded-[16px] border border-[#efe8d8] p-6">
-        <h2 className="font-display text-lg font-medium text-[#1a1a1a] mb-2 flex items-center gap-2"><Crown className="w-4 h-4 text-[#0f3d2e]" /> Plan</h2>
-        <p className="text-sm text-[#6b5f4a]">Only the account owner can change the plan. You're covered under <b>{circle.owner?.name}</b>'s <b>{plan?.name}</b> plan.</p>
-      </div>
-    );
-  }
-  const changePlan = async (id, billing) => {
-    if (id === planId && billing === currentBilling) { toast("You're already on this plan."); return; }
-    setBusy(true);
-    try {
-      const { data } = await api.post("/payment/checkout", { plan: id, billing, origin_url: window.location.origin });
-      if (data?.checkout_url) { window.location.href = data.checkout_url; return; }
-      queryClient.setQueryData(["dashboard"], (old) => old ? {
-        ...old,
-        payment: { ...old.payment, state: { ...(old.payment?.state || {}), plan: data?.plan || id, billing: data?.billing || billing } },
-        circle: old.circle ? { ...old.circle, plan: data?.plan || id } : old.circle,
-      } : old);
-      toast.success(`Plan changed to ${plans.find((p) => p.id === id)?.name || id}.`);
-      await reload();
-    } catch (e) { toast.error(formatAxiosError(e), { duration: 8000 }); } finally { setBusy(false); }
-  };
-  return (
-    <div className="space-y-4 max-w-3xl">
-      <div className="bg-white rounded-[16px] border border-[#efe8d8] p-4 flex items-center gap-3">
-        <div className="w-10 h-10 rounded-full bg-[#faf6ec] border border-[#efe8d8] flex items-center justify-center shrink-0"><Crown className="w-4 h-4 text-[#b8860b]" /></div>
-        <div>
-          <h2 className="font-display text-[15px] font-medium text-[#1a1a1a]">Your plan</h2>
-          <p className="text-[11px] text-[#9a9183]">Usage, limits, and upgrade options • Mobile responsive</p>
-        </div>
-      </div>
-      <div className="bg-white rounded-[16px] border border-[#efe8d8] p-4 sm:p-5" data-testid="plan-usage">
-        <h2 className="font-display text-[16px] font-medium text-[#1a1a1a] mb-3">Current usage</h2>
-        <div className="flex flex-wrap gap-2 text-[12px]">
-          <span className="px-3 py-1.5 rounded-full bg-[#faf6ec] border border-[#efe8d8] text-[#6b5f4a]">{usage.parents ?? 0}/{plan?.limits?.parents ?? "–"} parents</span>
-          <span className="px-3 py-1.5 rounded-full bg-[#faf6ec] border border-[#efe8d8] text-[#6b5f4a]">{usage.family_members_used ?? 0}/{plan?.limits?.family_members ?? 0} care-circle members</span>
-          <span className="px-3 py-1.5 rounded-full bg-[#faf6ec] border border-[#efe8d8] text-[#6b5f4a]">{plan?.limits?.checkins ?? "–"} check-ins · {plan?.limits?.reminders ?? "–"} medicine reminders / day</span>
-          <span className={`px-3 py-1.5 rounded-full border ${plan?.limits?.recovery_mode ? "bg-[#e6f4ea] border-[#c8e9d4] text-[#1a7a4a]" : "bg-[#faf6ec] border-[#efe8d8] text-[#9a9183]"}`}>Recovery mode {plan?.limits?.recovery_mode ? "included" : "not included"}</span>
-          {usage.recovery_schedules > 0 && <span className="px-3 py-1.5 rounded-full bg-[#e6f4ea] border border-[#c8e9d4] text-[#1a7a4a]">Recovery mode active on {usage.recovery_schedules} schedule(s)</span>}
-        </div>
-        <p className="mt-3 text-[11px] text-[#9a9183]">Downgrading below your current usage will be blocked until you remove the extra items.</p>
-      </div>
-      <div className="bg-white rounded-[16px] border border-[#efe8d8] p-4 sm:p-6">
-        <h2 className="font-display text-[16px] font-medium text-[#1a1a1a] mb-4">Change your plan</h2>
-        {plans.length === 0 ? (
-          <div className="flex flex-col items-center gap-3 py-8 text-center bg-[#faf6ec] rounded-xl border border-dashed" data-testid="plans-unavailable">
-            <Loader2 className="w-5 h-5 animate-spin text-[#9a9183]" />
-            <p className="text-sm text-[#6b5f4a]">Couldn't load plan options right now.</p>
-            <button onClick={reload} className="text-sm font-medium text-[#0f3d2e] underline">Try again</button>
-          </div>
-        ) : (
-          <fieldset disabled={busy}>
-            <PricingCards plans={plans} currencies={currencies} selectedPlan={planId} onSelect={changePlan} compact />
-          </fieldset>
-        )}
-      </div>
-    </div>
-  );
-}
+const PlanTab = PlanPanel;
 
 // -----------------------------------------------------------------------
 // Loads the AYANA logo (public/ayana_logo.png) and crops out just the

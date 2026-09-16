@@ -38,7 +38,7 @@ PLANS = [
             "recovery_mode": False,
         },
         "price": {
-            "INR": {"month": 949, "year": 950},
+            "INR": {"month": 949, "year": 9490},
             "USD": {"month": 10, "year": 100},
             "GBP": {"month": 8.99, "year": 89},
             "EUR": {"month": 10, "year": 100},

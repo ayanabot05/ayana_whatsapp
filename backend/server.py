@@ -109,6 +109,9 @@ from services import notifications, inbox
 from services.reply_media import archive_audio
 from routes.replies import router as replies_router
 from routes.care import router as care_router
+from routes.billing import router as billing_router
+from routes.coupon_admin import router as coupon_router
+from services import billing_access
 from services.welcomes import welcome_parent_and_child
 
 from auth import (
@@ -413,8 +416,8 @@ async def _get_plan_id(user) -> str:
     if (user or {}).get("role") == "admin":
         return "raksha"
     async with get_pool().acquire() as conn:
-        ps = await conn.fetchrow("select * from payment_state where user_id = $1", scope(user))
-    return resolve_plan_id((ps or {}).get("plan", "nitya") if ps else "nitya")
+        entitlement = await billing_access.access(conn,scope(user))
+    return entitlement['plan']
 
 
 async def _sync_medicine_reminders_for_parent(user, parent_id, medicine_list: list[dict]) -> dict | None:
@@ -756,8 +759,8 @@ async def register(request: Request, response: Response, payload: RegisterInput,
             )
             await conn.execute(
                 """
-                insert into payment_state (user_id, status, plan, billing, updated_at)
-                values ($1, 'trial', 'nitya', 'month', now())
+                insert into payment_state (user_id, status, plan, billing, updated_at, billing_managed)
+                values ($1, 'trial', 'nitya', 'month', now(), true)
                 """,
                 uid,
             )
@@ -2031,6 +2034,8 @@ async def payment_state(user: dict = Depends(get_current_user)):
 
 @api.post("/payment/checkout")
 async def payment_checkout(payload: CheckoutInput, request: Request, user: dict = Depends(get_current_user), _csrf: None = Depends(validate_csrf_token)):
+    if os.environ.get('PAYMENT_PROVIDER') == 'razorpay':
+        raise HTTPException(409,'Use the Razorpay checkout or free-trial selection. The legacy checkout cannot change paid access.')
     if is_member(user):
         raise HTTPException(status_code=403, detail="Only the account owner can change the plan.")
     plan = resolve_plan_id(payload.plan)
@@ -2089,6 +2094,9 @@ async def activate(background_tasks: BackgroundTasks, user: dict = Depends(get_c
     configured = {str(s['parent_id']) for s in schedules if s['active']}
     if any(str(p['id']) not in configured for p in parents):
         raise HTTPException(400, 'Each parent needs an active saved schedule before activation.')
+    async with get_pool().acquire() as conn,conn.transaction():
+        await conn.execute('SELECT pg_advisory_xact_lock(hashtextextended($1,0))','billing:'+str(user['id']))
+        await billing_access.begin_trial(conn,user['id'])
     results = [{'parent':p['name'],'status':'pending'} for p in parents]
     activated = True  # Scheduling configuration, NOT proof of WhatsApp delivery.
 
@@ -4106,6 +4114,8 @@ app.include_router(api)
 app.include_router(account_router)
 app.include_router(replies_router)
 app.include_router(care_router)
+app.include_router(billing_router)
+app.include_router(coupon_router)
 
 # Stripe payments router (endpoints are self-prefixed with /api). Kept in a
 # separate module; only actually reachable when PAYMENTS_ENABLED=true.
