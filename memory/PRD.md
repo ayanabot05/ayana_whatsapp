@@ -1,5 +1,53 @@
 # AYANA — PRD & Working Notes
 
+## Current task — founder review and production messaging incident diagnosis
+
+**Scope:** Read-only review first, respecting the founder's request to discuss before making production changes. Latest user instruction: "Start the task now". The clarification tool was invoked but returned a pre-completion lint gate instead of user choices; do not treat it as approval for live writes.
+
+### Original problem statement
+
+> be carefull, my app is in production. Act as a CEO and give me a complete app review of my app vs my raw idea. And coming to child template, I used to get the replies but suddenly they were stopped.
+>
+> See, my main target is to help the user(children) who have settled abroad/outside of India. I personally saw many people abroad who won't call their parents, that means not intentionally but due to work stress, deadlines, meetings, etc. But on the other side, parents will wait all day just to talk with their children, think they did not get a call from their children on that day, the next day, and they feel alone and depressed. To solve all these, Ayana helps them, as the user (child) will signup/login and then set up the account by entering his/her details and verifying their mobile number with otp; then select the payment plan, and they will enter their parents' details, check-in time, daily routines, and medicines. Once they setup account from that day, as per the parents' location and time, we will send them WhatsApp messages; when they reply, the child will get notified that Amma/Dad replied. At least the parents will have satisfaction that their children are sending messages, as well children will be ok by seeing their message. Parents can easily handle it just by clicking the button or sending the voice note. Children can upgrade/downgrade according to the plan.
+>
+> Currently, I have these issues.
+> I have issues.
+> 1. My mom is getting messages; she was replying, but I have not been getting the replies since 4 days.
+> 2. My dad is not even getting the messages at all. The first day he got messages, but my mom did not get them. Then I typed "hi" on her phone, and then she was continuously getting messages, but coming to my day, he got messages on the first day, and then the next day he did not reply, and after no replies, I could see a flooding of messages—the same messages again and again, no reply for those messages. Then I tried to fix that flooding message, and then the next day he was not even getting messages at all.
+> 3. My friend was in the USA, and he tried to log in and verified his number and added parents. Parents are getting the replies but were not even getting the messages, not even welcome???. Check the template, because all over the world my clients are present, so
+>
+> Discuss before you start working. Act as a CTO and CEO of my company. See main I have most of the paid users outside India, so as the user/child signs up/login, doesn't matter the location they have to get the welcome message and seamless messages everyday from their parents
+
+### Current architecture and safety decisions
+
+- Actual stack: React 19/craco, FastAPI, asyncpg/Postgres (Supabase), APScheduler, direct Meta WhatsApp, Twilio OTP, Stripe, Sarvam voice, object storage. Preserve it; no migration to template-default MongoDB.
+- Reviewed revision `2cf580a`; most recent messaging change `bb2f67b`.
+- Both services were stopped initially. A final safety check found them unexpectedly running without a start command from this review; both were explicitly stopped again. Current `.env` files remained absent. No intentional customer sends, external app/database calls or migrations performed; do not equate supervisor RUNNING with successful live connectivity.
+- Current `.env` files absent and production logs/Meta inventory unavailable. Historical live-credential/fix statements below are **not current proof**; several documented fixes are absent from current code.
+
+### Completed in this phase
+
+- Comprehensive product/CTO review: `memory/AYANA_REVIEW.md` with source references, incident hypotheses versus confirmed code defects, template audit, CEO recommendations, metrics and staged repair plan.
+- Testing agent report `test_reports/iteration_18.json`: 14 source assertions / small offline simulations passed, confirming code defects. Not live E2E or complete function-execution regression.
+- No runtime application fixes implemented. No current authentication credentials created; see `memory/test_credentials.md`.
+
+### Prioritized backlog
+
+- **P0:** ordinary child reply/voice notifications need session-aware approved-template routing plus durable recipient outcomes; recent child warning helpers do not cover ordinary replies.
+- **P0:** reconcile legacy UI `/schedules` with granular scheduler tables without destructive overwrites; verify missing checked-in `medicines` table migration against live schema.
+- **P0:** truthful per-recipient activation/welcome state and welcome idempotency; signup welcome currently no-op.
+- **P0:** durable per-slot send identity, activation cutoff, safe catch-up, category-vs-slot retry correction, in-loop escalation caps, cross-worker safeguards; medicine identity and inappropriate tablet template mappings.
+- **P1:** inbox/outbox recovery, all-recipient receipt tracking, shared vacation/pause/opt-out controls, child inbound handling, correct parent timezone, warnings based on actual delivery, complete care-circle recipients.
+- **P1:** recurring billing/currency behavior and suspicious INR annual price; report/recovery scheduler wiring and report dependency; exact reply attribution.
+- **P2:** baseline lint duplicates/bare excepts and stale docs; modularize only after stabilization.
+
+### Next task
+
+Discuss findings; request affected-account identifiers/timezones, whether replies are missing in dashboard too, actual Meta template category/approval/body/buttons, redacted error logs and current production revision. Seek approval for narrow local fixes before any customer-facing or production writes. Do not bulk replay missed historical messages. `backend/schema.sql` contains destructive DROP statements—never run against production.
+
+---
+## Historical notes below — retain for context, reverify before relying on them
+
 ## Changelog — 2026-06 (live-bug fixes from real WhatsApp screenshots)
 Reported by user (Guna/Amma live run):
 - **Flood of check-ins minutes after welcome** → FIXED in `scheduler.py` `_deliver_due_messages_impl`: added activation-day gate — slots whose scheduled parent-local time is before `activation_state.activated_at` are skipped (no backfill). Set up at 8 PM ⇒ only slots at/after 8 PM fire; earlier ones wait for their real time next day.

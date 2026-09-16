@@ -1,0 +1,108 @@
+{
+  "summary": "Completed backend-only, read-only offline diagnosis using source review plus dependency-free pytest simulations. Confirmed multiple code-level defects matching the incident hypotheses; no live endpoints/DB/WhatsApp/Stripe were called.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "/api/activation/activate",
+        "issue": "Activation hardcodes activated=true and welcome_sent=true even when per-parent sends fail; result payload can include failed statuses while state is marked activated.",
+        "priority": "CRITICAL"
+      },
+      {
+        "endpoint": "scheduler._deliver_due_messages_impl",
+        "issue": "No activation-day guard for overdue slots; scheduler sends all past same-day slots at once when first activated/recovered.",
+        "priority": "HIGH"
+      },
+      {
+        "endpoint": "scheduler._deliver_due_messages_impl",
+        "issue": "Absolute daily cap uses unfiltered count(*) from message_logs; failed rows consume cap and can block valid sends.",
+        "priority": "HIGH"
+      },
+      {
+        "endpoint": "scheduler._deliver_due_messages_impl",
+        "issue": "Failure retry budget is category-level (not slot-level). Failures for one slot/category can block later distinct slots same day.",
+        "priority": "HIGH"
+      },
+      {
+        "endpoint": "scheduler._deliver_due_messages_impl",
+        "issue": "Medicine dedup key uses category+slot_time (no medicine identity), so two medicines at same time collapse and second medicine can be skipped.",
+        "priority": "HIGH"
+      },
+      {
+        "endpoint": "escalation.run_care_watch_impl / scheduler._check_reengagement_impl",
+        "issue": "Vacation bypass: care-watch and reengagement paths do not check vacation_start/vacation_end, so warning/nudge flows can run during pause period.",
+        "priority": "HIGH"
+      }
+    ],
+    "minor": [
+      {
+        "endpoint": "escalation.run_care_watch_impl",
+        "issue": "Parent first warning at 2pm uses plain send_whatsapp despite dedicated send_first_warning_to_parent template helper existing."
+      },
+      {
+        "endpoint": "whatsapp.send_child_welcome",
+        "issue": "Signup welcome is currently a no-op (returns skipped:gated until first parent added)."
+      },
+      {
+        "endpoint": "server._record_reply",
+        "issue": "Inbound from non-parent number is ignored early (returns ignored=true)."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {
+        "flow": "Onboarding/Dashboard schedule management",
+        "issue": "Frontend persists legacy /schedules only; no code bridge found to granular parent_checkins/parent_health_reminders/parent_routines/medicines APIs used by scheduler.",
+        "affected_selectors": [
+          "Onboarding choose/save parent flow",
+          "Dashboard schedule pause toggle"
+        ]
+      },
+      {
+        "flow": "Pause control",
+        "issue": "Dashboard pause toggles legacy schedules.active, but scheduler reads granular tables directly and does not consult schedules.active.",
+        "affected_selectors": [
+          "data-testid=toggle-schedule-*"
+        ]
+      }
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/test_reports/iteration_18_diagnostic_test.py",
+    "/app/test_reports/pytest/iteration_18_results.xml"
+  ],
+  "action_items": [
+    "Fix activation success semantics: derive activated/welcome_sent from actual send outcomes and persist partial failures explicitly.",
+    "Add activation-day and catch-up throttling strategy for overdue slots.",
+    "Change daily cap query to count only sent/simulated (or dedicated billable/delivered statuses).",
+    "Track retry counters per category+slot (and medicine_id where applicable), not only category.",
+    "Include medicine_id (or unique reminder key) in dedup criteria for medicine sends.",
+    "Enforce vacation guard in reengagement and care-watch flows.",
+    "Use template helper for parent first warning and keep fallback only when template unavailable.",
+    "Implement explicit bridge/migration path between legacy /schedules UI and granular schedule tables (or retire legacy path fully).",
+    "Resolve pre-existing duplicate definitions/imports: duplicate CHECKIN_CATEGORIES shadowing, duplicate delete_routine route, monthly_report duplicate helpers/imports and bare except blocks."
+  ],
+  "critical_code_review_comments": [
+    "server.py imports CHECKIN_CATEGORIES from templates_data and later redefines CHECKIN_CATEGORIES locally (shadowing risk).",
+    "server.py contains duplicate delete_routine endpoint definitions for the same route signature.",
+    "monthly_report.py has duplicated import/helper block and 4 bare except statements (baseline lint/safety concern).",
+    "Pricing inconsistency confirmed in code: Nitya INR yearly=950 vs monthly=949.",
+    "payments.py checkout is always one-time Stripe mode=payment and currency=usd regardless currency presentation in pricing cards."
+  ],
+  "updated_files": [
+    "/app/test_reports/iteration_18_diagnostic_test.py",
+    "/app/test_reports/iteration_18.json"
+  ],
+  "success_rate": {
+    "backend": "100% of requested DIAGNOSIS checks covered offline (14/14 diagnostic tests passed)",
+    "frontend": "N/A (backend-only request; frontend runtime not exercised)"
+  },
+  "seed_data_creation": "None",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "This iteration is diagnosis-only and static/offline by design. No live validation against production integrations was performed. Use this report to drive targeted fixes, then run isolated regression for scheduler/escalation activation semantics and finally controlled staging E2E with real WhatsApp template/session behavior.",
+  "rca of the issue": "Core RCA is code-path mismatch: message delivery and escalation logic has split sources of truth (legacy schedules vs granular tables), broad dedup/retry keys, and unconditional success flags. This explains symptoms like missing child updates, burst/flood then stop, and inconsistent warning behavior. Evidence is from exact source lines and dependency-free offline simulations; not from live production replay.",
+  "test_credentials": "NOT APPLICABLE for this read-only offline diagnosis. /app/memory/test_credentials.md missing in workspace."
+}

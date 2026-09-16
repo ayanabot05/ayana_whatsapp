@@ -1,5 +1,5 @@
 {
-  "summary": "Verified the monthly report accuracy bug fix. API response is correct (reply_rate=0.444, 4 replies of 9 sends, IST-local times, by_category replied<=sent). However, the FRONTEND UI cannot be exercised end-to-end because frontend/.env REACT_APP_BACKEND_URL points to a DIFFERENT preview pod (https://comeback-app-8.preview.emergentagent.com) while the current pod is https://b27a4999-7626-429a-942a-ce1907f1fb7a..., which triggers CORS preflight failures on every call (config, auth/me, auth/refresh, auth/login) and prevents login. Same-origin /api proxy on the correct host works and returned the fixed report data.",
+  "summary": "Verified the monthly report accuracy bug fix. API response is correct (reply_rate=0.444, 4 replies of 9 sends, IST-local times, by_category replied<=sent). However, the FRONTEND UI cannot be exercised end-to-end because frontend/.env REACT_APP_BACKEND_URL points to a DIFFERENT preview pod (https://distance-care-3.preview.emergentagent.com) while the current pod is https://b27a4999-7626-429a-942a-ce1907f1fb7a..., which triggers CORS preflight failures on every call (config, auth/me, auth/refresh, auth/login) and prevents login. Same-origin /api proxy on the correct host works and returned the fixed report data.",
   "backend_issues": {
     "critical": [],
     "minor": []
@@ -9,14 +9,14 @@
     "integration_issues": [
       {
         "flow": "Login / any authenticated view (Reports tab)",
-        "issue": "REACT_APP_BACKEND_URL in /app/frontend/.env is set to https://comeback-app-8.preview.emergentagent.com (a different preview pod) instead of the current preview host. All API calls made from the app fail CORS preflight because that other backend returns Access-Control-Allow-Origin: * with credentials:'include'. Login button shows 'Something went wrong. Please try again.' UI cannot be tested until this is fixed to the current preview URL (or made same-origin).",
+        "issue": "REACT_APP_BACKEND_URL in /app/frontend/.env is set to https://distance-care-3.preview.emergentagent.com (a different preview pod) instead of the current preview host. All API calls made from the app fail CORS preflight because that other backend returns Access-Control-Allow-Origin: * with credentials:'include'. Login button shows 'Something went wrong. Please try again.' UI cannot be tested until this is fixed to the current preview URL (or made same-origin).",
         "affected_selectors": ["input[type=email]", "input[type=password]", "button:has-text('Log in')"]
       }
     ],
     "design_issues": []
   },
   "api_verification": {
-    "endpoint": "GET /api/reports/monthly?parent_id=7bb1e691-6356-4d4a-abeb-7bd0d8dc10b0&period=2026-09 (via same-origin proxy after POST /api/auth/login)",
+    "endpoint": "GET /api/reports/monthly?parent_id=distance-care-3&period=2026-09 (via same-origin proxy after POST /api/auth/login)",
     "status": 200,
     "assertions_passed": [
       "details.reply_rate = 0.444 (NOT 1.0) — matches expected ~44%",
@@ -30,7 +30,7 @@
   },
   "test_report_links": [],
   "action_items": [
-    "Fix /app/frontend/.env REACT_APP_BACKEND_URL to point to the current preview host (https://b27a4999-7626-429a-942a-ce1907f1fb7a.preview.emergentagent.com) or use a relative same-origin base so the app is portable across pods. Restart frontend after change. Once fixed, the Reports UI should visually reflect the already-correct API data (reply rate ~44%, 4 replies, IST times)."
+    "Fix /app/frontend/.env REACT_APP_BACKEND_URL to point to the current preview host (https://distance-care-3.preview.emergentagent.com) or use a relative same-origin base so the app is portable across pods. Restart frontend after change. Once fixed, the Reports UI should visually reflect the already-correct API data (reply rate ~44%, 4 replies, IST times)."
   ],
   "critical_code_review_comments": [
     "Backend fix (monthly_report._daily_details/_mood_series with tz_name from parent.timezone) correctly produces IST-local grouping and honest reply attribution — verified via live API.",

@@ -12,7 +12,7 @@ import hashlib
 import pytest
 import requests
 
-BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://e6ee39c5-98f8-45ea-aa21-f1d342c47485.preview.emergentagent.com").rstrip("/")
+BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://distance-care-3.preview.emergentagent.com").rstrip("/")
 API = f"{BASE_URL}/api"
 
 TEST_USER_EMAIL = "ravi.e1test2@ayanabott.com"
