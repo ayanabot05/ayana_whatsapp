@@ -8,7 +8,8 @@ import { api, formatApiError, formatAxiosError } from "../lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { TIMEZONES, getBrowserTimezone } from "@/lib/constants";
 import { PhoneInput } from "@/components/PhoneInput";
-import { PhoneVerificationCard } from "@/components/PhoneVerificationCard";
+import { EmailVerificationCard } from "@/components/EmailVerificationCard";
+import { PhoneChangeDialog } from "@/components/PhoneChangeDialog";
 import { PricingCards } from "@/components/PricingCards";
 import { ParentCareForm, blankParentForm, blankMedicine } from "@/components/ParentCareForm";
 import { toast } from "sonner";
@@ -35,16 +36,9 @@ export default function Onboarding() {
     timezone: user?.timezone || getBrowserTimezone(),
   });
   const [childConsent, setChildConsent] = useState(false);
-  const [verifiedPhone, setVerifiedPhone] = useState(
-    user?.phone_verified && user?.phone_verified_number? user.phone_verified_number : ""
-  );
+  const childEmailVerified = !!user?.email_verified_at || !user?.email_verification_required;
   const [planId, setPlanId] = useState("nitya");
 
-  // DEV ONLY: show OTP on screen
-  const [devCode, setDevCode] = useState(null);
-
-  const normPhone = (p) => (p || "").replace(/\s/g, "");
-  const childPhoneVerified =!!verifiedPhone && normPhone(child.phone) === normPhone(verifiedPhone);
 
   const plans = useMemo(() => config?.plans?.length? config.plans : FALLBACK_PLANS, [config]);
   const currencies = config?.currencies?.length? config.currencies : FALLBACK_CURRENCIES;
@@ -86,7 +80,6 @@ export default function Onboarding() {
         city: user.city || prev.city,
         timezone: user.timezone || prev.timezone,
       }));
-      if (user.phone_verified && user.phone_verified_number) setVerifiedPhone(user.phone_verified_number);
     }
   }, [user, user?.onboarding_complete, user?.onboarding_step, user?.name, user?.phone, user?.city, user?.timezone]);
 
@@ -115,10 +108,6 @@ export default function Onboarding() {
     }
   }, [parentsLoaded, parentsList.length, parentForm, newBlankParent]);
 
-  // Clear dev code when phone changes
-  useEffect(() => {
-    setDevCode(null);
-  }, [child.phone]);
 
   const inputCls = "w-full px-4 py-3 rounded-xl border border-ayana-line bg-white focus:outline-none focus:ring-2 focus:ring-ayana-bright/50 focus:border-ayana-bright transition";
 
@@ -126,7 +115,7 @@ export default function Onboarding() {
     if (!childConsent) { toast.error("Please confirm consent to continue."); return; }
     if (!child.name.trim()) { toast.error("Please enter your name."); return; }
     if (child.phone.length < 8) { toast.error("Please enter a valid phone number."); return; }
-    if (!childPhoneVerified) { toast.error("Please verify your phone number with the code first."); return; }
+    if (!childEmailVerified) { toast.error("Please verify your email first."); return; }
     setLoading(true);
     try {
       await api.put("/profile/child", { name: child.name, phone: child.phone, city: child.city, timezone: child.timezone });
@@ -135,30 +124,6 @@ export default function Onboarding() {
     } catch (e) { toast.error(formatAxiosError(e)); } finally { setLoading(false); }
   };
 
-  const sendChildOtp = async (phone) => {
-    const { data } = await api.post("/auth/otp/send", { phone });
-    if (data?.dev_code) {
-      setDevCode(data.dev_code);
-      toast.message(`Dev OTP: ${data.dev_code}`, { duration: 10000 });
-    }
-    return data;
-  };
-
-  const verifyChildOtp = async (phone, code) => {
-    await api.post("/auth/otp/verify", { phone, code });
-    setVerifiedPhone(phone);
-    setDevCode(null);
-    refreshUser?.();
-  };
-
-  const resendChildOtp = async (phone) => {
-    const { data } = await api.post("/auth/otp/resend", { phone });
-    if (data?.dev_code) {
-      setDevCode(data.dev_code);
-      toast.message(`Dev OTP: ${data.dev_code}`, { duration: 10000 });
-    }
-    return data;
-  };
 
   const choosePlan = async (id, billing) => {
     setPlanId(id);
@@ -257,7 +222,7 @@ export default function Onboarding() {
         setScheduleIds(prev => ({...prev, [savedParent.id]: schedData.id }));
         dropped = dropped || schedData?.medicine_reminders_dropped;
       }
-      toast.success(editingParentId? "Parent updated." : `✅ ${savedParent.name} is set up. First check-in tomorrow at 8:00 AM IST. 💛`, { duration: 6000 });
+      toast.success(editingParentId ? "Parent updated." : `${savedParent.name}'s schedule is saved in ${savedParent.timezone}. Activate care to begin future check-ins.`, { duration: 6000 });
       if (dropped?.length) {
         toast.warning(`Your plan couldn't fit all medicine reminder times — dropped: ${dropped.join(", ")}. Upgrade for more, or adjust times.`, { duration: 8000 });
       }
@@ -283,7 +248,7 @@ export default function Onboarding() {
     try {
       const { data } = await api.post("/activation/activate", null, { timeout: 60000 });
       if (data?.activated) {
-        toast.success("🎉 Care Circle activated! Your parent will start receiving daily check-ins.");
+        toast.success(data.message || "Care is configured. Check welcome delivery status in your dashboard.");
         skipRedirect.current = true;
         navigate("/activation");
       } else {
@@ -335,7 +300,7 @@ export default function Onboarding() {
                   <div className="grid sm:grid-cols-2 gap-4">
                     <div>
                       <label className="text-sm font-medium text-ayana-text">Your phone</label>
-                      <div className="mt-1.5"><PhoneInput value={child.phone} onChange={(v) => setChild({...child, phone: v })} testid="child-phone" /></div>
+                      <div className="mt-1.5 space-y-2"><input value={child.phone} readOnly data-testid="child-phone" className={inputCls} aria-label="Your WhatsApp number" /><PhoneChangeDialog user={user} onChanged={refreshUser} testid="onboarding-phone-change" /></div>
                     </div>
                     <div>
                       <label className="text-sm font-medium text-ayana-text">Your city (optional)</label>
@@ -353,61 +318,11 @@ export default function Onboarding() {
                     <span className="text-sm text-ayana-secondary">I consent to AYANA storing my details to manage care check-ins. I can delete my data anytime.</span>
                   </label>
 
-                  {/* VERIFICATION WITH DEV CODE ON SCREEN */}
-                  <div className="pt-2">
-                    <p className="text-sm font-medium text-ayana-text mb-2">Verify your phone number</p>
-                    <PhoneVerificationCard
-                      label="Your number"
-                      phone={child.phone}
-                      verified={childPhoneVerified}
-                      onSend={sendChildOtp}
-                      onVerify={verifyChildOtp}
-                      onResend={resendChildOtp}
-                      testid="child-otp"
-                    />
-
-                    {devCode &&!childPhoneVerified && (
-                      <motion.div
-                        initial={{ opacity: 0, y: -8 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        className="mt-4 rounded-2xl border-2 border-dashed border-amber-300 bg-amber-50 p-4 flex items-center justify-between gap-4"
-                      >
-                        <div>
-                          <p className="text- font-bold tracking-widest text-amber-700 uppercase">DEV MODE - OTP ON SCREEN</p>
-                          <p className="mt-1 text-3xl font-mono font-bold tracking-[0.3em] text-ayana-text">{devCode}</p>
-                          <p className="text-xs text-amber-700/70 mt-1">WhatsApp skipped - use this code for now</p>
-                        </div>
-                        <div className="flex flex-col gap-2">
-                          <button
-                            onClick={() => {
-                              navigator.clipboard.writeText(devCode);
-                              toast.success("Copied!");
-                            }}
-                            className="px-4 py-2 rounded-full bg-white border border-amber-200 text-sm font-medium hover:bg-amber-100 transition"
-                          >
-                            Copy
-                          </button>
-                          <button
-                            onClick={() => verifyChildOtp(child.phone, devCode)}
-                            className="px-5 py-2.5 rounded-full bg-ayana-primary text-white text-sm font-semibold shadow hover:bg-ayana-primary-hover transition"
-                          >
-                            Auto Verify
-                          </button>
-                        </div>
-                      </motion.div>
-                    )}
-
-                    {!childPhoneVerified &&!devCode && (
-                      <p className="mt-2 text-xs text-ayana-muted">We'll send a 6-digit code on WhatsApp (or SMS if WhatsApp can't reach you) to confirm this is your number. Verification is required to continue.</p>
-                    )}
-                    {childPhoneVerified && (
-                      <p className="mt-2 text-xs text-green-600 font-medium flex items-center gap-1"><Check className="w-3.5 h-3.5" /> Phone verified - {verifiedPhone}</p>
-                    )}
-                  </div>
+                  <EmailVerificationCard user={user} onVerified={refreshUser} testid="onboarding-email" />
                 </div>
                 <div className="mt-6 flex justify-between">
                   <button onClick={() => navigate("/dashboard")} className="inline-flex items-center gap-2 px-6 py-3.5 rounded-full border border-ayana-line text-ayana-text hover:bg-ayana-alt transition-colors"><ArrowLeft className="w-4 h-4" /> Back</button>
-                  <button onClick={saveChild} disabled={loading ||!child.name || child.phone.length < 8 ||!childPhoneVerified ||!childConsent} data-testid="step0-next"
+                  <button onClick={saveChild} disabled={loading ||!child.name || child.phone.length < 8 ||!childEmailVerified ||!childConsent} data-testid="step0-next"
                     className="inline-flex items-center gap-2 px-7 py-3.5 rounded-full bg-ayana-primary text-white font-medium hover:bg-ayana-primary-hover transition-colors disabled:opacity-50">
                     {loading? <Loader2 className="w-4 h-4 animate-spin" /> : <>Continue <ArrowRight className="w-4 h-4" /></>}
                   </button>

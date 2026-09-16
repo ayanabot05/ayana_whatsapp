@@ -32,7 +32,7 @@ export const blankParentForm = () => ({
   relationship: "mother",
   phone: "+91",
   language: "en",
-  timezone: getBrowserTimezone(),
+  timezone: "Asia/Kolkata",
   notes: "",
   preferred_name: "",
   nicknames: [],
@@ -161,7 +161,7 @@ export function ParentCareForm({ form, setForm, newMed, setNewMed, config, limit
         </div>
         <div className="grid sm:grid-cols-2 gap-4">
           <div>
-            <label className="text-sm font-medium text-ayana-text">Their timezone</label>
+            <label className="text-sm font-medium text-ayana-text">Parent’s timezone—not yours</label>
             <select value={form.timezone} data-testid={t("timezone")} onChange={(e) => setForm({ ...form, timezone: e.target.value })} className={`mt-1.5 ${inputCls}`}>
               {TIMEZONES.map((tz) => <option key={tz.value} value={tz.value}>{tz.label}</option>)}
             </select>

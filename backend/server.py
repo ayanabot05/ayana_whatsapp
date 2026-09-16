@@ -101,7 +101,15 @@ from models import (
 )
 from medicine_sync import sync_medicine_reminders
 from storage import init_storage, put_object, get_object, signed_url as storage_signed_url, is_enabled as storage_enabled, APP_NAME as STORAGE_APP_NAME
-from otp import create_and_send_otp, verify_otp_code, create_and_send_email_otp, verify_email_otp_code, _normalize_phone
+from otp import _normalize_phone
+from routes.account import router as account_router, require_email
+from services import verification
+from services.migrations import apply_care_migration
+from services import notifications, inbox
+from services.reply_media import archive_audio
+from routes.replies import router as replies_router
+from routes.care import router as care_router
+from services.welcomes import welcome_parent_and_child
 
 from auth import (
     token_still_valid,
@@ -187,6 +195,8 @@ async def lifespan(app: FastAPI):
         await _run_startup_migrations()
     except Exception as e:
         logger.error("Startup migrations failed: %s", e)
+    await apply_care_migration()
+    inbox.configure(_process_meta_payload)
     if storage_enabled():
         try:
             init_storage()
@@ -604,7 +614,7 @@ async def health():
         "last_inbound_webhook_at": last_inbound.isoformat() if last_inbound else None,
         "last_outbound_send_at": last_outbound.isoformat() if last_outbound else None,
         "storage": "enabled" if storage_enabled() else "disabled",
-        "otp_mode": os.environ.get("OTP_MODE", "onscreen"),
+        "otp_mode": 'email',
         "problems": problems,
         "release": os.environ.get("SENTRY_RELEASE") or os.environ.get("RAILWAY_GIT_COMMIT_SHA") or "local",
     }
@@ -725,8 +735,8 @@ async def register(request: Request, response: Response, payload: RegisterInput,
             """
             insert into users (name, email, phone, password_hash, role, household_owner_id,
                                 onboarding_complete, onboarding_step, city, timezone,
-                                created_at, deleted_at)
-            values ($1, $2, $3, $4, 'user', $5::uuid, $6, $7, null, 'Asia/Kolkata', now(), null)
+                                created_at, deleted_at, email_verification_required)
+            values ($1, $2, $3, $4, 'user', $5::uuid, $6, $7, null, 'Asia/Kolkata', now(), null, true)
             returning *
             """,
             payload.name.strip(), email, payload.phone, hash_password(payload.password),
@@ -788,8 +798,8 @@ async def login(request: Request, response: Response, payload: LoginInput):
         raise HTTPException(status_code=401, detail="Incorrect password. Forgot your password?")
 
     await clear_login_attempts(email, ip)
-    access_token = create_access_token(str(user["id"]), email, user["role"] or "user")
-    refresh_token = create_refresh_token(str(user["id"]), email, user["role"] or "user")
+    access_token = create_access_token(str(user["id"]), email, user["role"] or "user", user['auth_version'])
+    refresh_token = create_refresh_token(str(user["id"]), email, user["role"] or "user", user['auth_version'])
     await audit(user["id"], "login")
     set_auth_cookies(response, access_token, refresh_token)
     set_csrf_cookie(response, generate_csrf_token())
@@ -863,8 +873,8 @@ async def refresh_token(request: Request, response: Response):
     except jwt.InvalidTokenError:
         raise HTTPException(status_code=401, detail="Invalid refresh token")
 
-    new_access = create_access_token(str(user["id"]), user["email"], user["role"] or "user")
-    new_refresh = create_refresh_token(str(user["id"]), user["email"], user["role"] or "user")
+    new_access = create_access_token(str(user["id"]), user["email"], user["role"] or "user", user['auth_version'])
+    new_refresh = create_refresh_token(str(user["id"]), user["email"], user["role"] or "user", user['auth_version'])
     await audit(user["id"], "token_refresh")
     set_auth_cookies(response, new_access, new_refresh)
     set_csrf_cookie(response, generate_csrf_token())
@@ -876,82 +886,13 @@ async def refresh_token(request: Request, response: Response):
 @api.post("/auth/otp/send")
 @api.post("/auth/otp/resend")
 async def auth_otp_send(payload: OtpSendInput, user: dict = Depends(get_current_user), _csrf: None = Depends(validate_csrf_token)):
-    result = await create_and_send_otp(payload.phone)
-    status = result.get("status")
-    if status == "rate_limited":
-        raise HTTPException(status_code=429, detail=result.get("detail", "Too many requests. Try again shortly."),
-                            headers={"Retry-After": str(result.get("retry_after_seconds", 60))})
-    if status == "failed":
-        raise HTTPException(status_code=502, detail=result.get("detail", "Could not send the code. Please try again."))
-    out = {"sent": True, "expires_at": result.get("expires_at"), "channel": result.get("channel", "sms")}
-    if "dev_code" in result:
-        out["dev_code"] = result["dev_code"]
-    return out
+    raise HTTPException(410, 'Mobile OTP is retired. Verify your email in Account settings.')
 
 @api.post("/auth/otp/verify")
 async def auth_otp_verify(payload: OtpVerifyInput, user: dict = Depends(get_current_user), _csrf: None = Depends(validate_csrf_token)):
-    result = await verify_otp_code(payload.phone, payload.code)
-    if not result.get("ok"):
-        code = result.get("code")
-        http_status = 429 if code == "rate_limited" else 400
-        headers = {"Retry-After": str(result["retry_after_seconds"])} if result.get("retry_after_seconds") else None
-        raise HTTPException(status_code=http_status, detail=result.get("detail", "Invalid or expired code."), headers=headers)
-    phone = _normalize_phone(payload.phone)
-    async with get_pool().acquire() as conn:
-        await conn.execute(
-            "update users set phone_verified = true, phone_verified_number = $1 where id = $2",
-            phone, user["id"],
-        )
-    await audit(user["id"], "phone_verified", {"phone": phone})
-    return {"verified": True, "phone": phone}
+    raise HTTPException(410, 'Mobile OTP is retired. Verify your email in Account settings.')
 
-# ---------------- Child profile ----------------
-# ---------------- Password reset / change (phone OTP) ----------------
-_DIGITS_SQL = "regexp_replace(phone, '\\D', '', 'g') = regexp_replace($1, '\\D', '', 'g')"
-
-
-async def _user_by_phone(phone: str):
-    return await get_pool().fetchrow(
-        f"select * from users where {_DIGITS_SQL} and deleted_at is null order by created_at asc limit 1", phone
-    )
-
-
-@api.post("/auth/forgot-password")
-async def forgot_password(payload: ForgotPasswordInput, request: Request):
-    allowed, retry_after = await check_api_rate_limit(request)
-    if not allowed:
-        raise HTTPException(status_code=429, detail=f"Too many attempts. Try again in {retry_after}s.")
-    user = await _user_by_phone(payload.phone)
-    # Always answer the same way so phone numbers can't be enumerated.
-    out = {"sent": True, "message": "If an account exists for this number, a 6-digit code has been sent via WhatsApp or SMS."}
-    if user:
-        result = await create_and_send_otp(user["phone"])
-        if result.get("status") == "rate_limited":
-            raise HTTPException(status_code=429, detail=f"Please wait {result.get('retry_after', 60)}s before requesting another code.")
-        if result.get("dev_code"):
-            out["dev_code"] = result["dev_code"]
-        await audit(user["id"], "password_reset_requested", {})
-    return out
-
-
-@api.post("/auth/reset-password")
-async def reset_password(payload: ResetPasswordInput, response: Response):
-    user = await _user_by_phone(payload.phone)
-    if not user:
-        raise HTTPException(status_code=400, detail="Invalid code or phone number.")
-    result = await verify_otp_code(user["phone"], payload.code)
-    if not result.get("ok"):
-        raise HTTPException(status_code=400, detail=result.get("detail") or "Invalid or expired code.")
-    async with get_pool().acquire() as conn:
-        await conn.execute(
-            "update users set password_hash = $1, password_changed_at = now(), phone_verified = true where id = $2",
-            hash_password(payload.new_password), user["id"],
-        )
-    clear_auth_cookies(response)
-    await audit(user["id"], "password_reset_completed", {})
-    return {"ok": True, "message": "Password updated. Please log in with your new password."}
-
-
+# Email-based recovery routes live in routes/account.py.
 @api.post("/auth/change-password")
 async def change_password(payload: ChangePasswordInput, response: Response, user: dict = Depends(get_current_user), _csrf: None = Depends(validate_csrf_token)):
     if not verify_password(payload.current_password, user["password_hash"]):
@@ -959,18 +900,18 @@ async def change_password(payload: ChangePasswordInput, response: Response, user
     if payload.current_password == payload.new_password:
         raise HTTPException(status_code=400, detail="New password must be different from the current one.")
     async with get_pool().acquire() as conn:
-        await conn.execute(
-            "update users set password_hash = $1, password_changed_at = now() where id = $2",
+        version = await conn.fetchval(
+            "update users set password_hash = $1, password_changed_at = now(),auth_version=auth_version+1 where id = $2 RETURNING auth_version",
             hash_password(payload.new_password), user["id"],
         )
-    access = create_access_token(str(user["id"]), user["email"], user["role"])
-    refresh = create_refresh_token(str(user["id"]), user["email"], user["role"])
+    access = create_access_token(str(user["id"]), user["email"], user["role"], version)
+    refresh = create_refresh_token(str(user["id"]), user["email"], user["role"], version)
     set_auth_cookies(response, access, refresh)
     await audit(user["id"], "password_changed", {})
     return {"ok": True}
 
 
-# ---------------- Email change (password + phone OTP) ----------------
+# ---------------- Email change (password + new-email OTP) ----------------
 @api.post("/profile/email/request")
 async def request_email_change(payload: EmailChangeRequestInput, user: dict = Depends(get_current_user), _csrf: None = Depends(validate_csrf_token)):
     new_email = payload.new_email.lower().strip()
@@ -985,15 +926,8 @@ async def request_email_change(payload: EmailChangeRequestInput, user: dict = De
         await conn.execute("update users set pending_email = $1 where id = $2", new_email, user["id"])
     # Code goes to the NEW email itself — completing this proves the user
     # controls that inbox, which is the actual thing being changed.
-    result = await create_and_send_email_otp(new_email)
-    if result.get("status") == "rate_limited":
-        raise HTTPException(status_code=429, detail=result.get("detail", "Too many requests. Please wait before trying again."))
-    if result.get("status") == "failed":
-        raise HTTPException(status_code=502, detail=result.get("detail", "Could not send the code. Please try again."))
-    out = {"sent": True, "pending_email": new_email}
-    if result.get("dev_code"):
-        out["dev_code"] = result["dev_code"]
-    return out
+    result = await verification.issue(user['id'], new_email, 'change_email', new_email, {'old_email': user['email']})
+    return {**result, 'pending_email': new_email}
 
 
 @api.post("/profile/email/confirm")
@@ -1001,19 +935,22 @@ async def confirm_email_change(payload: EmailChangeConfirmInput, response: Respo
     pending = user.get("pending_email")
     if not pending:
         raise HTTPException(status_code=400, detail="No email change is pending.")
-    result = await verify_email_otp_code(pending, payload.code)
-    if not result.get("ok"):
-        raise HTTPException(status_code=400, detail=result.get("detail") or "Invalid or expired code.")
+    proof = await verification.check(payload.challenge_id, payload.code, user['id'], 'change_email', pending)
     old_email = user["email"]
-    async with get_pool().acquire() as conn:
+    async with get_pool().acquire() as conn, conn.transaction():
+        current = await conn.fetchrow('SELECT * FROM users WHERE id=$1 FOR UPDATE',user['id'])
+        context = json.loads(proof['context']) if isinstance(proof['context'],str) else proof['context']
+        if current['email'] != context['old_email'] or current['pending_email'] != proof['target']:
+            raise HTTPException(409,'Your contact details changed. Request a fresh email code.')
+        await verification.consume(conn, proof)
         taken = await conn.fetchrow("select 1 from users where lower(email) = $1 and id <> $2", pending, user["id"])
         if taken:
             raise HTTPException(status_code=400, detail="That email was just taken by another account.")
-        await conn.execute("update users set email = $1, pending_email = null where id = $2", pending, user["id"])
+        await conn.execute("update users set email = $1, pending_email = null, email_verified_at=now(), email_verification_required=false,auth_version=auth_version+1 where id = $2", pending, user["id"])
         await conn.execute("update circle_invites set email = $1 where email = $2 and status = 'pending'", pending, old_email)
         updated = await conn.fetchrow("select * from users where id = $1", user["id"])
-    access = create_access_token(str(user["id"]), pending, user["role"])
-    refresh = create_refresh_token(str(user["id"]), pending, user["role"])
+    access = create_access_token(str(user["id"]), pending, user["role"], updated['auth_version'])
+    refresh = create_refresh_token(str(user["id"]), pending, user["role"], updated['auth_version'])
     set_auth_cookies(response, access, refresh)
     await audit(user["id"], "email_changed", {"from": old_email, "to": pending})
     return {"ok": True, "user": serialize(updated)}
@@ -1028,11 +965,11 @@ async def update_child(
     phone = payload.phone.strip()
 
     normalized = _normalize_phone(phone)
-    verified_number = user.get("phone_verified_number")
-    if not (user.get("phone_verified") and verified_number and _normalize_phone(verified_number) == normalized):
+    require_email(user)
+    if _normalize_phone(user['phone']) != normalized:
         raise HTTPException(
-            status_code=400,
-            detail="Please verify your phone number with the verification code before continuing.",
+            status_code=409,
+            detail="Confirm this WhatsApp-number change through email in Account settings first.",
         )
     async with get_pool().acquire() as conn:
         clash_parent = await conn.fetchrow(
@@ -1189,7 +1126,7 @@ async def create_parent(payload: ParentInput, background_tasks: BackgroundTasks,
     # Sprint fix ("welcome to mom didn't fire"): welcome fires for EVERY parent
     # added — per parent, not once per account. Both sides: warm bilingual
     # WhatsApp to the parent + setup confirmation to the child.
-    background_tasks.add_task(send_welcome_for_new_parent, dict(user), dict(row))
+    background_tasks.add_task(welcome_parent_and_child, dict(row), dict(user), True)
 
     out = serialize(row)
     out["welcome_sent"] = True
@@ -1742,7 +1679,7 @@ async def end_recovery(schedule_id: str, user: dict = Depends(get_current_user),
 # NOTE: define this against your real category list before shipping — this
 # is inferred from templates_data.public_categories() / _CATEGORY_LABEL and
 # is NOT guaranteed to match your product's actual check-in categories.
-CHECKIN_CATEGORIES = {
+GRANULAR_CHECKIN_CATEGORIES = {
     "morning_wish", "breakfast", "lunch", "dinner",
     "afternoon_checkin", "goodnight", "love_note"
 }
@@ -1773,10 +1710,10 @@ async def add_checkin(parent_id: str, payload: dict, user: dict = Depends(get_cu
     time_str = payload.get("time")  # "08:00"
     if not category or not time_str:
         raise HTTPException(status_code=400, detail="category and time required")
-    if category not in CHECKIN_CATEGORIES:
+    if category not in GRANULAR_CHECKIN_CATEGORIES:
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid category. Must be one of: {', '.join(CHECKIN_CATEGORIES)}"
+            detail=f"Invalid category. Must be one of: {', '.join(GRANULAR_CHECKIN_CATEGORIES)}"
         )
     async with get_pool().acquire() as conn:
         parent = await conn.fetchrow(
@@ -1977,22 +1914,6 @@ async def delete_routine(parent_id: str, category: str, user: dict = Depends(get
     return {"ok": True}
 
 
-@api.delete("/parents/{parent_id}/routines/{category}")
-async def delete_routine(parent_id: str, category: str, user: dict = Depends(get_current_user), _csrf: None = Depends(validate_csrf_token)):
-    async with get_pool().acquire() as conn:
-        parent = await conn.fetchrow(
-            "SELECT * FROM parents WHERE id = $1::uuid AND user_id = $2 AND deleted_at IS NULL",
-            parent_id, scope(user),
-        )
-        if not parent:
-            raise HTTPException(status_code=404, detail="Parent not found")
-        await conn.execute(
-            "UPDATE parent_routines SET is_active = FALSE WHERE parent_id = $1::uuid AND category = $2",
-            parent_id, category,
-        )
-    await audit(user["id"], "delete_routine", {"parent_id": parent_id, "category": category})
-    return {"ok": True}
-
 # ─── MEDICINES ──────────────────────────────────────────────────────────
 
 @api.get("/parents/{parent_id}/medicines")
@@ -2152,6 +2073,9 @@ async def get_activation(user: dict = Depends(get_current_user)):
 
 @api.post("/activation/activate")
 async def activate(background_tasks: BackgroundTasks, user: dict = Depends(get_current_user), _csrf: None = Depends(validate_csrf_token)):
+    require_email(user)
+    if is_member(user):
+        raise HTTPException(403, 'Only the account owner can activate care.')
     async with get_pool().acquire() as conn:
         parents = await conn.fetch(
             "select * from parents where user_id = $1 and deleted_at is null limit 50", scope(user)
@@ -2162,25 +2086,11 @@ async def activate(background_tasks: BackgroundTasks, user: dict = Depends(get_c
     if not parents or not schedules:
         raise HTTPException(status_code=400, detail="Please add a parent and a schedule before activating.")
 
-    # --- NEW: Welcome flow for child + all parents ---
-    child_dict = dict(user)
-    parents_dicts = [dict(p) for p in parents]
-    background_tasks.add_task(send_care_circle_activation_welcome, child_dict, parents_dicts)
-
-    # Keep existing opener logic for activated flag
-    plan_id = await _get_plan_id(user)
-    variants_per_slot = plan_limits(plan_id)["variants_per_slot"]
-    day_index = datetime.now(timezone.utc).timetuple().tm_yday
-
-    results = []
-    for p in parents_dicts:
-        try:
-            r = await send_whatsapp_opener(p, day_index, variants_per_slot)
-            results.append({"parent": p.get("name"), "status": r.get("status"), "skipped": r.get("skipped", False)})
-        except Exception as e:
-            results.append({"parent": p.get("name"), "status": "failed", "detail": str(e)})
-
-    activated = True  # welcome sent = activated
+    configured = {str(s['parent_id']) for s in schedules if s['active']}
+    if any(str(p['id']) not in configured for p in parents):
+        raise HTTPException(400, 'Each parent needs an active saved schedule before activation.')
+    results = [{'parent':p['name'],'status':'pending'} for p in parents]
+    activated = True  # Scheduling configuration, NOT proof of WhatsApp delivery.
 
     async with get_pool().acquire() as conn:
         await conn.execute(
@@ -2188,7 +2098,7 @@ async def activate(background_tasks: BackgroundTasks, user: dict = Depends(get_c
             insert into activation_state (user_id, whatsapp_activated, activated_at)
             values ($1, $2, $3)
             on conflict (user_id) do update
-                set whatsapp_activated = excluded.whatsapp_activated, activated_at = excluded.activated_at
+                set whatsapp_activated = excluded.whatsapp_activated, activated_at = coalesce(activation_state.activated_at,excluded.activated_at)
             """,
             scope(user), activated, datetime.now(timezone.utc) if activated else None,
         )
@@ -2196,7 +2106,9 @@ async def activate(background_tasks: BackgroundTasks, user: dict = Depends(get_c
             "update users set onboarding_complete = true, onboarding_step = 5 where id = $1", user["id"]
         )
     await audit(user["id"], "activate_whatsapp", {"results": results, "activated": activated, "welcome_flow": True})
-    return {"activated": activated, "whatsapp_enabled": whatsapp_enabled(), "results": results, "welcome_sent": True}
+    for parent in parents:
+        background_tasks.add_task(welcome_parent_and_child,dict(parent),dict(user))
+    return {"activated": activated, "whatsapp_enabled": whatsapp_enabled(), "results": results, "welcome_sent": False, 'welcome_status':'pending', 'message':'Care is configured. Welcome delivery is tracked separately.'}
 
 # ---------------- Message logs / dashboard ----------------
 @api.get("/messages/logs")
@@ -2639,27 +2551,21 @@ async def sibling_send_otp(payload: SiblingOtpInput, user: dict = Depends(get_cu
         )
         if dup:
             raise HTTPException(status_code=400, detail="This person is already in your care circle.")
-    result = await create_and_send_otp(phone)
-    if result.get("status") == "rate_limited":
-        raise HTTPException(status_code=429, detail=result.get("detail", "Too many requests. Try again shortly."))
-    return {
-        "ok": True,
-        "phone": phone,
-        "channel": result.get("channel"),
-        "dev_code": result.get("dev_code"),  # onscreen dev mode surfaces the code
-        "expires_at": result.get("expires_at"),
-    }
+    return await verification.issue(user['id'], payload.email.lower(), 'add_sibling', phone, {'email': payload.email.lower(), 'name': payload.name.strip(), 'language': payload.language})
 
 
 @api.post("/circle/sibling/verify")
 async def sibling_verify(payload: SiblingVerifyInput, background_tasks: BackgroundTasks, user: dict = Depends(get_current_user), _csrf: None = Depends(validate_csrf_token)):
     uid, max_members = await _sibling_guard(user)
     phone = _normalize_phone(payload.phone)
-    result = await verify_otp_code(phone, payload.code)
-    if not result.get("ok"):
-        raise HTTPException(status_code=400, detail=result.get("detail", "Invalid or expired code."))
+    proof = await verification.check(payload.challenge_id, payload.code, user['id'], 'add_sibling', phone)
+    proof_context = json.loads(proof['context']) if isinstance(proof['context'], str) else proof['context']
+    if proof_context['email'] != payload.email.lower() or proof_context['name'] != payload.name.strip() or proof_context['language'] != payload.language:
+        raise HTTPException(409, 'Sibling details changed. Request a fresh code.')
     lang = (payload.language or "en").strip().lower()[:2] or "en"
-    async with get_pool().acquire() as conn:
+    async with get_pool().acquire() as conn, conn.transaction():
+        await conn.execute('SELECT pg_advisory_xact_lock(hashtextextended($1,0))', 'circle:' + uid)
+        await verification.consume(conn, proof)
         current = await conn.fetchval(
             "select count(*) from care_circle_siblings where owner_id = $1 and verified = true", uid
         )
@@ -2668,14 +2574,14 @@ async def sibling_verify(payload: SiblingVerifyInput, background_tasks: Backgrou
         try:
             sib = await conn.fetchrow(
                 """
-                insert into care_circle_siblings (owner_id, name, phone, language, relation, verified, created_at)
-                values ($1, $2, $3, $4, $5, true, now())
+                insert into care_circle_siblings (owner_id, name, phone, language, relation, verified, created_at, email, email_verified_at)
+                values ($1, $2, $3, $4, $5, true, now(), $6, now())
                 on conflict (owner_id, phone) do update
                     set name = excluded.name, language = excluded.language,
-                        relation = excluded.relation, verified = true
+                        relation = excluded.relation, verified = true, email=excluded.email, email_verified_at=now()
                 returning *
                 """,
-                uid, payload.name.strip(), phone, lang, (payload.relation or "sibling").strip(),
+                uid, payload.name.strip(), phone, lang, (payload.relation or "sibling").strip(), payload.email.lower(),
             )
         except Exception as e:
             logger.error("[circle] sibling insert failed for %s: %s", uid, e, exc_info=True)
@@ -3130,11 +3036,17 @@ _PARENT_BY_PHONE_SQL = """
 
 
 async def _record_reply(from_number: str, body_text: str, num_media: int = 0, parent=None, button_payload: str | None = None, media_url: str | None = None, media_content_type: str | None = None, raw_payload: dict | None = None, wam_id: str | None = None, context_id: str | None = None):
+    if wam_id:
+        existing = await get_pool().fetchrow('SELECT * FROM parent_replies WHERE wam_id=$1', wam_id)
+        if existing:
+            return {**dict(existing), 'duplicate': True}
     async with get_pool().acquire() as conn:
         if parent is None:
             parent = await conn.fetchrow(_PARENT_BY_PHONE_SQL, from_number)
         if parent:
-            await refresh_session(parent["id"])
+            raw_stamp = (raw_payload or {}).get('timestamp')
+            received_at = datetime.fromtimestamp(int(raw_stamp),timezone.utc) if raw_stamp and str(raw_stamp).isdigit() else datetime.now(timezone.utc)
+            await refresh_session(parent["id"], received_at=received_at)
             if parent["auto_activity_detection"] if parent["auto_activity_detection"] is not None else True and parent["language"]:
                 detected = await _detect_language(body_text or "")
                 if detected and detected != parent["language"]:
@@ -3211,26 +3123,33 @@ async def _record_reply(from_number: str, body_text: str, num_media: int = 0, pa
     owner_id = parent["user_id"] if parent else None
     feeling = intent.split(":")[1] if intent and ":" in intent else intent
 
-    async with get_pool().acquire() as conn:
+    async with get_pool().acquire() as conn, conn.transaction():
         try:
             reply_row = await conn.fetchrow(
                 """
                 insert into parent_replies
                     (from_phone, parent_id, user_id, body, button_payload, intent, feeling,
                      is_voice, transcription, media_url, emergency_keywords, ml_flagged, ml_score,
-                     stt_confidence, raw_payload, wam_id, created_at)
-                values ($1, $2::uuid, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12, $13, $14, $15::jsonb, $16, now())
+                     stt_confidence, raw_payload, wam_id, context_id, media_id, media_content_type, message_log_id, created_at)
+                values ($1, $2::uuid, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12, $13, $14, $15::jsonb, $16, $17, $18, $19,
+                  (SELECT id FROM message_logs WHERE parent_id=$2::uuid AND sid=$17 LIMIT 1), $20)
+                ON CONFLICT DO NOTHING
                 returning *
                 """,
                 from_number, parent["id"] if parent else None, owner_id, body_text, button_payload,
                 intent, feeling, is_voice, transcription, media_url, json.dumps(keywords),
                 ml_flagged, ml_score, stt_confidence, json.dumps(raw_payload or {}), wam_id or None,
+                context_id, ((raw_payload or {}).get('audio') or {}).get('id'), media_content_type,
+                min(datetime.fromtimestamp(int((raw_payload or {})['timestamp']),timezone.utc),datetime.now(timezone.utc)) if str((raw_payload or {}).get('timestamp','')).isdigit() else datetime.now(timezone.utc),
             )
         except asyncpg.UniqueViolationError:
             # Meta retries deliveries — the wam_id unique index makes this idempotent.
             logger.info("[webhook] Duplicate Meta delivery ignored (wam_id=%s)", wam_id)
             return {"ignored": True, "duplicate": True, "wam_id": wam_id, "from_phone": from_number,
                     "parent_id": str(parent["id"]) if parent else None, "intent": None}
+        if not reply_row:
+            return {'duplicate': True, 'parent_id': str(parent['id'])}
+        await notifications.enqueue_reply(conn, reply_row)
         if keywords and parent:
             await conn.execute(
                 """
@@ -3239,8 +3158,8 @@ async def _record_reply(from_number: str, body_text: str, num_media: int = 0, pa
                 """,
                 owner_id, parent["id"], from_number, body_text, json.dumps(keywords), intent, is_voice,
             )
-    if parent and owner_id:
-        await _notify_family(owner_id, parent, feeling, is_voice, body_text, keywords, ml_flagged, media_url=media_url, transcription=transcription or body_text, stt_confidence=stt_confidence, intent=intent, context_id=context_id)
+    await archive_audio(dict(reply_row))
+    await notifications.drain_notifications()
     return dict(reply_row)
 
 
@@ -3623,6 +3542,7 @@ async def checkins_summary(
 # the message SID we stored on message_logs.sid. We persist the furthest state
 # reached so the dashboard/admin can show a real delivery funnel.
 async def _persist_delivery_status(status: dict) -> None:
+    await notifications.persist_receipt(status)
     sid = status.get("id")
     st = status.get("status")
     if not sid or not st:
@@ -3655,9 +3575,11 @@ async def _persist_delivery_status(status: dict) -> None:
                 await conn.execute(
                     """update message_logs
                        set delivery_status = 'failed', status = 'failed', detail = coalesce(detail, $2)
-                       where sid = $1""",
+                       where sid = $1 and delivery_status IS DISTINCT FROM 'read' and delivery_status IS DISTINCT FROM 'delivered'""",
                     sid, detail,
                 )
+            if st in ('delivered','read','failed'):
+                await conn.execute("UPDATE welcome_deliveries SET status=$2,updated_at=now() WHERE sid=$1 AND status NOT IN ('delivered','read')",sid,st)
             # Phase 4: "Amma got your photo 📸" — moment delivery confirmation.
             if st in ("sent", "delivered", "read", "failed"):
                 moment = await conn.fetchrow("select * from moments where sid = $1", sid)
@@ -3714,12 +3636,12 @@ async def whatsapp_webhook_verify(request: Request):
     raise HTTPException(status_code=403, detail="Verification failed")
 
 @api.post("/whatsapp/webhook")
-async def whatsapp_webhook(request: Request):
+async def whatsapp_webhook(request: Request, background_tasks: BackgroundTasks):
     raw_body = await request.body()
     if not whatsapp_enabled():
         dev_token = os.environ.get("WEBHOOK_DEV_TOKEN", "").strip()
         if not dev_token:
-            logger.warning("[webhook] WHATSAPP_ENABLED=false but WEBHOOK_DEV_TOKEN not set — webhook unprotected")
+            raise HTTPException(403, 'Webhook disabled without a configured test secret.')
         provided = request.headers.get("X-Dev-Token", "")
         if provided != dev_token:
             raise HTTPException(status_code=403, detail="Invalid dev token")
@@ -3748,12 +3670,13 @@ async def whatsapp_webhook(request: Request):
     except Exception as e:
         logger.warning("[webhook] webhook_debug persist failed: %s", e)
 
+    # If durable storage fails return 503 so Meta retries. Once stored, process
+    # asynchronously; retries of the same event cannot enqueue duplicate replies.
     try:
-        await _process_meta_payload(payload)
-    except Exception as e:
-        # Always HTTP 200 to Meta — even on internal errors. Log and swallow;
-        # a 5xx makes Meta retry the same event for hours and starves new ones.
-        logger.error("[webhook] Unhandled processing error: %s", e, exc_info=True)
+        await inbox.enqueue(payload)
+    except Exception:
+        raise HTTPException(503, 'Could not durably accept webhook.')
+    background_tasks.add_task(inbox.drain)
 
     return Response(status_code=200, content="ok")
 
@@ -3776,11 +3699,15 @@ async def _process_meta_payload(payload: dict) -> None:
                             status.get("id"), status.get("recipient_id"), st,
                         )
                     await _persist_delivery_status(status)
-                continue
             for message in value.get("messages", []):
                 from_number = message.get("from", "")
                 wam_id = message.get("id", "")
                 context_id = (message.get("context") or {}).get("id")
+                try:
+                    stamp = datetime.fromtimestamp(int(message.get('timestamp', '0')), timezone.utc)
+                except (ValueError, TypeError, OverflowError):
+                    stamp = datetime.fromtimestamp(0, timezone.utc)
+                await notifications.record_recipient_inbound(from_number, stamp, context_id, message.get('type') in ('button','interactive'), wam_id)
                 msg_type = message.get("type", "")
                 body_text = ""
                 button_payload = None
@@ -3830,12 +3757,15 @@ async def _process_meta_payload(payload: dict) -> None:
                         wam_id=wam_id,
                         context_id=context_id,
                     )
-                    if button_payload and reply.get("parent_id"):
+                    if body_text.strip().lower() in ('stop', 'ఆపు', 'ఆపండి', 'बंद', 'रोकें') and reply.get('parent_id'):
+                        await get_pool().execute('UPDATE parents SET opted_out_at=now() WHERE id=$1::uuid',reply['parent_id'])
+                    if button_payload and reply.get("parent_id") and not reply.get('duplicate'):
                         await _apply_button_tap_effects(reply)
                 except Exception as e:
                     # Always 200 to Meta — a 5xx makes Meta retry the same
                     # message for hours and never delivers newer replies.
                     logger.error("[webhook] Failed to process inbound from %s: %s", from_number, e, exc_info=True)
+                    raise
 
 
 # ---------------- Account ----------------
@@ -4173,6 +4103,9 @@ async def admin_delivery_health(
     }
 
 app.include_router(api)
+app.include_router(account_router)
+app.include_router(replies_router)
+app.include_router(care_router)
 
 # Stripe payments router (endpoints are self-prefixed with /api). Kept in a
 # separate module; only actually reachable when PAYMENTS_ENABLED=true.

@@ -1,5 +1,20 @@
 # AYANA — PRD & Working Notes
 
+## Active follow-up — implementation approved, integration details pending
+
+User confirmed parent replies ARE visible in the dashboard; overseas children, including the USA friend, miss WhatsApp reply notifications while their Indian parents receive messages. User states all pasted Meta templates approved. No ordinary parent-reply notification template appears in that list (only opener, mood/meal/medicine, reengagement, report-ready, safety returns, and silence warnings).
+
+New explicit requirements: "Do it"; replace mobile OTP with email verification; Razorpay is ready; safe confirmed child WhatsApp-number changes must redirect future notifications to the new number with all records/flows synchronized; user requests file-by-file repair plan and candid completion estimate. Public site https://www.ayanabott.com/ fetched read-only. Current app roughly 70% of intended feature scope as an engineering estimate, NOT a measured reliability/delivery percentage.
+
+- Plan communicated: child session-aware notification service/outcomes and email fallback; purpose-bound email OTP for signup/recovery/number change; remove mobile OTP across account and care-circle flows; atomic confirmed number changes; schedule/anti-flood repairs; truthful activation; Razorpay purchase/webhook lifecycle preserving existing paid access.
+- Await essential choices/credentials: Resend API key + verified EMAIL_FROM; Razorpay key ID/secret/webhook secret and recurring-vs-prepaid product choice/international account capabilities; missing parent-reply/voice-update template approval or existing exact matching template details. `.env` files absent. No live services or new integrations started.
+- Initial ask_human was blocked by 22 pre-existing lint errors rather than returning human choices. Do not interpret that tool response as user answers.
+- Local baseline cleanup now authorized/performed: removed identical repeated import/helper block in `monthly_report.py`, replaced four bare except handlers with Exception; renamed local granular category set to avoid shadowing imported CHECKIN_CATEGORIES; removed identical duplicate delete_routine route in `server.py`. No messaging/payment behavior changed.
+- Verified edited files parse and `ruff check ... --select F811,E722` passes. This is not verification of the pending notification/auth/payment repairs. No customer sends, charges or production migrations performed.
+- Integration expert consulted for Resend and Razorpay. Resend existing HTTP adapter uses EMAIL_FROM; preserve its env convention. Razorpay returned a generic split-payment/Mongo example despite constraints: DO NOT implement unrelated transfers, trust client amounts, migrate DB or follow its npm instruction. Obtain corrected Orders/Subscriptions playbook before billing work.
+
+---
+
 ## Current task — founder review and production messaging incident diagnosis
 
 **Scope:** Read-only review first, respecting the founder's request to discuss before making production changes. Latest user instruction: "Start the task now". The clarification tool was invoked but returned a pre-completion lint gate instead of user choices; do not treat it as approval for live writes.

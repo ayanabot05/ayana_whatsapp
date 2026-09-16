@@ -34,7 +34,7 @@ export function Privacy() {
 
       <H>What we collect</H>
       <p>
-        <span className="text-ayana-text font-medium">From you:</span> your name, phone number, city, and timezone, verified via a one-time SMS code.
+        <span className="text-ayana-text font-medium">From you:</span> your name, email, WhatsApp number, city, and timezone. Account verification and sensitive contact changes use one-time email codes; email verification does not verify ownership of a phone number.
       </p>
       <p>
         <span className="text-ayana-text font-medium">About your parent:</span> their name, relationship to you, WhatsApp number, preferred name or nicknames, language, timezone, city, notes you add, a medicine list and reminder times if you set them up, and any daily habits you choose to track.

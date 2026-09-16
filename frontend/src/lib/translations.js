@@ -106,7 +106,7 @@ export const translations = {
         { q: "What happens after I sign up?", a: "You answer 5 simple questions about your parent — their name, language, routine, and timezone. Ayana sends them a warm welcome message within 24 hours. The whole setup takes under 5 minutes." },
       ],
     },
-    finalCta: { title: "You can't call every moment. But you can help them feel remembered every day.", sub: "Less worrying for you. Less loneliness for them.", urgency: "Your parents had another day without hearing from you. Set up Ayana now — they'll get their first hello tomorrow morning.", cta: "Get started — it's free" },
+    finalCta: { title: "You can't call every moment. But you can help them feel remembered every day.", sub: "A little more connection, wherever you live.", urgency: "Set up your parent's local check-in times. Care begins with the next eligible scheduled check-in after activation.", cta: "Get started — it's free" },
     footer: { tagline: "A warm companion that helps you stay close to your parents from afar. AYANA supports your care; it never replaces it.", disclaimer: "AYANA is not an emergency or medical service. In a crisis, contact local emergency services." },
 
     whatsappDemo: {
@@ -123,8 +123,8 @@ export const translations = {
       sub: "Ayana respects boundaries. Your parent can opt out with one word. You manage everything from your dashboard. We never share or sell data. And underneath, a quiet safety net watches for anything unusual.",
       card1Title: "Your parent's choice",
       card1Desc: "Your parent can reply 'Stop' anytime and Ayana immediately stops. No pressure, no guilt. They're always in charge.",
-      card2Title: "Quiet safety net",
-      card2Desc: "If your parent mentions words like 'fell', 'hospital', or 'help' in any language, or if their voice sounds different from usual, your family is gently alerted.",
+      card2Title: "Hear their own words",
+      card2Desc: "Listen to your parent's voice reply and read an automatic transcript when available. Transcripts can be inaccurate; AYANA does not diagnose health conditions or changes in someone's voice.",
       card3Title: "Silence means something",
       card3Desc: "If they go quiet all day, Ayana gently follows up. If there's still no reply, you're notified so you can call. No panic — just informed.",
       note: "Important alerts go to you, your Care Circle, and emergency contacts, all at once. Ayana is not an emergency service — in a crisis, always contact local emergency services.",
@@ -260,7 +260,7 @@ export const translations = {
         { q: "సైన్ అప్ తర్వాత ఏమవుతుంది?", a: "మీ తల్లిదండ్రుల పేరు, భాష, దినచర్య, టైమ్‌జోన్ గురించి 5 చిన్న ప్రశ్నలు అడుగుతారు. 24 గంటల్లో వారికి మొదటి స్వాగత సందేశం వెళ్తుంది. సెటప్ 5 నిమిషాల్లో పూర్తవుతుంది." },
       ],
     },
-    finalCta: { title: "మీరు ప్రతిక్షణం కాల్ చేయలేరు. కానీ మీరు వారిని ప్రతిరోజూ పలకరించవచ్చు.", sub: "మీకు ఆందోళన తక్కువ. వారికి ఒంటరితనం తక్కువ.", urgency: "మీ తల్లిదండ్రులు ఈరోజు మళ్ళీ మీ కాల్ కోసం ఎదురుచూశారు. ఇప్పుడే Ayana సెటప్ చేయండి — రేపు ఉదయమే వారికి మొదటి హలో వెళ్తుంది.", cta: "ప్రారంభించండి — ఉచితం" },
+    finalCta: { title: "మీరు ప్రతిక్షణం కాల్ చేయలేరు. కానీ మీరు వారిని ప్రతిరోజూ పలకరించవచ్చు.", sub: "మీరు ఎక్కడ ఉన్నా, కుటుంబంతో మరింత అనుబంధం.", urgency: "మీ తల్లిదండ్రుల స్థానిక సమయానికి చెక్-ఇన్‌లను ఎంచుకోండి. యాక్టివేషన్ తర్వాత తదుపరి అనువైన షెడ్యూల్ సమయానికి సంరక్షణ ప్రారంభమవుతుంది.", cta: "ప్రారంభించండి — ఉచితం" },
     footer: { tagline: "దూరం నుండి మీ అమ్మానాన్నలకు దగ్గరగా ఉండటానికి సహాయపడే ప్రేమ కంపానియన్. AYANA మీ శ్రద్ధకు మద్దతు; దాన్ని భర్తీ చేయదు.", disclaimer: "AYANA ఎమర్జెన్సీ లేదా మెడికల్ సర్వీస్ కాదు. అత్యవసరంలో స్థానిక ఎమర్జెన్సీ సర్వీసులను సంప్రదించండి." },
 
     whatsappDemo: {
@@ -277,8 +277,8 @@ export const translations = {
       sub: "చాలా కేర్ యాప్లు డెలివరీతో ఆగిపోతాయి. AYANA రెండు పొరల రక్షణ వ్యవస్థతో నిరంతరం గమనిస్తుంది.",
       card1Title: "పదాల పర్యవేక్షణ",
       card1Desc: "సహాయం, పడిపోయా, హాస్పిటల్, నొప్పి వంటి తెలుగు, హిందీ, ఇంగ్లీష్‌లో అత్యవసర పదాలు ఎప్పుడూ చెక్ అవుతాయి.",
-      card2Title: "AI వాయిస్ విశ్లేషణ",
-      card2Desc: "వాయిస్ నోట్లు ట్రాన్స్‌క్రిప్ట్ చేయబడి AI మోడల్ ద్వారా విశ్లేషించబడతాయి. పదాలు 'బాగున్నా' అన్నా స్వరం కష్టాన్ని చెప్పినా, కుటుంబం అప్రమత్తం అవుతుంది.",
+      card2Title: "వారి మాటలు వినండి",
+      card2Desc: "మీ తల్లిదండ్రుల వాయిస్ సమాధానాన్ని వినండి. అందుబాటులో ఉంటే ఆటోమేటిక్ ట్రాన్స్‌క్రిప్ట్ చదవండి. ఇందులో తప్పులు ఉండవచ్చు. AYANA ఆరోగ్య సమస్యలను లేదా స్వరంలో మార్పులను నిర్ధారించదు.",
       card3Title: "ఒక నొక్కు మీకు",
       card3Desc: "రోజంతా సైలెంట్‌గా ఉంటే, AYANA మెల్లగా చెక్ చేస్తుంది. 'బాగున్నా', 'సహాయం కావాలి', లేదా 'కాల్ చేయండి': ఒక నొక్కు, మీకు వెంటనే తెలుసు.",
       note: "ఎమర్జెన్సీ అలర్ట్లు మీకు, మీ కేర్ సర్కిల్‌కి, అత్యవసర సంప్రదింపులకు, అందరికీ ఒకేసారి వెళ్తాయి.",
@@ -409,7 +409,7 @@ export const translations = {
         { q: "साइन अप के बाद क्या होता है?", a: "माता-पिता का नाम, भाषा, दिनचर्या और टाइमज़ोन के बारे में 5 आसान सवाल पूछे जाएँगे। 24 घंटे में उन्हें पहला स्वागत संदेश मिलेगा। सेटअप 5 मिनट से कम में।" },
       ],
     },
-    finalCta: { title: "आप हर पल कॉल नहीं कर सकते। लेकिन आप उन्हें हर दिन याद होने का एहसास दिला सकते हैं।", sub: "आपके लिए चिंता कम। उनके लिए अकेलापन कम।", urgency: "आपके माता-पिता ने आज फिर आपकी कॉल का इंतज़ार किया। अभी Ayana सेट करें — कल सुबह उन्हें पहला हेलो मिलेगा।", cta: "शुरू करें — मुफ़्त है" },
+    finalCta: { title: "आप हर पल कॉल नहीं कर सकते। लेकिन आप उन्हें हर दिन याद होने का एहसास दिला सकते हैं।", sub: "आप कहीं भी हों, परिवार से थोड़ा और जुड़ाव।", urgency: "माता-पिता के स्थानीय समय के अनुसार चेक-इन चुनें। सक्रिय करने के बाद अगले उपयुक्त निर्धारित समय पर देखभाल शुरू होगी।", cta: "शुरू करें — मुफ़्त है" },
     footer: { tagline: "एक गर्मजोशी भरा साथी जो आपको दूर से भी माता-पिता के करीब रखता है। AYANA आपकी देखभाल का साथ देता है; उसकी जगह नहीं लेता।", disclaimer: "AYANA कोई इमरजेंसी या मेडिकल सेवा नहीं है। संकट में स्थानीय इमरजेंसी सेवाओं से संपर्क करें।" },
 
     whatsappDemo: {
@@ -426,8 +426,8 @@ export const translations = {
       sub: "Ayana सीमाओं का सम्मान करती है। माता-पिता एक शब्द से बाहर निकल सकते हैं। आप डैशबोर्ड से सब मैनेज करते हैं। हम डेटा कभी नहीं बेचते। और नीचे, एक शांत सुरक्षा जाल कुछ भी असामान्य होने पर नज़र रखता है।",
       card1Title: "माता-पिता की पसंद",
       card1Desc: "माता-पिता कभी भी 'Stop' कह सकते हैं और Ayana तुरंत रुक जाती है। कोई दबाव नहीं, कोई अपराधबोध नहीं।",
-      card2Title: "शांत सुरक्षा जाल",
-      card2Desc: "अगर माता-पिता 'गिर गई', 'अस्पताल', या 'मदद' जैसे शब्द कहें, तो परिवार को धीरे से सूचित किया जाता है।",
+      card2Title: "उनकी अपनी आवाज़ सुनें",
+      card2Desc: "माता-पिता का वॉइस जवाब सुनें और उपलब्ध होने पर उसका ऑटोमेटिक ट्रांसक्रिप्ट पढ़ें। इसमें गलतियाँ हो सकती हैं। AYANA स्वास्थ्य स्थितियों या आवाज़ में बदलाव का निदान नहीं करता।",
       card3Title: "चुप्पी का मतलब",
       card3Desc: "पूरे दिन जवाब न आए तो Ayana धीरे से पूछती है। फिर भी नहीं तो रात को आपको सूचना मिलती है। घबराहट नहीं — बस जानकारी।",
       note: "ज़रूरी अलर्ट आपको, आपके केयर सर्कल और आपातकालीन संपर्कों को एक साथ जाते हैं। Ayana आपातकालीन सेवा नहीं है।",

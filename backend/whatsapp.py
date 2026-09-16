@@ -185,21 +185,17 @@ async def _send_content_template_with_retry(
     if not whatsapp_enabled() or not token or not phone_id:
         return _send_content_template_once(to_phone, template_name, language, content_variables, template_key)
 
-    last_error = None
-    for attempt in range(1, MAX_SEND_RETRIES + 1):
+    # Durable callers own retries. A timeout may mean Meta accepted the send.
+    try:
+        return await asyncio.to_thread(_send_content_template_once,to_phone,template_name,language,content_variables,template_key)
+    except (httpx.TimeoutException, httpx.NetworkError):
+        return {'status':'uncertain','detail':'Provider acceptance is unknown; do not automatically resend.','template_type':template_key}
+    except httpx.HTTPStatusError as exc:
         try:
-            res = _send_content_template_once(to_phone, template_name, language, content_variables, template_key)
-            if res and res.get("sid"):
-                return res
-            if res and res.get("status") == "simulated":
-                return res
-        except Exception as e:
-            last_error = e
-            if attempt < MAX_SEND_RETRIES:
-                await asyncio.sleep(RETRY_BACKOFF_SECONDS * attempt)
-
-    logger.error("[wa] All %s template send attempts failed (type=%s) to %s: %s", MAX_SEND_RETRIES, template_key, to_phone, last_error)
-    return {"status": "failed", "detail": str(last_error), "template_type": template_key}
+            error = exc.response.json().get('error',{})
+        except ValueError:
+            error = {}
+        return {'status':'failed','detail':error.get('message','Template rejected.'),'error_code':error.get('code'),'template_type':template_key}
 
 
 MIC_HINT = {
@@ -243,7 +239,7 @@ async def _send_quick_reply(
                 ]},
             },
         }
-        resp = httpx.post(
+        resp = await asyncio.to_thread(httpx.post,
             _messages_url(phone_id),
             headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
             json=payload,
@@ -254,10 +250,14 @@ async def _send_quick_reply(
         resp.raise_for_status()
         msg_id = _extract_message_id(resp.json())
         return {"status": "sent", "sid": msg_id, "context": context}
-    except Exception as e:
-        logger.warning("[wa] Quick-reply API failed (%s), fallback to plain text: %s", context, e)
-        btn_text = " ".join(f"{i+1}) {label}" for i, (label, _) in enumerate(safe_buttons))
-        return send_whatsapp(to_phone, f"{body}\n\n👉 {btn_text}")
+    except (httpx.TimeoutException, httpx.NetworkError):
+        return {'status':'uncertain','detail':'Quick-reply acceptance is unknown; no blind resend.'}
+    except httpx.HTTPStatusError as exc:
+        try:
+            error = exc.response.json().get('error',{})
+        except ValueError:
+            error = {}
+        return {'status':'failed','detail':error.get('message','Quick reply rejected.'),'error_code':error.get('code')}
 
 
 async def get_session(parent_id) -> Optional[Dict[str, Any]]:
@@ -279,15 +279,15 @@ async def is_session_open(parent_id) -> bool:
     return last_inbound >= cutoff
 
 
-async def refresh_session(parent_id) -> None:
-    now = datetime.now(timezone.utc)
+async def refresh_session(parent_id, received_at=None) -> None:
+    now = min(received_at or datetime.now(timezone.utc), datetime.now(timezone.utc))
     async with get_pool().acquire() as conn:
         await conn.execute(
             """
             insert into wa_sessions (parent_id, last_inbound_at, session_open, last_activity, updated_at)
             values ($1, $2, true, $2, now())
             on conflict (parent_id) do update
-                set last_inbound_at = excluded.last_inbound_at,
+                set last_inbound_at = greatest(wa_sessions.last_inbound_at, excluded.last_inbound_at),
                     session_open = true,
                     last_activity = excluded.last_activity,
                     updated_at = now()
@@ -404,11 +404,22 @@ async def send_dynamic_checkin(parent: Dict[str, Any], category: str, day_index:
     language = parent.get("language", "en")
 
     if not await is_session_open(parent_id):
+        if category in ('water','bp_check','sugar_check','health_check'):
+            return {'status':'blocked_template','detail':'A dedicated health-check template is required outside the parent window; medicine wording is unsafe for this check.'}
+        if category in ('office_return','market_return','shopping_return','temple_return','outing_return'):
+            lang = parent.get('language') if parent.get('language') in ('en','te','hi') else 'en'
+            variables = {'1':parent.get('preferred_name') or parent['name']}
+            if category == 'shopping_return':
+                variables['2'] = 'your usual' if lang == 'en' else 'మీ సాధారణ' if lang == 'te' else 'आपकी नियमित'
+            return await _send_content_template_with_retry(phone,f'ayana_{category}_{lang}',lang,variables,category)
         return await send_template_for_category(parent, category, day_index, variants_per_slot, medicine_name)
 
     body = await render_slot_body_async(category, language, parent, day_index, medicine_name or _language_native_medicine_placeholder(language), variants_per_slot)
     buttons = render_slot_buttons(category, language)
-    return await _send_quick_reply(phone, body, buttons, context=category, language=language)
+    result = await _send_quick_reply(phone, body, buttons, context=category, language=language)
+    if result.get('error_code') == 131047:
+        await get_pool().execute("UPDATE wa_sessions SET last_inbound_at=now()-interval '25 hours' WHERE parent_id=$1",parent_id)
+    return result
 
 
 async def send_reengagement(parent: Dict[str, Any], reengagement_hours: int = 4) -> Dict[str, Any]:

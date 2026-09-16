@@ -1,0 +1,74 @@
+{
+  "summary": "Executed backend API regression (9 tests) and frontend desktop/mobile UI integration smoke on distance-care-3 preview. Verified mobile OTP retirement, webhook auth/idempotency, replies authorization, onboarding widgets, and deep-link login redirect. Found blocking email-recovery availability and account-flow integration gaps.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "/api/auth/forgot-password",
+        "issue": "Returns 503 ('Email verification is not available right now') instead of generic success contract for unknown email reset request; reset flow not executable in current environment.",
+        "priority": "CRITICAL"
+      },
+      {
+        "endpoint": "/api/profile/child",
+        "issue": "Direct child profile phone-change bypass test is blocked at email-verification gate (403) before intended phone-mismatch guard path (409) for newly registered users; cannot fully validate requested bypass behavior without verified-email path availability.",
+        "priority": "HIGH"
+      }
+    ],
+    "minor": [
+      {
+        "endpoint": "/api/auth/login",
+        "issue": "Provided mandatory credentials using .test domain (care-owner@example.test etc.) return 422 due EmailStr rejecting special-use TLD; documented credentials are not API-usable for live login tests."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {
+        "flow": "Forgot password UI (desktop/mobile)",
+        "issue": "UI surfaces backend 503 and cannot proceed to code/reset step: 'Email verification is not available right now. Please try again later.'",
+        "affected_selectors": [
+          "[data-testid='forgot-form']",
+          "[data-testid='forgot-send']",
+          "[data-testid='forgot-error']"
+        ]
+      },
+      {
+        "flow": "Account email change card",
+        "issue": "Frontend component uses non-existent endpoints /auth/email/request-change and /auth/email/confirm-change; backend exposes /profile/email/request and /profile/email/confirm.",
+        "affected_selectors": [
+          "[data-testid='change-email-save']",
+          "[data-testid='change-email-code']"
+        ]
+      }
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration19_core_flows.py",
+    "/app/test_reports/pytest/iteration_19_results.xml"
+  ],
+  "action_items": [
+    "Enable deterministic test-harness email challenge path (mocked provider) so /auth/forgot-password returns generic 200 contract and reset can be fully validated.",
+    "Ensure verified-email test path exists (or seed verified fixture user) to validate /profile/child phone bypass path reaches 409 guard.",
+    "Fix SecurityCards email-change API routes to backend canonical paths (/profile/email/request and /profile/email/confirm).",
+    "Replace /app/memory/test_credentials.md .test login identities with API-valid addresses for executable auth regression."
+  ],
+  "critical_code_review_comments": [
+    "Frontend-backend contract mismatch in SecurityCards change-email endpoints is a production blocker for account email updates.",
+    "test_credentials.md currently conflicts with runtime EmailStr validation (.test TLD rejected), making mandated credentials unusable for API auth tests.",
+    "Forgot/reset password requirement is implemented in routes/account.py but operationally unavailable when EMAIL_ENABLED/Resend keys are disabled; no in-app test harness fallback route is exposed."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration19_core_flows.py",
+    "/app/test_reports/iteration_19.json"
+  ],
+  "success_rate": {
+    "backend": "78% (7/9 tests passed)",
+    "frontend": "85% (core UI smoke passed on desktop/mobile; one critical integration path blocked by backend 503)"
+  },
+  "seed_data_creation": "Created test users and parent fixtures via public API register/parents endpoints using unique test emails/phones.",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Use /app/backend/tests/test_iteration19_core_flows.py for regression rerun. Current blockers are email challenge availability (forgot/reset) and verified-email path needed for direct /profile/child phone bypass assertion. Webhook auth + duplicate wam_id idempotency and replies auth checks are already validated against preview ingress.",
+  "rca of the issue": "RCA-1: Forgot/reset contract fails in this environment because account routes intentionally hard-stop when email sender config is disabled (EMAIL_ENABLED=false / missing provider keys), so generic unknown-email response path is not reached. RCA-2: Direct profile phone-bypass check is currently front-loaded by require_email() gate; for new unverified accounts this short-circuits before phone mismatch guard. RCA-3: Account email-change UI regression is caused by stale frontend API path names not matching backend route definitions."
+}

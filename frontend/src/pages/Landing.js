@@ -205,10 +205,7 @@ export default function Landing() {
   const steps        = t("how.steps");
   const faqItems     = t("faq.items");
   const benefitsT    = t("benefits");
-  const painT        = t("pain");
-  const noAppT       = t("noApp");
   const safetyT      = t("safety");
-  const extrasT      = t("extras");
   const demoT        = t("whatsappDemo");
 
   useEffect(() => {
@@ -257,7 +254,7 @@ export default function Landing() {
             <div>
               <Eyebrow>{t("hero.badge")}</Eyebrow>
 
-              <h1 className="font-display font-black leading-[0.98] text-ayana-text text-[2.65rem] sm:text-6xl lg:text-[4.6rem]">
+              <h1 data-testid="landing-title" className="font-display font-black leading-[0.98] text-ayana-text text-[2.65rem] sm:text-6xl lg:text-[4.6rem]">
                 <HighlightText text={t("hero.title")} ranges={[[0, 0.32]]} colors={["text-gradient-gold"]} />
               </h1>
               <div className="mt-5 h-px w-28 bg-gradient-to-r from-ayana-gold via-ayana-accent to-transparent" />
@@ -299,11 +296,11 @@ export default function Landing() {
             <div className="relative mx-auto w-full max-w-md lg:max-w-none">
               <div className="relative">
                 <span className="absolute -top-4 -right-2 sm:-right-4 z-20 rounded-full bg-white shadow-lg border border-ayana-line px-4 py-2 text-xs font-semibold text-ayana-text flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-[#25D366] animate-pulse" /> Amma is online
+                  <span className="w-2 h-2 rounded-full bg-[#25D366]" /> Example check-in
                 </span>
                 <div className="absolute -inset-3 rounded-[2.6rem] blur-2xl" style={{ background: "linear-gradient(135deg, rgba(212,150,10,0.35), rgba(232,89,12,0.14))" }} />
                 <div className="relative rounded-[2.2rem] overflow-hidden shadow-2xl ring-1 ring-ayana-gold/25">
-                  <img src={IMG.amma} alt="A loving elderly Indian mother" className="w-full h-[380px] sm:h-[480px] lg:h-[560px] object-cover" />
+                  <img src={IMG.amma} alt="A loving elderly Indian mother" className="w-full aspect-[4/5] object-cover" />
                   <div className="absolute inset-0 bg-gradient-to-t from-[#2a1c05]/35 via-transparent to-transparent" />
                 </div>
               </div>
@@ -313,40 +310,6 @@ export default function Landing() {
             </div>
           </div>
         </section>
-
-        {/* THE PAIN */}
-        <section className="bg-warm-cream">
-          <div className="max-w-7xl mx-auto px-5 sm:px-8 py-20 lg:py-28">
-            <div className="max-w-3xl mx-auto text-center">
-              <h2 className="font-display font-extrabold text-3xl sm:text-4xl lg:text-5xl leading-[1.05] text-ayana-text">
-                {painT.title}
-              </h2>
-              <p className="font-serif text-xl sm:text-2xl text-ayana-secondary mt-6 leading-snug">
-                {painT.sub}
-              </p>
-              
-              <div className="mt-10 flex flex-col sm:flex-row justify-center gap-4 text-left">
-                {painT.feelings && painT.feelings.map((feeling, i) => (
-                  <div key={i} className="bg-white px-5 py-4 rounded-2xl shadow-sm border border-ayana-line">
-                    <p className="text-ayana-secondary italic text-[15px]">{feeling}</p>
-                  </div>
-                ))}
-              </div>
-
-              <div className="mt-12 bg-warm-peach border border-ayana-gold/30 rounded-3xl p-8 sm:p-10 shadow-lg">
-                <h3 className="font-display font-bold text-2xl sm:text-3xl text-ayana-text mb-4">
-                  {painT.pivot}
-                </h3>
-                <p className="font-serif text-xl text-ayana-secondary">
-                  {painT.compassion}
-                </p>
-              </div>
-            </div>
-          </div>
-        </section>
-
-
-
 
         {/* HOW IT WORKS: editorial numbered */}
         <section id="how" className="bg-warm-cream">
@@ -376,54 +339,10 @@ export default function Landing() {
                   </li>
                 ))}
               </ol>
+              <button type="button" data-testid="landing-watch-walkthrough" onClick={() => { trackEvent('video_walkthrough_open', { id: 'how' }); setVideoOpen(true); }} className="mt-5 inline-flex items-center gap-2 text-sm font-semibold text-ayana-primary hover:underline"><PlayCircle className="w-4 h-4" />{t('training.watchCta')}</button>
             </div>
           </div>
         </section>
-
-        {/* DEMO / how to reply */}
-        <section id="training" className="bg-warm-gold">
-          <div className="max-w-7xl mx-auto px-5 sm:px-8 py-20 lg:py-28 grid lg:grid-cols-2 gap-14 items-center">
-            <div className="flex justify-center order-2 lg:order-1">
-              <div className="relative">
-                <PhoneMockup lang={lang} />
-                <button
-                  type="button"
-                  onClick={() => { trackEvent("video_walkthrough_open", { id: "training" }); setVideoOpen(true); }}
-                  className="absolute -bottom-4 left-1/2 -translate-x-1/2 inline-flex items-center gap-1.5 text-xs font-semibold text-ayana-secondary bg-white px-3 py-1.5 rounded-full border border-ayana-line shadow-sm whitespace-nowrap hover:border-ayana-gold/50 transition-colors"
-                >
-                  <PlayCircle className="w-3.5 h-3.5 text-ayana-accent" /> {t("training.watchCta")}
-                </button>
-              </div>
-            </div>
-            <div className="order-1 lg:order-2">
-              <Eyebrow>{t("training.label")}</Eyebrow>
-              <h2 className="font-display font-extrabold text-3xl sm:text-4xl lg:text-5xl leading-[1.05] text-ayana-text">
-                <HighlightText text={t("training.title")} ranges={[[0.5, 1.0]]} colors={["text-gradient-gold"]} />
-              </h2>
-              <p className="font-serif text-xl sm:text-2xl text-ayana-secondary mt-4 leading-snug">{t("training.sub")}</p>
-
-              <div className="mt-8 space-y-3">
-                {t("training.steps").map((step, i) => {
-                  const Icon = [MessageCircle, Mic, Check][i];
-                  return (
-                    <div key={i} className="flex items-start gap-4 rounded-2xl border border-ayana-line bg-white/80 p-4 sm:p-5 shadow-sm">
-                      <span className="icon-well-gold w-10 h-10 rounded-xl flex items-center justify-center shrink-0">
-                        <Icon className="w-5 h-5" strokeWidth={1.75} />
-                      </span>
-                      <div>
-                        <h3 className="font-display text-base font-bold text-ayana-text">{step.title}</h3>
-                        <p className="text-sm text-ayana-secondary leading-relaxed mt-0.5">{step.desc}</p>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-              <p className="mt-5 text-xs text-ayana-muted leading-relaxed">{t("training.fallbackNote")}</p>
-            </div>
-          </div>
-        </section>
-
-
 
         {/* WHAT AMMA SEES: multilingual WhatsApp button demo */}
         <section id="what-they-see" className="bg-warm-cream">
@@ -631,7 +550,7 @@ export default function Landing() {
             {/* Alert note */}
             <div className="mt-8 max-w-xl mx-auto flex items-start gap-3 rounded-2xl border border-red-200/60 bg-red-50/50 px-5 py-4">
               <AlertTriangle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
-              <p className="text-sm text-ayana-secondary leading-relaxed">{safetyT.note}</p>
+                <p className="text-sm text-ayana-secondary leading-relaxed" data-testid="care-boundary">{safetyT.note}</p>
             </div>
           </div>
         </section>
@@ -676,66 +595,6 @@ export default function Landing() {
           </div>
         </section>
 
-        {/* FOUNDER / SOCIAL PROOF */}
-        <section className="bg-white">
-          <div className="max-w-3xl mx-auto px-5 sm:px-8 py-20 lg:py-24 text-center">
-            <Eyebrow center>{t("founder.label")}</Eyebrow>
-            <h2 className="font-display font-extrabold text-3xl sm:text-4xl leading-[1.05] text-ayana-text mt-4">
-              {t("founder.title")}
-            </h2>
-            <p className="font-serif text-xl text-ayana-secondary mt-6 leading-relaxed">
-              {t("founder.story")}
-            </p>
-            <div className="mt-8 inline-flex items-center gap-3 bg-amber-50 border border-amber-200 rounded-2xl px-6 py-4 text-left">
-              <span className="text-2xl shrink-0">💛</span>
-              <p className="text-[15px] font-medium text-ayana-text">{t("founder.proof")}</p>
-            </div>
-            <p className="mt-6 text-xs text-ayana-muted italic">{t("founder.videoNote")}</p>
-          </div>
-        </section>
-
-        {/* NO NEW APP CALLOUT */}
-        <section className="bg-warm-gold py-16">
-          <div className="max-w-4xl mx-auto px-5 sm:px-8 text-center">
-            <h2 className="font-display font-extrabold text-3xl sm:text-4xl text-ayana-text mb-4">
-              {noAppT.title}
-            </h2>
-            <p className="font-serif text-xl sm:text-2xl text-ayana-secondary mb-8">
-              {noAppT.sub}
-            </p>
-            <div className="flex flex-wrap justify-center gap-4">
-              {noAppT.items && noAppT.items.map((item, i) => (
-                <span key={i} className="bg-white px-5 py-2.5 rounded-full border border-ayana-line text-ayana-text font-medium text-[15px] shadow-sm">
-                  {item}
-                </span>
-              ))}
-            </div>
-          </div>
-        </section>
-
-
-        {/* A LITTLE MORE LOVE: emotional feature highlights */}
-        <section className="bg-warm-gold">
-          <div className="max-w-7xl mx-auto px-5 sm:px-8 py-20 lg:py-24">
-            <div className="text-center max-w-2xl mx-auto mb-12">
-              <Eyebrow center>{extrasT.label}</Eyebrow>
-              <h2 className="font-display font-extrabold text-3xl sm:text-4xl lg:text-5xl leading-[1.05] text-ayana-text">
-                <HighlightText text={extrasT.title} ranges={[[0.55, 1.0]]} colors={["text-gradient-gold"]} />
-              </h2>
-              <p className="font-serif text-xl sm:text-2xl text-ayana-secondary mt-4">{extrasT.sub}</p>
-            </div>
-
-            <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-5">
-              {extrasT.items.map((item, i) => (
-                <div key={i} className="rounded-2xl border border-ayana-line bg-white p-6 shadow-sm flex flex-col gap-3">
-                  <span className="text-3xl">{item.icon}</span>
-                  <h3 className="font-display text-base font-bold text-ayana-text leading-tight">{item.title}</h3>
-                  <p className="text-sm text-ayana-secondary leading-relaxed">{item.desc}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        </section>
 
         {/* PRICING */}
         <section id="pricing" className="bg-warm-cream">

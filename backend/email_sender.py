@@ -60,7 +60,7 @@ async def send_invite_email(
         logger.error("[email] EMAIL_ENABLED=true but RESEND_API_KEY is missing.")
         return {"status": "failed", "detail": "RESEND_API_KEY is not configured."}
 
-    from_addr = os.environ.get("EMAIL_FROM", "care@ayana.care").strip()
+    from_addr = os.environ.get("EMAIL_FROM", "").strip()
     subject = f"{_esc(owner_name)} invited you to co-care on AYANA 💛"
     html = _build_html(owner_name, invite_link, parent_display_name, expiry_days)
 
@@ -121,7 +121,9 @@ async def send_otp_email(to_email: str, code: str) -> dict:
         logger.error("[email] EMAIL_ENABLED=true but RESEND_API_KEY is missing.")
         return {"status": "failed", "detail": "RESEND_API_KEY is not configured."}
 
-    from_addr = os.environ.get("EMAIL_FROM", "care@ayana.care").strip()
+    from_addr = os.environ.get("EMAIL_FROM", "").strip()
+    if not from_addr:
+        return {"status": "failed", "detail": "Verified email sender is not configured."}
     subject = "Your AYANA verification code"
     html = _build_otp_html(code)
 
@@ -290,7 +292,7 @@ def _build_otp_html(code: str) -> str:
               Your verification code
             </p>
             <p style="margin:0 0 24px;font-size:14px;color:#6B635E;line-height:1.6;">
-              Use this code to confirm your new AYANA login email. It expires in 5 minutes.
+              Use this code to confirm the AYANA account action you requested. It expires in 5 minutes. Never share it with anyone you do not trust.
             </p>
             <p style="margin:0 0 24px;font-size:36px;font-weight:bold;letter-spacing:8px;color:#C05A46;">
               {safe_code}
