@@ -66,6 +66,16 @@ def _creds() -> Tuple[str, str]:
     )
 
 
+def _meta_phone(phone: str) -> str:
+    """Strip '+' prefix for Meta Cloud API (E.164 digits-only).
+
+    Meta requires the 'to' field as digits without '+'.  Indian numbers
+    happened to work with the '+', but US / UK numbers were silently
+    rejected, causing welcome messages and forwarded replies to fail.
+    """
+    return (phone or "").lstrip("+")
+
+
 def meta_auth_header() -> Dict[str, str]:
     token, _ = _creds()
     return {"Authorization": f"Bearer {token}"} if token else {}
@@ -111,7 +121,7 @@ def send_whatsapp(to_phone: str, body: str) -> Dict[str, Any]:
     try:
         payload = {
             "messaging_product": "whatsapp",
-            "to": to_phone,
+            "to": _meta_phone(to_phone),
             "type": "text",
             "text": {"body": body},
         }
@@ -147,7 +157,7 @@ def _send_content_template_once(
     lang_code = TEMPLATE_LANG_CODE_MAP.get(language, language)
     payload = {
         "messaging_product": "whatsapp",
-        "to": to_phone,
+        "to": _meta_phone(to_phone),
         "type": "template",
         "template": {
             "name": template_name,
@@ -222,7 +232,7 @@ async def _send_quick_reply(
     try:
         payload = {
             "messaging_product": "whatsapp",
-            "to": to_phone,
+            "to": _meta_phone(to_phone),
             "type": "interactive",
             "interactive": {
                 "type": "button",
@@ -464,7 +474,7 @@ async def send_moment(parent: Dict[str, Any], text: str, sender_name: str, image
             try:
                 payload = {
                     "messaging_product": "whatsapp",
-                    "to": phone,
+                    "to": _meta_phone(phone),
                     "type": "image",
                     "image": {"link": url, "caption": caption},
                 }
@@ -504,7 +514,7 @@ async def send_audio_link(to_phone: str, audio_link: str) -> Dict[str, Any]:
         return {"status": "simulated", "to": to_phone, "type": "audio", "link": audio_link}
     payload = {
         "messaging_product": "whatsapp",
-        "to": to_phone,
+        "to": _meta_phone(to_phone),
         "type": "audio",
         "audio": {"link": audio_link}
     }
@@ -744,7 +754,7 @@ async def send_document_link(to_phone: str, document_link: str, filename: str = 
     try:
         payload = {
             "messaging_product": "whatsapp",
-            "to": to_phone,
+            "to": _meta_phone(to_phone),
             "type": "document",
             "document": {"link": document_link, "filename": filename, "caption": caption[:1024] if caption else ""},
         }
@@ -833,7 +843,7 @@ async def upload_media_and_send_document(to_phone: str, pdf_bytes: bytes, filena
             return {"status": "failed", "detail": "no media_id"}
         payload = {
             "messaging_product": "whatsapp",
-            "to": to_phone,
+            "to": _meta_phone(to_phone),
             "type": "document",
             "document": {"id": media_id, "filename": filename, "caption": caption[:1024] if caption else ""}
         }
@@ -882,7 +892,7 @@ async def send_report_ready_with_pdf_template(to_phone: str, language: str, pare
     
     payload = {
         "messaging_product": "whatsapp",
-        "to": to_phone,
+        "to": _meta_phone(to_phone),
         "type": "template",
         "template": {
             "name": template_name,
@@ -933,7 +943,7 @@ async def send_first_warning_to_child(to_phone: str, language: str, parent_displ
     
     payload = {
         "messaging_product": "whatsapp",
-        "to": to_phone,
+        "to": _meta_phone(to_phone),
         "type": "template",
         "template": {
             "name": template_name,
@@ -978,7 +988,7 @@ async def send_main_warning_to_child(to_phone: str, language: str, parent_displa
     
     payload = {
         "messaging_product": "whatsapp",
-        "to": to_phone,
+        "to": _meta_phone(to_phone),
         "type": "template",
         "template": {
             "name": template_name,
@@ -1024,7 +1034,7 @@ async def send_first_warning_to_parent(to_phone: str, language: str, parent_disp
     
     payload = {
         "messaging_product": "whatsapp",
-        "to": to_phone,
+        "to": _meta_phone(to_phone),
         "type": "template",
         "template": {
             "name": template_name,
@@ -1076,7 +1086,7 @@ async def send_safety_checkin(to_phone: str, language: str, parent_display: str,
     
     payload = {
         "messaging_product": "whatsapp",
-        "to": to_phone,
+        "to": _meta_phone(to_phone),
         "type": "template",
         "template": {
             "name": template_name,

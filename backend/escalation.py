@@ -1,4 +1,3 @@
-
 """
 escalation.py — AYANA Care Watch — NEW 2-WINDOW LOGIC (User request)
 
@@ -9,6 +8,14 @@ User spec:
 - Silent: 10pm-6am no messages (respects activity_window_start/end if user changed)
 
 This replaces old 24h silence logic.
+
+DECISION (product): the 2pm FIRST warning and 10pm MAIN warning to the child
+ALWAYS fire at their fixed hours, regardless of a parent's custom activity
+window / silent hours. These warnings exist specifically to tell the child
+their parent has gone quiet — gating them behind the same window that's
+causing the silence would mean a parent who sets e.g. a 9pm window end
+never gets the 10pm warning sent about them. Only the routine, non-warning
+paths (2h retry nudges, birthday greeting) still respect the window.
 """
 
 import asyncio
@@ -150,14 +157,20 @@ async def _notify_child(conn, user_id, parent, text: str, template_type: str = "
 
 _REMINDER_CATEGORIES = {"medicine", "water", "bp_check", "sugar_check", "health_check"}
 
-def _is_in_active_window(local_time, win_start_str, win_end_str):
-    """Check if local time is within user's activity window (default 6am-10pm)"""
+def _is_in_active_window(local_time, win_start_str, win_end_str, grace_minutes: int = 0):
+    """Check if local time is within user's activity window (default 6am-10pm).
+
+    ``grace_minutes`` extends the end boundary. Only used now to gate the
+    routine (non-warning) message paths — see module docstring.
+    """
     try:
         # Parse window like "06:00" and "22:00"
         sh, sm = map(int, (win_start_str or "06:00").split(":")[:2])
         eh, em = map(int, (win_end_str or "22:00").split(":")[:2])
         start = dtime(sh, sm)
-        end = dtime(eh, em)
+        # Extend end by grace
+        end_dt = datetime.combine(local_time.date(), dtime(eh, em)) + timedelta(minutes=grace_minutes)
+        end = end_dt.time()
         cur = local_time.time()
         if start <= end:
             return start <= cur <= end
@@ -198,16 +211,20 @@ async def run_care_watch_impl():
                 preferred = parent.get("preferred_name") or parent.get("name") or "Amma"
                 pname = parent.get("name") or "your parent"
 
-                # Respect user's activity window (default 6am-10pm)
+                # Respect user's activity window (default 6am-10pm) — but ONLY
+                # for the routine, non-warning paths (retry nudges, birthday).
+                # The 2pm/10pm warnings below are NOT gated by this: per
+                # product decision they must always fire at their fixed hour
+                # so a custom window ending before 10pm can't suppress the
+                # exact alert that's supposed to fire because the parent went
+                # quiet during (or because of) that window.
                 win_start = parent.get("activity_window_start") or f"{DAY_START_HOUR:02d}:00"
                 win_end = parent.get("activity_window_end") or f"{DAY_END_HOUR:02d}:00"
-                
-                # Silent mode: 10pm-6am (outside active window) -> skip all warnings
-                if not _is_in_active_window(local, win_start, win_end):
-                    continue
+                in_window = _is_in_active_window(local, win_start, win_end, grace_minutes=15)
 
-                # Define day boundaries in UTC for queries
-                # 6am local today -> convert to UTC
+                # Define day boundaries in UTC for queries. Computed
+                # unconditionally now (previously behind the window `continue`)
+                # since the warning checks need these even outside the window.
                 day_start_local = local.replace(hour=DAY_START_HOUR, minute=0, second=0, microsecond=0)
                 first_warn_local = local.replace(hour=FIRST_WARN_HOUR, minute=0, second=0, microsecond=0)
                 main_warn_local = local.replace(hour=MAIN_WARN_HOUR, minute=0, second=0, microsecond=0)
@@ -216,45 +233,59 @@ async def run_care_watch_impl():
                 first_warn_utc = first_warn_local.astimezone(timezone.utc)
                 main_warn_utc = main_warn_local.astimezone(timezone.utc)
 
-                # ---- 1) Retry unanswered check-ins (2h nudge) - keep existing ----
-                logs = await conn.fetch(
-                    """select * from message_logs where parent_id = $1 and day_key = $2 and msg_type in ('checkin', 'reminder') and status in ('sent', 'simulated') limit 200""",
-                    parent_id, day_key,
-                )
-                for log in logs:
-                    try:
-                        base = _aware(log["created_at"])
-                        if not base:
+                # ---- 1) Retry unanswered check-ins (2h nudge) — respects window ----
+                if in_window:
+                    # ANTI-FLOOD: cap total escalation retries per parent per day
+                    MAX_DAILY_ESCALATIONS = 3
+                    escalation_count_today = await conn.fetchval(
+                        "SELECT count(*) FROM message_logs WHERE parent_id = $1 AND day_key = $2 AND msg_type = 'escalation'",
+                        parent_id, day_key,
+                    ) or 0
+                    if escalation_count_today >= MAX_DAILY_ESCALATIONS:
+                        logger.info("[escalation] Daily cap (%s) reached for parent %s, skipping retries.", MAX_DAILY_ESCALATIONS, pname)
+                        logs = []
+                    else:
+                        logs = await conn.fetch(
+                            """select * from message_logs where parent_id = $1 and day_key = $2 and msg_type in ('checkin', 'reminder') and status in ('sent', 'simulated') limit 200""",
+                            parent_id, day_key,
+                        )
+                    for log in logs:
+                        try:
+                            base = _aware(log["created_at"])
+                            if not base:
+                                continue
+                            if await _has_reply_since(conn, parent_id, base):
+                                continue
+                            state = await conn.fetchrow("select * from escalation_state where id = $1", str(log["id"]))
+                            attempts = state["attempts"] if state else 0
+                            if attempts >= MAX_RESEND_ATTEMPTS:
+                                continue
+                            due_at = base + timedelta(minutes=NUDGE_AFTER_MIN)
+                            if now < due_at:
+                                continue
+                            category = log["category"] or "how_feeling"
+                            result = await send_dynamic_checkin(dict(parent), category, local.timetuple().tm_yday, 7, medicine_name="")
+                            kind = "reminder" if category in _REMINDER_CATEGORIES else "checkin"
+                            async with conn.transaction():
+                                await conn.execute(
+                                    """insert into escalation_state (id, parent_id, user_id, attempts, last_attempt_at, kind, day_key, first_at) values ($1, $2, $3, $4, $5, $6, $7, now()) on conflict (id) do update set attempts = excluded.attempts, last_attempt_at = excluded.last_attempt_at, kind = excluded.kind, day_key = excluded.day_key""",
+                                    str(log["id"]), parent_id, user_id, attempts + 1, now, kind, day_key,
+                                )
+                                await conn.execute(
+                                    """insert into message_logs (user_id, parent_id, schedule_id, day_key, category, msg_type, status, escalation_of, attempt, kind, sid, created_at) values ($1, $2, NULL, $3, $4, 'escalation', $5, $6, $7, $8, $9, $10)""",
+                                    user_id, parent_id, day_key, category, (result or {}).get("status"), log["id"], attempts + 1, kind, (result or {}).get("sid"), now,
+                                )
+                            logger.info("[escalation] retry #%d -> %s (%s)", attempts + 1, parent.get("name"), category)
+                        except Exception as e:
+                            logger.error("[escalation] retry failed for log %s: %s", log.get("id"), e, exc_info=True)
                             continue
-                        if await _has_reply_since(conn, parent_id, base):
-                            continue
-                        state = await conn.fetchrow("select * from escalation_state where id = $1", str(log["id"]))
-                        attempts = state["attempts"] if state else 0
-                        if attempts >= MAX_RESEND_ATTEMPTS:
-                            continue
-                        due_at = base + timedelta(minutes=NUDGE_AFTER_MIN)
-                        if now < due_at:
-                            continue
-                        category = log["category"] or "how_feeling"
-                        result = await send_dynamic_checkin(dict(parent), category, local.timetuple().tm_yday, 7, medicine_name="")
-                        kind = "reminder" if category in _REMINDER_CATEGORIES else "checkin"
-                        async with conn.transaction():
-                            await conn.execute(
-                                """insert into escalation_state (id, parent_id, user_id, attempts, last_attempt_at, kind, day_key, first_at) values ($1, $2, $3, $4, $5, $6, $7, now()) on conflict (id) do update set attempts = excluded.attempts, last_attempt_at = excluded.last_attempt_at, kind = excluded.kind, day_key = excluded.day_key""",
-                                str(log["id"]), parent_id, user_id, attempts + 1, now, kind, day_key,
-                            )
-                            await conn.execute(
-                                """insert into message_logs (user_id, parent_id, schedule_id, day_key, category, msg_type, status, escalation_of, attempt, kind, sid, created_at) values ($1, $2, NULL, $3, $4, 'escalation', $5, $6, $7, $8, $9, $10)""",
-                                user_id, parent_id, day_key, category, (result or {}).get("status"), log["id"], attempts + 1, kind, (result or {}).get("sid"), now,
-                            )
-                        logger.info("[escalation] retry #%d -> %s (%s)", attempts + 1, parent.get("name"), category)
-                    except Exception as e:
-                        logger.error("[escalation] retry failed for log %s: %s", log.get("id"), e, exc_info=True)
-                        continue
+                else:
+                    logger.debug("[escalation] %s outside activity window — skipping retry nudges (warnings below still run).", pname)
 
                 # ---- 2) FIRST WARNING at 2pm (6am-2pm window no reply) ----
-                # Trigger at 14:00-14:10 local (scheduler runs every 5 min)
-                if local.hour == FIRST_WARN_HOUR and local.minute < 10:
+                # ALWAYS evaluated — not gated by in_window (see module docstring).
+                # Trigger at 14:00-14:15 local (scheduler runs every 5 min)
+                if local.hour == FIRST_WARN_HOUR and local.minute < 15:
                     try:
                         marker = f"{parent_id}:{day_key}:first_warn_14h"
                         # Check if already sent today
@@ -283,8 +314,9 @@ async def run_care_watch_impl():
                         logger.error("[escalation] first warn check failed for %s: %s", parent_id, e, exc_info=True)
 
                 # ---- 3) MAIN WARNING at 10pm (no reply whole day since 6am) ----
-                # Trigger at 22:00-22:10 local
-                if local.hour == MAIN_WARN_HOUR and local.minute < 10:
+                # ALWAYS evaluated — not gated by in_window (see module docstring).
+                # Trigger at 22:00-22:15 local
+                if local.hour == MAIN_WARN_HOUR and local.minute < 15:
                     try:
                         marker = f"{parent_id}:{day_key}:main_warn_22h"
                         exists = await conn.fetchval("select 1 from escalation_daily where marker = $1", marker)
@@ -303,29 +335,29 @@ async def run_care_watch_impl():
                     except Exception as e:
                         logger.error("[escalation] main warn check failed for %s: %s", parent_id, e, exc_info=True)
 
-                # ---- 4) Birthday + festival (keep existing) ----
-                try:
-                    mmdd = local.strftime("%m-%d")
-                    ymd = local.strftime("%Y-%m-%d")
-                    greet = None
-                    bday = (parent.get("birthday") or "").strip()
-                    if bday:
-                        bday_mmdd = bday[-5:] if len(bday) >= 5 else bday
-                        if bday_mmdd == mmdd:
-                            greet = BIRTHDAY_WISH.get(lang, BIRTHDAY_WISH["en"]).format(name=preferred)
-                    if greet:
-                        marker = f"{parent_id}:{day_key}:greet"
-                        inserted = await conn.fetchval(
-                            """insert into escalation_daily (marker, at) values ($1, now()) on conflict (marker) do nothing returning marker""",
-                            marker,
-                        )
-                        if inserted:
-                            await asyncio.to_thread(send_whatsapp, parent.get("phone") or "", greet)
-                            logger.info("[escalation] birthday wish sent to %s", parent.get("name"))
-                except Exception as e:
-                    logger.error("[escalation] greet check failed for parent %s: %s", parent_id, e, exc_info=True)
+                # ---- 4) Birthday + festival (keep existing) — respects window ----
+                if in_window:
+                    try:
+                        mmdd = local.strftime("%m-%d")
+                        ymd = local.strftime("%Y-%m-%d")
+                        greet = None
+                        bday = (parent.get("birthday") or "").strip()
+                        if bday:
+                            bday_mmdd = bday[-5:] if len(bday) >= 5 else bday
+                            if bday_mmdd == mmdd:
+                                greet = BIRTHDAY_WISH.get(lang, BIRTHDAY_WISH["en"]).format(name=preferred)
+                        if greet:
+                            marker = f"{parent_id}:{day_key}:greet"
+                            inserted = await conn.fetchval(
+                                """insert into escalation_daily (marker, at) values ($1, now()) on conflict (marker) do nothing returning marker""",
+                                marker,
+                            )
+                            if inserted:
+                                await asyncio.to_thread(send_whatsapp, parent.get("phone") or "", greet)
+                                logger.info("[escalation] birthday wish sent to %s", parent.get("name"))
+                    except Exception as e:
+                        logger.error("[escalation] greet check failed for parent %s: %s", parent_id, e, exc_info=True)
 
         except Exception as exc:
             logger.error("[escalation] unhandled error for parent %s — %s", parent.get("id"), exc, exc_info=True)
             continue
-

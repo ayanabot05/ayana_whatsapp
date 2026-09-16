@@ -52,6 +52,12 @@ RETRY_BACKOFF_MINUTES = [
     int(x) for x in os.environ.get("WA_RETRY_BACKOFF_MINUTES", "5,10").split(",") if x.strip()
 ] or [5, 10]
 
+# Safety caps to prevent message flooding:
+# Max retries per category+slot per day before giving up.
+MAX_SCHEDULER_RETRIES = int(os.environ.get("WA_MAX_SCHEDULER_RETRIES", "3"))
+# Absolute daily cap per parent (across all types, including escalations).
+MAX_DAILY_MESSAGES = int(os.environ.get("WA_MAX_DAILY_MESSAGES", "15"))
+
 # Maps a schedule item's msg_type to the plan_limits() key that caps it,
 # and to the message_logs.msg_type value used to count today's sends.
 _LIMIT_KEY_BY_MSG_TYPE = {"checkin": "checkins", "reminder": "reminders"}
@@ -301,19 +307,29 @@ async def _deliver_due_messages_impl():
                     if slot_time > hhmm:
                         continue
 
-                    # Check if already sent today (success)
+                    # ── ANTI-FLOOD: absolute daily cap per parent ──
+                    total_today = await conn.fetchval(
+                        "SELECT count(*) FROM message_logs WHERE parent_id = $1 AND day_key = $2",
+                        parent["id"], day_key,
+                    )
+                    if (total_today or 0) >= MAX_DAILY_MESSAGES:
+                        logger.info("[scheduler] Daily cap (%s) reached for %s, skipping remaining.", MAX_DAILY_MESSAGES, parent["name"])
+                        break  # stop all sends for this parent today
+
+                    # Check if already sent today for this category+slot (success)
                     already_sent = await conn.fetchrow(
                         """
                         SELECT 1 FROM message_logs
                         WHERE parent_id = $1 AND day_key = $2 AND category = $3
                           AND status IN ('sent', 'simulated')
+                          AND (slot_time IS NULL OR slot_time = $4)
                         """,
-                        parent["id"], day_key, item["category"],
+                        parent["id"], day_key, item["category"], slot_time,
                     )
                     if already_sent:
                         continue
 
-                    # Retry/backoff logic
+                    # Retry/backoff logic with MAX RETRY CAP
                     fail_stat = await conn.fetchrow(
                         """
                         SELECT count(*) as n, max(created_at) as last_at
@@ -324,6 +340,11 @@ async def _deliver_due_messages_impl():
                         parent["id"], day_key, item["category"],
                     )
                     fail_count = (fail_stat["n"] if fail_stat else 0) or 0
+                    # ── ANTI-FLOOD: give up after MAX_SCHEDULER_RETRIES failures ──
+                    if fail_count >= MAX_SCHEDULER_RETRIES:
+                        logger.info("[scheduler] Max retries (%s) exhausted for %s/%s, giving up for today.",
+                                    MAX_SCHEDULER_RETRIES, parent["name"], item["category"])
+                        continue
                     last_fail_at = fail_stat["last_at"] if fail_stat else None
                     if fail_count and last_fail_at is not None:
                         if last_fail_at.tzinfo is None:
@@ -352,12 +373,12 @@ async def _deliver_due_messages_impl():
                     await conn.execute(
                         """
                         INSERT INTO message_logs
-                            (user_id, parent_id, day_key, category, body, msg_type, status, detail, sid, created_at)
-                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                            (user_id, parent_id, day_key, category, body, msg_type, status, detail, sid, slot_time, created_at)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
                         """,
                         parent["user_id"], parent["id"], day_key, item["category"],
                         f"{item['category']} check-in", msg_type, status, result.get("detail"),
-                        result.get("sid"), now_utc,
+                        result.get("sid"), slot_time, now_utc,
                     )
                     if status in ("sent", "simulated"):
                         logger.info("Delivered msg (%s) to parent %s: %s", status, parent["name"], item["category"])
