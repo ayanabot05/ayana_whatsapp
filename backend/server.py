@@ -312,6 +312,9 @@ async def _run_startup_migrations():
         # during which the scheduler skips ALL sends and auto-resumes after.
         await conn.execute("alter table parents add column if not exists vacation_start text")
         await conn.execute("alter table parents add column if not exists vacation_end text")
+        # Anti-flood fix: slot_time lets the scheduler dedup by exact time
+        # slot so the same category at a given hour is sent only once.
+        await conn.execute("alter table message_logs add column if not exists slot_time text")
         # #11 Care-circle siblings: phone + OTP verified, forwarded the exact same
         # replies/voice the account owner receives (max 2, plan-gated). Replaces
         # the email-invite path in the UI (email delivery was the crash source).
