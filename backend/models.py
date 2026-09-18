@@ -1,4 +1,6 @@
 from datetime import datetime, timezone
+from uuid import UUID
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from typing import List, Optional
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
@@ -7,6 +9,14 @@ from validation import validate_phone, validate_password
 from templates_data import LANGUAGES
 
 _VALID_LANGUAGE_CODES = {l["code"] for l in LANGUAGES}
+
+
+def _iana_timezone(value):
+    try:
+        ZoneInfo(value)
+    except (ZoneInfoNotFoundError, ValueError):
+        raise ValueError('Choose the actual IANA timezone for this location.')
+    return value
 
 
 def now_iso() -> str:
@@ -72,6 +82,7 @@ class EmailChangeRequestInput(BaseModel):
 
 
 class EmailChangeConfirmInput(BaseModel):
+    challenge_id: UUID
     code: str = Field(..., min_length=4, max_length=8)
 
 
@@ -86,6 +97,7 @@ class ChildProfileInput(BaseModel):
     phone: str = Field(..., min_length=6, max_length=20)
     city: Optional[str] = Field(None, max_length=80)
     timezone: str = Field(..., min_length=2, max_length=64)
+    _valid_timezone = field_validator('timezone')(_iana_timezone)
     @field_validator("phone")
     @classmethod
     def clean_phone(cls, v: str) -> str:
@@ -157,6 +169,7 @@ class ParentInput(BaseModel):
     phone: str = Field(..., min_length=6, max_length=20)
     language: str = Field(..., min_length=2, max_length=8)
     timezone: str = Field(..., min_length=2, max_length=64)
+    _valid_timezone = field_validator('timezone')(_iana_timezone)
     city: Optional[str] = Field(None, max_length=80)
     other_parent_name: Optional[str] = Field(None, max_length=40)
     notes: Optional[str] = Field(None, max_length=300)
@@ -323,6 +336,7 @@ class MomentInput(BaseModel):
 class CheckoutInput(BaseModel):
     plan: str = Field("nitya", pattern="^(nitya|bandham|raksha|basic|care_plus)$")
     billing: str = Field("month", pattern="^(month|year)$")
+    currency: str = Field("INR", pattern="^(INR|USD|GBP|EUR|AED|SGD|AUD|CAD)$")
     origin_url: str = ""
 
 
@@ -375,6 +389,7 @@ class EmergencyEventUpdate(BaseModel):
 
 
 class SiblingOtpInput(BaseModel):
+    email: EmailStr
     name: str = Field(..., min_length=1, max_length=80)
     phone: str = Field(..., min_length=6, max_length=20)
     language: str = Field("en", min_length=2, max_length=8)
@@ -382,6 +397,7 @@ class SiblingOtpInput(BaseModel):
 
 
 class SiblingVerifyInput(SiblingOtpInput):
+    challenge_id: UUID
     code: str = Field(..., min_length=4, max_length=8)
 
 

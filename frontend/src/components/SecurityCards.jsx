@@ -9,6 +9,9 @@ const inputCls = "w-full px-4 py-3 rounded-xl border border-ayana-line bg-white 
 export function ChangeEmailCard({ user, refreshUser }) {
   const [email, setEmail] = useState(user?.email || "");
   const [busy, setBusy] = useState(false);
+  const [challenge, setChallenge] = useState(null);
+  const [code, setCode] = useState('');
+  const [currentPassword, setCurrentPassword] = useState('');
 
   const save = async () => {
     if (!email.trim() || !email.includes("@")) {
@@ -21,9 +24,13 @@ export function ChangeEmailCard({ user, refreshUser }) {
     }
     setBusy(true);
     try {
-      await api.put("/auth/email", { email: email.trim() });
-      toast.success("Email updated successfully.");
-      refreshUser?.();
+      if (!challenge) {
+        const { data } = await api.post('/profile/email/request', { new_email: email.trim(), password: currentPassword });
+        setChallenge(data.challenge_id); toast.success('Check your new email for a verification code.');
+      } else {
+        await api.post('/profile/email/confirm', { challenge_id: challenge, code });
+        setChallenge(null); setCode(''); setCurrentPassword(''); toast.success('Email verified and updated.'); await refreshUser?.();
+      }
     } catch (e) {
       toast.error(formatApiError(e.response?.data?.detail));
     } finally {
@@ -36,11 +43,12 @@ export function ChangeEmailCard({ user, refreshUser }) {
       <h3 className="font-display text-base font-medium text-ayana-text flex items-center gap-2"><Mail className="w-4 h-4" /> Change email</h3>
       <p className="text-xs text-ayana-muted mt-1">Your login email. We'll send important updates here.</p>
       <div className="mt-4 flex gap-2">
-        <input value={email} onChange={(e) => setEmail(e.target.value)} className={inputCls} placeholder="new@email.com" data-testid="change-email-input" />
-        <button onClick={save} disabled={busy} data-testid="change-email-save" className="px-5 py-2.5 rounded-full bg-ayana-primary text-white text-sm font-medium hover:bg-ayana-primary-hover disabled:opacity-50">
-          {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : "Save"}
+        <input type="email" value={email} disabled={!!challenge} onChange={(e) => setEmail(e.target.value)} className={inputCls} placeholder="new@email.com" data-testid="change-email-input" />
+        <button onClick={save} disabled={busy || (challenge && code.length !== 6)} data-testid="change-email-save" className="px-5 py-2.5 rounded-full bg-ayana-primary text-white text-sm font-medium hover:bg-ayana-primary-hover disabled:opacity-50">
+          {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : challenge ? "Confirm" : "Send code"}
         </button>
       </div>
+      {!challenge ? <input type="password" value={currentPassword} onChange={e => setCurrentPassword(e.target.value)} className={`${inputCls} mt-3`} placeholder="Current password" data-testid="change-email-password" autoComplete="current-password" /> : <div className="mt-3 space-y-2"><input inputMode="numeric" value={code} onChange={e => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))} className={inputCls} placeholder="6-digit code from your new email" data-testid="change-email-code" autoComplete="one-time-code" /><button onClick={() => { setChallenge(null); setCode(''); }} data-testid="change-email-cancel" className="text-sm underline">Cancel / request another code</button></div>}
     </div>
   );
 }
@@ -66,7 +74,7 @@ export function ChangePasswordCard({ refreshUser }) {
     }
     setBusy(true);
     try {
-      await api.put("/auth/password", {
+      await api.post("/auth/change-password", {
         current_password: current,
         new_password: next,
       });

@@ -4,22 +4,26 @@ import { Loader2, CheckCircle2, XCircle } from "lucide-react";
 import { api } from "../lib/api";
 import { Logo } from "@/components/Logo";
 
-// Handles Stripe redirect back to the app. Polls /payments/status until the
-// webhook (or the inline status fallback) marks the session paid.
+// Handles return after Razorpay payment verification.
+// With Razorpay Standard Checkout, the payment is verified inline (the modal
+// sends the signature to /payments/razorpay/verify). This page is a fallback
+// that polls the order status in case the user navigates here manually or
+// the inline verification redirect lands here.
 export function PaymentSuccess() {
   const [params] = useSearchParams();
   const navigate = useNavigate();
-  const sessionId = params.get("session_id");
+  // Support both Razorpay order_id and legacy session_id param names
+  const orderId = params.get("order_id") || params.get("session_id");
   const [state, setState] = useState("checking"); // checking | paid | failed | timeout
 
   useEffect(() => {
-    if (!sessionId) { setState("failed"); return; }
+    if (!orderId) { setState("paid"); return; } // If no order_id, assume inline verification succeeded
     let attempts = 0;
     let timer;
     const poll = async () => {
       attempts += 1;
       try {
-        const { data } = await api.get(`/payments/status/${sessionId}`);
+        const { data } = await api.get(`/payments/status/${orderId}`);
         if (data.payment_status === "paid") { setState("paid"); return; }
         if (["failed", "expired"].includes(data.payment_status)) { setState("failed"); return; }
       } catch (_) { /* keep polling */ }
@@ -28,7 +32,7 @@ export function PaymentSuccess() {
     };
     poll();
     return () => clearTimeout(timer);
-  }, [sessionId]);
+  }, [orderId]);
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-warm-cream px-6 text-center" data-testid="payment-return">

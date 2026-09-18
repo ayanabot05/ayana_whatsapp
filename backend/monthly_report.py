@@ -1,34 +1,3 @@
-
-"""
-monthly_report.py — FIXED: NEW Monthly Care Report with REAL AYANA logo emblem
-"""
-import logging
-import json
-from datetime import datetime, timezone, timedelta
-from calendar import monthrange
-from zoneinfo import ZoneInfo
-from io import BytesIO
-from database import get_pool
-from pricing import plan_limits, PLAN_BY_ID
-from whatsapp import send_report_ready, send_report_pdf_with_link, send_document_link
-from storage import put_object, signed_url, is_enabled as storage_enabled
-logger = logging.getLogger("ayana.monthly_report")
-_FEELING_SCORE = {"good": 1.0, "okay": 0.5, "not_well": 0.0}
-def _tz(tz_name):
-    try:
-        return ZoneInfo(tz_name or "Asia/Kolkata")
-    except Exception:
-        return ZoneInfo("Asia/Kolkata")
-def _local_day(dt, tz):
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    return dt.astimezone(tz).strftime("%Y-%m-%d")
-def _month_bounds(year, month):
-    last_day = monthrange(year, month)[1]
-    return f"{year:04d}-{month:02d}-01", f"{year:04d}-{month:02d}-{last_day:02d}"
-def _day_key_to_dt(day_key):
-    return datetime.strptime(day_key, "%Y-%m-%d").replace(tzinfo=timezone.utc)
-
 """
 monthly_report.py — FIXED: NEW Monthly Care Report with REAL AYANA logo emblem
 """
@@ -89,7 +58,7 @@ def _generate_pdf_bytes(report, details):
     try:
         y_, m_ = period.split("-")
         month_label = datetime(int(y_), int(m_), 1).strftime("%B %Y")
-    except:
+    except Exception:
         month_label = period
     days = details.get("days", [])
     total_sent = sum(d.get("sent",0) for d in days) or report.get("total_touches",0) or report.get("delivered",0)
@@ -128,7 +97,7 @@ def _generate_pdf_bytes(report, details):
                     c.setFillAlpha(0.05)
                     c.drawImage(ImageReader(logo_path), page_w/2 - 30*2.83465, page_h/2 - 30*2.83465, 60*2.83465, 60*2.83465, preserveAspectRatio=True, mask='auto')
                     c.restoreState()
-            except:
+            except Exception:
                 pass
     y = page_h - 16*2.83465
     try:
@@ -138,7 +107,7 @@ def _generate_pdf_bytes(report, details):
             c.setFillAlpha(0.05)
             c.drawImage(ImageReader(logo_path), page_w/2 - 30*2.83465, page_h/2 - 30*2.83465, 60*2.83465, 60*2.83465, preserveAspectRatio=True, mask='auto')
             c.restoreState()
-    except:
+    except Exception:
         pass
     try:
         logo_path = "/mnt/data/ayana_emblem_400.png"
@@ -150,7 +119,7 @@ def _generate_pdf_bytes(report, details):
             c.setFillColor(HexColor("#FFFFFF"))
             c.setFont("Times-Bold", 9)
             c.drawCentredString(margin_x+5*2.83465, y-4*2.83465, "A")
-    except:
+    except Exception:
         c.setFillColor(primary)
         c.roundRect(margin_x, y-10*2.83465, 10*2.83465, 10*2.83465, 2*2.83465, fill=1, stroke=0)
         c.setFillColor(HexColor("#FFFFFF"))

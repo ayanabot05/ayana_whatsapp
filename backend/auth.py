@@ -35,7 +35,7 @@ def verify_password(plain: str, hashed: str) -> bool:
 def _secret() -> str:
     return os.environ["JWT_SECRET"]
 
-def create_access_token(user_id: str, email: str, role: str) -> str:
+def create_access_token(user_id: str, email: str, role: str, auth_version: int = 0) -> str:
     jti = secrets.token_urlsafe(16)
     payload = {
         "sub": user_id,
@@ -44,11 +44,12 @@ def create_access_token(user_id: str, email: str, role: str) -> str:
         "iat": datetime.now(timezone.utc),
         "exp": datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TTL_MIN),
         "type": "access",
+        "ver": auth_version,
         "jti": jti,
     }
     return jwt.encode(payload, _secret(), algorithm=JWT_ALGORITHM)
 
-def create_refresh_token(user_id: str, email: str, role: str) -> str:
+def create_refresh_token(user_id: str, email: str, role: str, auth_version: int = 0) -> str:
     jti = secrets.token_urlsafe(16)
     expires_at = datetime.now(timezone.utc) + timedelta(days=REFRESH_TTL_DAYS)
     payload = {
@@ -58,6 +59,7 @@ def create_refresh_token(user_id: str, email: str, role: str) -> str:
         "iat": datetime.now(timezone.utc),
         "exp": expires_at,
         "type": "refresh",
+        "ver": auth_version,
         "jti": jti,
     }
     return jwt.encode(payload, _secret(), algorithm=JWT_ALGORITHM)
@@ -107,6 +109,8 @@ async def revoke_token(jti: str, expires_at: datetime):
 
 def token_still_valid(payload: dict, user: dict) -> bool:
     """Tokens minted before the user's last password change are dead."""
+    if payload.get('ver',0) != user.get('auth_version',0):
+        return False
     changed = user.get("password_changed_at")
     iat = payload.get("iat")
     if not changed or iat is None:
@@ -155,9 +159,12 @@ async def get_current_user(request: Request) -> dict:
 
 async def get_current_admin(request: Request) -> dict:
     user = await get_current_user(request)
-    if user.get("role")!= "admin":
+    if user.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Admin access required")
     return user
+
+# Alias used by routes that follow the "require_*" naming convention
+require_admin = get_current_admin
 
 async def seed_admin():
     admin_email = os.environ.get("ADMIN_EMAIL", "admin@ayana.care").lower()

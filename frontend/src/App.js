@@ -31,6 +31,7 @@ import Landing from "@/pages/Landing";
 
 const Onboarding = lazy(() => import("@/pages/Onboarding"));
 const Dashboard = lazy(() => import("@/pages/Dashboard"));
+const Replies = lazy(() => import("@/pages/Replies"));
 const Activation = lazy(() => import("@/pages/Activation"));
 const Admin = lazy(() => import("@/pages/Admin"));
 const InviteClaim = lazy(() => import("@/pages/InviteClaim"));
@@ -74,6 +75,8 @@ function App() {
                   <Route path="/onboarding" element={<ProtectedRoute><Onboarding /></ProtectedRoute>} />
                   <Route path="/activation" element={<ProtectedRoute><Activation /></ProtectedRoute>} />
                   <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+                  <Route path="/replies" element={<ProtectedRoute><Replies /></ProtectedRoute>} />
+                  <Route path="/replies/:replyId" element={<ProtectedRoute><Replies /></ProtectedRoute>} />
                   <Route path="/admin" element={<ProtectedRoute adminOnly><Admin /></ProtectedRoute>} />
 
                   {/* Public invite claim — works for both logged-in and new users */}

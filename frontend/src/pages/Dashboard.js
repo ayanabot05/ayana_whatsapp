@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useCallback } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Users, CalendarHeart, MessageCircle, CheckCircle2, Plus, Pencil, Trash2,
@@ -25,6 +25,10 @@ import { CareTab, VacationCard } from "@/components/CareTab";
 import { PricingCards } from "@/components/PricingCards";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { ChangeEmailCard, ChangePasswordCard } from "@/components/SecurityCards";
+import { EmailVerificationCard } from "@/components/EmailVerificationCard";
+import { PhoneChangeDialog } from "@/components/PhoneChangeDialog";
+import { CareStatus } from "@/components/CareStatus";
+import { PlanPanel } from '@/features/billing/PlanPanel';
 
 function TabBoundary({ tab, onRetry, children }) {
   return (
@@ -234,6 +238,7 @@ export default function Dashboard() {
 
         <Tabs value={activeTab} onValueChange={handleTabChange}>
           <TabsList className="bg-[#faf6ec] border border-[#efe8d8] rounded-full p-1.5 flex w-full justify-start overflow-x-auto no-scrollbar h-auto gap-1 shadow-[0_1px_0_0_rgba(0,0,0,0.02)]">
+            <Link to="/replies" data-testid="dashboard-replies-link" className="inline-flex items-center gap-1 px-3 py-2 text-sm font-medium text-ayana-primary rounded-full hover:bg-white"><MessageCircle className="w-4 h-4" />Replies inbox</Link>
             <TabsTrigger value="parents" data-testid="tab-parents">Parents</TabsTrigger>
             <TabsTrigger value="checkins" data-testid="tab-checkins">
               Check-ins
@@ -488,6 +493,7 @@ function AccountPanel({ user, plan, payment, circle, setActiveTab, refreshUser }
         )}
       </div>
 
+      <div className="mb-5 space-y-4"><EmailVerificationCard user={user} onVerified={refreshUser} testid="account-email" /><PhoneChangeDialog user={user} onChanged={refreshUser} /></div>
       {!editing ? (
         <div className="space-y-3">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-[13px]">
@@ -509,7 +515,7 @@ function AccountPanel({ user, plan, payment, circle, setActiveTab, refreshUser }
           <div>
             <label className="text-sm font-medium text-ayana-text">Phone</label>
             <input value={user?.phone || ""} disabled data-testid="account-edit-phone" className={`mt-1.5 ${inputCls} bg-ayana-alt/50 text-ayana-muted cursor-not-allowed`} />
-            <p className="text-xs text-ayana-muted mt-1">To update phone number, please contact support.</p>
+            <p className="text-xs text-ayana-muted mt-1">Use the confirmed number-change action above.</p>
           </div>
           <div>
             <label className="text-sm font-medium text-ayana-text">City</label>
@@ -749,7 +755,7 @@ function CheckinsTab({ parents, data, catByKey, revealedReplies, setRevealedRepl
                     </div>
                     <div className="flex items-center gap-1 mt-1 text-[11px] text-[#9a9183]">
                       <Clock className="w-3 h-3 shrink-0" />
-                      <span className="truncate">{selectedDate.toLocaleDateString("en-US", {month:"short", day:"numeric"})} • 08:00 AM - 09:00 PM</span>
+                      <span className="truncate">{selectedDate.toLocaleDateString("en-US", {month:"short", day:"numeric"})}</span>
                     </div>
                   </div>
                 </div>
@@ -762,6 +768,7 @@ function CheckinsTab({ parents, data, catByKey, revealedReplies, setRevealedRepl
                 )}
               </div>
 
+              <CareStatus parentId={pd.parent_id} />
               {!dayData || messages.length===0 ? (
                 <div className="flex-1 flex items-center justify-center py-10 bg-[#faf6ec] rounded-xl border border-dashed border-[#efe8d8] text-sm text-[#9a9183] text-center px-4">Nothing sent on this date.</div>
               ) : (
@@ -997,12 +1004,13 @@ function SendTestDialog({ parent, categories, trigger }) {
 const SIBLING_LANGS = [["en", "English"], ["te", "తెలుగు / Telugu"], ["hi", "हिंदी / Hindi"]];
 
 function CircleTab({ circle, planId, plan, parents, reload }) {
+  const [email, setEmail] = useState("");
+  const [challenge, setChallenge] = useState(null);
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("+91");
   const [language, setLanguage] = useState("en");
   const [step, setStep] = useState("form");
   const [code, setCode] = useState("");
-  const [devCode, setDevCode] = useState("");
   const [busy, setBusy] = useState(false);
 
   if (circle?.role === "member") {
@@ -1024,16 +1032,16 @@ function CircleTab({ circle, planId, plan, parents, reload }) {
   const atLimit = usedCount >= maxMembers;
   const overLimit = usedCount > maxMembers;
 
-  const resetForm = () => { setName(""); setPhone("+91"); setLanguage("en"); setCode(""); setDevCode(""); setStep("form"); };
+  const resetForm = () => { setName(""); setPhone("+91"); setEmail(""); setLanguage("en"); setCode(""); setChallenge(null); setStep("form"); };
 
   const sendOtp = async () => {
-    if (!name.trim() || !phone || phone.length < 6) { toast.error("Please enter sibling name and WhatsApp number."); return; }
+    if (!name.trim() || !phone || phone.length < 6 || !email.includes('@')) { toast.error("Please enter sibling name, email and WhatsApp number."); return; }
     setBusy(true);
     try {
-      const { data } = await api.post("/circle/sibling/send-otp", { name: name.trim(), phone, language });
-      setDevCode(data.dev_code || "");
+      const { data } = await api.post("/circle/sibling/send-otp", { name: name.trim(), phone, language, email });
+      setChallenge(data.challenge_id);
       setStep("otp");
-      toast.success(data.dev_code ? `Verification code: ${data.dev_code}` : "Verification code sent to WhatsApp.");
+      toast.success("Verification code sent to your sibling's email.");
     } catch (e) { toast.error(formatApiError(e.response?.data?.detail)); } finally { setBusy(false); }
   };
 
@@ -1041,7 +1049,7 @@ function CircleTab({ circle, planId, plan, parents, reload }) {
     if (!code.trim()) { toast.error("Enter the 6-digit code."); return; }
     setBusy(true);
     try {
-      const { data } = await api.post("/circle/sibling/verify", { name: name.trim(), phone, language, code: code.trim() });
+      const { data } = await api.post("/circle/sibling/verify", { name: name.trim(), phone, language, email, challenge_id: challenge, code: code.trim() });
       toast.success(`${data.sibling?.name || "Sibling"} added to your care circle.`);
       resetForm();
       reload();
@@ -1060,7 +1068,7 @@ function CircleTab({ circle, planId, plan, parents, reload }) {
           <div className="w-10 h-10 rounded-full bg-[#faf6ec] border border-[#efe8d8] flex items-center justify-center shrink-0"><Users className="w-4 h-4 text-[#6b5f4a]" /></div>
           <div>
             <h2 className="font-display text-[16px] font-medium text-[#1a1a1a] flex items-center gap-2">Family co-care {isCarePlus && <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#fef3c7] border border-[#fde68a] text-[#92400e] inline-flex items-center gap-1"><Crown className="w-3 h-3" /> Raksha</span>}</h2>
-            <p className="text-[11px] text-[#9a9183] mt-0.5">Add up to {maxMembers || 2} siblings by WhatsApp • Mobile responsive</p>
+            <p className="text-[11px] text-[#9a9183] mt-0.5">Verify siblings by email; care updates go to their WhatsApp number.</p>
           </div>
         </div>
 
@@ -1089,6 +1097,7 @@ function CircleTab({ circle, planId, plan, parents, reload }) {
             <input value={name} onChange={(e) => setName(e.target.value)} data-testid="sibling-name" placeholder="Sibling's name (e.g. Priya)"
               className="w-full px-3.5 py-2.5 rounded-xl border border-[#efe8d8] bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#0f3d2e]/20 focus:border-[#0f3d2e] transition" />
             <PhoneInput value={phone} onChange={setPhone} testid="sibling-phone" />
+            <input type="email" value={email} onChange={e => setEmail(e.target.value)} data-testid="sibling-email" aria-label="Sibling email" placeholder="Sibling's email address" className={inputCls} />
             <select value={language} onChange={(e) => setLanguage(e.target.value)} data-testid="sibling-language"
               className="w-full px-3.5 py-2.5 rounded-xl border border-[#efe8d8] bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#0f3d2e]/20 focus:border-[#0f3d2e] transition">
               {SIBLING_LANGS.map(([c, l]) => <option key={c} value={c}>{l}</option>)}
@@ -1099,8 +1108,7 @@ function CircleTab({ circle, planId, plan, parents, reload }) {
           </div>
         ) : (
           <div className="mt-4 space-y-3" data-testid="sibling-otp-step">
-            <p className="text-sm text-[#6b5f4a]">Enter the 6-digit code sent to <b>{phone}</b> to add {name.trim()}.</p>
-            {devCode && <p className="text-xs rounded-lg bg-[#faf6ec] border border-[#efe8d8] text-[#1a1a1a] px-3 py-2" data-testid="sibling-dev-code">Code: <b>{devCode}</b></p>}
+            <p className="text-sm text-[#6b5f4a]" data-testid="sibling-email-destination">Enter the 6-digit code emailed to <b>{email}</b> to add {name.trim()}.</p>
             <input inputMode="numeric" maxLength={6} value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))} data-testid="sibling-otp-code" placeholder="6-digit code"
               className="w-full px-3.5 py-2.5 rounded-xl border border-[#efe8d8] bg-white text-sm tracking-[0.3em] text-center font-semibold focus:outline-none focus:ring-2 focus:ring-[#0f3d2e]/20 focus:border-[#0f3d2e] transition" />
             <div className="flex gap-2">
@@ -1149,69 +1157,10 @@ function CircleTab({ circle, planId, plan, parents, reload }) {
   );
 }
 
-function PlanTab({ plans, currencies, planId, plan, usage, circle, reload, currentBilling, paymentsEnabled }) {
-  const [busy, setBusy] = useState(false);
-  const queryClient = useQueryClient();
-  if (circle?.role === "member") {
-    return (
-      <div className="max-w-xl bg-white rounded-[16px] border border-[#efe8d8] p-6">
-        <h2 className="font-display text-lg font-medium text-[#1a1a1a] mb-2 flex items-center gap-2"><Crown className="w-4 h-4 text-[#0f3d2e]" /> Plan</h2>
-        <p className="text-sm text-[#6b5f4a]">Only the account owner can change the plan. You're covered under <b>{circle.owner?.name}</b>'s <b>{plan?.name}</b> plan.</p>
-      </div>
-    );
-  }
-  const changePlan = async (id, billing) => {
-    if (id === planId && billing === currentBilling) { toast("You're already on this plan."); return; }
-    setBusy(true);
-    try {
-      const { data } = await api.post("/payment/checkout", { plan: id, billing, origin_url: window.location.origin });
-      if (data?.checkout_url) { window.location.href = data.checkout_url; return; }
-      queryClient.setQueryData(["dashboard"], (old) => old ? {
-        ...old,
-        payment: { ...old.payment, state: { ...(old.payment?.state || {}), plan: data?.plan || id, billing: data?.billing || billing } },
-        circle: old.circle ? { ...old.circle, plan: data?.plan || id } : old.circle,
-      } : old);
-      toast.success(`Plan changed to ${plans.find((p) => p.id === id)?.name || id}.`);
-      await reload();
-    } catch (e) { toast.error(formatAxiosError(e), { duration: 8000 }); } finally { setBusy(false); }
-  };
-  return (
-    <div className="space-y-4 max-w-3xl">
-      <div className="bg-white rounded-[16px] border border-[#efe8d8] p-4 flex items-center gap-3">
-        <div className="w-10 h-10 rounded-full bg-[#faf6ec] border border-[#efe8d8] flex items-center justify-center shrink-0"><Crown className="w-4 h-4 text-[#b8860b]" /></div>
-        <div>
-          <h2 className="font-display text-[15px] font-medium text-[#1a1a1a]">Your plan</h2>
-          <p className="text-[11px] text-[#9a9183]">Usage, limits, and upgrade options • Mobile responsive</p>
-        </div>
-      </div>
-      <div className="bg-white rounded-[16px] border border-[#efe8d8] p-4 sm:p-5" data-testid="plan-usage">
-        <h2 className="font-display text-[16px] font-medium text-[#1a1a1a] mb-3">Current usage</h2>
-        <div className="flex flex-wrap gap-2 text-[12px]">
-          <span className="px-3 py-1.5 rounded-full bg-[#faf6ec] border border-[#efe8d8] text-[#6b5f4a]">{usage.parents ?? 0}/{plan?.limits?.parents ?? "–"} parents</span>
-          <span className="px-3 py-1.5 rounded-full bg-[#faf6ec] border border-[#efe8d8] text-[#6b5f4a]">{usage.family_members_used ?? 0}/{plan?.limits?.family_members ?? 0} care-circle members</span>
-          <span className="px-3 py-1.5 rounded-full bg-[#faf6ec] border border-[#efe8d8] text-[#6b5f4a]">{plan?.limits?.checkins ?? "–"} check-ins · {plan?.limits?.reminders ?? "–"} medicine reminders / day</span>
-          <span className={`px-3 py-1.5 rounded-full border ${plan?.limits?.recovery_mode ? "bg-[#e6f4ea] border-[#c8e9d4] text-[#1a7a4a]" : "bg-[#faf6ec] border-[#efe8d8] text-[#9a9183]"}`}>Recovery mode {plan?.limits?.recovery_mode ? "included" : "not included"}</span>
-          {usage.recovery_schedules > 0 && <span className="px-3 py-1.5 rounded-full bg-[#e6f4ea] border border-[#c8e9d4] text-[#1a7a4a]">Recovery mode active on {usage.recovery_schedules} schedule(s)</span>}
-        </div>
-        <p className="mt-3 text-[11px] text-[#9a9183]">Downgrading below your current usage will be blocked until you remove the extra items.</p>
-      </div>
-      <div className="bg-white rounded-[16px] border border-[#efe8d8] p-4 sm:p-6">
-        <h2 className="font-display text-[16px] font-medium text-[#1a1a1a] mb-4">Change your plan</h2>
-        {plans.length === 0 ? (
-          <div className="flex flex-col items-center gap-3 py-8 text-center bg-[#faf6ec] rounded-xl border border-dashed" data-testid="plans-unavailable">
-            <Loader2 className="w-5 h-5 animate-spin text-[#9a9183]" />
-            <p className="text-sm text-[#6b5f4a]">Couldn't load plan options right now.</p>
-            <button onClick={reload} className="text-sm font-medium text-[#0f3d2e] underline">Try again</button>
-          </div>
-        ) : (
-          <fieldset disabled={busy}>
-            <PricingCards plans={plans} currencies={currencies} selectedPlan={planId} onSelect={changePlan} compact />
-          </fieldset>
-        )}
-      </div>
-    </div>
-  );
-}
+// Plan management now lives in the extracted billing feature (Razorpay
+// checkout, plan comparison, usage limits). Kept as a thin alias so the
+// <PlanTab .../> call site above doesn't need to change.
+const PlanTab = PlanPanel;
 
 // -----------------------------------------------------------------------
 // Loads the AYANA logo (public/ayana_logo.png) and crops out just the

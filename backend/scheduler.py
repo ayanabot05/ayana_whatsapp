@@ -1,442 +1,163 @@
+"""Small job coordinator. Schedule interpretation lives in schedule_source.
+
+Parent-local slots are claimed before sending. No activation backfill, expired
+slot catch-up or automatic retry of an uncertain provider acceptance.
 """
-scheduler.py — APScheduler job runner for AYANA v2 message delivery (User-Configured Schedules).
-
-This version replaces the old "messages JSONB" logic with the new
-user-configured tables (parent_checkins, parent_health_reminders, parent_routines, medicines).
-
-Key Features:
-- Distributed lock (safe for multiple replicas).
-- 15-minute cooldown (Redis-based) to prevent flooding after a reply.
-- Retry with backoff for failed sends (does not give up during the day).
-- Vacation mode and Activity Window support.
-- Reads directly from the new DB tables.
-- Plan limits (checkins/reminders per day) are enforced against the day's
-  actual message_logs count, not a per-tick counter that resets every
-  minute — the previous version's sent_counts was reseeded to zero on
-  every scheduler run, so a "3 checkins/day" plan cap only ever blocked
-  sends that happened to land in the exact same minute.
-- Redis is accessed through rate_limit.get_redis() (async, same client the
-  rest of the app uses) instead of a separate blocking sync client, and
-  degrades gracefully (cooldown just no-ops) if Redis is unreachable,
-  matching the "Redis is optional" pattern used in /ready and /health.
-"""
-
-import json
 import logging
-import os
-import socket
-import uuid
-from collections import defaultdict
-from datetime import datetime, timezone, date, timedelta
-from zoneinfo import ZoneInfo
-
+from datetime import datetime, timezone, timedelta
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-
 from database import get_pool
-from escalation import run_care_watch_impl
 from pricing import plan_limits, resolve_plan_id
-from rate_limit import get_redis
-from templates_data import category_type
-from whatsapp import send_dynamic_checkin, send_reengagement
+from services.schedule_source import eligible, local_now, load_schedule, event_key
+from services import inbox, notifications
+from whatsapp import send_dynamic_checkin, send_reengagement, whatsapp_enabled
+from escalation import run_care_watch_impl
 
-logger = logging.getLogger("ayana.scheduler")
-
-_scheduler: AsyncIOScheduler | None = None
-_WORKER_ID = f"{socket.gethostname()}:{uuid.uuid4().hex[:8]}"
-_LAST_RUN: dict[str, str] = {}
-
-COOLDOWN_SECONDS = int(os.environ.get("WA_COOLDOWN_SECONDS", "900"))  # 15 minutes
-
-# Retry backoff (minutes): 5, 10, 10, 10...
-RETRY_BACKOFF_MINUTES = [
-    int(x) for x in os.environ.get("WA_RETRY_BACKOFF_MINUTES", "5,10").split(",") if x.strip()
-] or [5, 10]
-
-# Safety caps to prevent message flooding:
-# Max retries per category+slot per day before giving up.
-MAX_SCHEDULER_RETRIES = int(os.environ.get("WA_MAX_SCHEDULER_RETRIES", "3"))
-# Absolute daily cap per parent (across all types, including escalations).
-MAX_DAILY_MESSAGES = int(os.environ.get("WA_MAX_DAILY_MESSAGES", "15"))
-
-# Maps a schedule item's msg_type to the plan_limits() key that caps it,
-# and to the message_logs.msg_type value used to count today's sends.
-_LIMIT_KEY_BY_MSG_TYPE = {"checkin": "checkins", "reminder": "reminders"}
+logger = logging.getLogger(__name__)
+_scheduler = None
+_LAST_RUN = {}
+MAX_DAILY_MESSAGES = 15
+MAX_SCHEDULER_RETRIES = 3
+MAX_LATE_MINUTES = 30
+MIN_SEND_GAP_SECONDS = 120
 
 
-def scheduler_heartbeat() -> dict:
-    return {
-        "running": _scheduler is not None and getattr(_scheduler, "running", False),
-        "worker": _WORKER_ID,
-        "last_runs": dict(_LAST_RUN),
-        "jobs": [
-            {"id": j.id, "next_run": j.next_run_time.isoformat() if j.next_run_time else None}
-            for j in (_scheduler.get_jobs() if _scheduler else [])
-        ],
-    }
+def scheduler_heartbeat():
+    return {'running':bool(_scheduler and _scheduler.running),'last_runs':dict(_LAST_RUN),'jobs':[{'id':j.id,'next_run':j.next_run_time.isoformat() if j.next_run_time else None} for j in (_scheduler.get_jobs() if _scheduler else [])]}
 
 
-async def _with_lock(job_name: str, ttl_seconds: int, coro_fn) -> None:
-    """Distributed lock for safe multi-replica execution."""
-    now = datetime.now(timezone.utc)
-    expires_at = now + timedelta(seconds=ttl_seconds)
-    try:
-        async with get_pool().acquire() as conn:
-            won_row = await conn.fetchrow(
-                """
-                insert into scheduler_locks (lock_name, holder, acquired_at, expires_at)
-                values ($1, $2, $3, $4)
-                on conflict (lock_name) do update
-                    set holder = excluded.holder,
-                        acquired_at = excluded.acquired_at,
-                        expires_at = excluded.expires_at
-                    where scheduler_locks.expires_at <= $5
-                returning lock_name
-                """,
-                job_name, _WORKER_ID, now, expires_at, now,
-            )
-    except Exception as e:
-        logger.debug("[sched] Lock acquire race for %s (expected under concurrency): %s", job_name, e)
-        return
-
-    if not won_row:
-        return
-
-    try:
-        await coro_fn()
-        _LAST_RUN[job_name] = datetime.now(timezone.utc).isoformat()
-    finally:
-        async with get_pool().acquire() as conn:
-            await conn.execute(
-                "update scheduler_locks set expires_at = $1 where lock_name = $2 and holder = $3",
-                now, job_name, _WORKER_ID,
-            )
-
-
-async def _get_parent_schedule(parent_id) -> dict:
-    """Fetches all user-configured schedule items for a parent."""
-    schedule = {"checkins": [], "health": [], "routines": [], "medicines": []}
-
+async def _with_lock(name, ttl_seconds, fn):
+    # Session advisory lock does not expire mid-send, unlike the former 55s lease.
     async with get_pool().acquire() as conn:
-        # 1. Daily Check-ins
-        rows = await conn.fetch(
-            "SELECT category, time FROM parent_checkins WHERE parent_id = $1 AND is_active = true",
-            parent_id,
-        )
-        for r in rows:
-            schedule["checkins"].append({"category": r["category"], "time": r["time"]})
-
-        # 2. Health Reminders
-        rows = await conn.fetch(
-            "SELECT category, time FROM parent_health_reminders WHERE parent_id = $1 AND is_active = true",
-            parent_id,
-        )
-        for r in rows:
-            schedule["health"].append({"category": r["category"], "time": r["time"]})
-
-        # 3. Routines
-        rows = await conn.fetch(
-            "SELECT category, time FROM parent_routines WHERE parent_id = $1 AND is_active = true",
-            parent_id,
-        )
-        for r in rows:
-            schedule["routines"].append({"category": r["category"], "time": r["time"]})
-
-        # 4. Medicines (with dynamic times from JSONB). This table is now the
-        # single source of truth for medicines — parents.medicine_list is
-        # retired; existing rows were migrated in the startup migration.
-        rows = await conn.fetch(
-            "SELECT id, name, reminder_times FROM medicines WHERE parent_id = $1 AND is_active = true",
-            parent_id,
-        )
-        for med in rows:
-            times = med["reminder_times"]  # JSON array e.g., ["09:00", "21:00"]
-            if isinstance(times, str):
-                times = json.loads(times) if times.strip() else []
-            for t in (times or []):
-                schedule["medicines"].append({
-                    "category": "medicine",
-                    "time": t,
-                    "medicine_name": med["name"],
-                    "medicine_id": med["id"],
-                })
-
-    return schedule
-
-
-async def _check_cooldown(parent_id) -> bool:
-    """Return True if we should skip sending (parent replied within cooldown window).
-    Best-effort: if Redis is unavailable, we don't block sends on it."""
-    try:
-        r = await get_redis()
-    except Exception:
-        return False
-    if r is None:
-        return False
-    try:
-        last_reply = await r.get(f"parent:{parent_id}:last_reply")
-    except Exception as e:
-        logger.debug("[sched] cooldown check failed, treating as no cooldown: %s", e)
-        return False
-    if last_reply:
+        won = await conn.fetchval('SELECT pg_try_advisory_lock(hashtextextended($1,0))','job:'+name)
+        if not won:
+            return
         try:
-            last_dt = datetime.fromisoformat(last_reply)
-            if (datetime.now(timezone.utc) - last_dt).total_seconds() < COOLDOWN_SECONDS:
-                return True
-        except Exception:
-            pass
-    return False
+            await fn()
+            _LAST_RUN[name] = datetime.now(timezone.utc).isoformat()
+        finally:
+            await conn.execute('SELECT pg_advisory_unlock(hashtextextended($1,0))','job:'+name)
 
 
-async def _record_reply_time(parent_id):
-    try:
-        r = await get_redis()
-        if r is not None:
-            await r.set(f"parent:{parent_id}:last_reply", datetime.now(timezone.utc).isoformat(), ex=COOLDOWN_SECONDS)
-    except Exception as e:
-        logger.debug("[sched] failed to record reply time (non-fatal): %s", e)
-
-
-async def _todays_sent_counts(conn, parent_id, day_key: str) -> defaultdict:
-    """Seeds plan-limit counters from message_logs instead of starting at
-    zero every tick, so a day's checkins/reminders cap is enforced across
-    the whole day, not just within a single 1-minute scheduler run."""
-    row = await conn.fetchrow(
-        """
-        SELECT
-            count(*) FILTER (WHERE msg_type = 'checkin' AND status IN ('sent', 'simulated'))  AS checkins,
-            count(*) FILTER (WHERE msg_type = 'reminder' AND status IN ('sent', 'simulated')) AS reminders
-        FROM message_logs
-        WHERE parent_id = $1 AND day_key = $2
-        """,
-        parent_id, day_key,
-    )
-    counts = defaultdict(int)
-    counts["checkin"] = (row["checkins"] if row else 0) or 0
-    counts["reminder"] = (row["reminders"] if row else 0) or 0
-    return counts
+async def _deliver_parent(parent, now):
+    async with get_pool().acquire() as conn, conn.transaction():
+        if not await conn.fetchval('SELECT pg_try_advisory_xact_lock(hashtextextended($1,0))','care-parent:'+str(parent['id'])):
+            return
+        activation = await conn.fetchrow('SELECT * FROM activation_state WHERE user_id=$1',parent['user_id'])
+        if not activation or not activation['whatsapp_activated']:
+            return
+        local = local_now(parent,now)
+        schedule, items = await load_schedule(conn,parent)
+        if not eligible(parent,local,schedule):
+            return
+        last = await conn.fetchval('SELECT max(created_at) FROM message_logs WHERE parent_id=$1',parent['id'])
+        if last and now-last < timedelta(seconds=MIN_SEND_GAP_SECONDS):
+            return
+        plan = await conn.fetchval('SELECT plan FROM payment_state WHERE user_id=$1',parent['user_id'])
+        limits = plan_limits(resolve_plan_id(plan or 'nitya'))
+        day = local.strftime('%Y-%m-%d')
+        sent = await conn.fetchval("SELECT count(*) FROM message_logs WHERE parent_id=$1 AND day_key=$2 AND status='sent'",parent['id'],day)
+        if sent >= MAX_DAILY_MESSAGES:
+            return
+        since = max(filter(None,[parent['created_at'],activation['activated_at']]))
+        for item in items:
+            hour,minute = map(int,item['time'].split(':'))
+            scheduled = local.replace(hour=hour,minute=minute,second=0,microsecond=0)
+            if scheduled < since or scheduled > local or local-scheduled > timedelta(minutes=MAX_LATE_MINUTES):
+                continue
+            key = event_key(parent['id'],day,item)
+            claim = await conn.fetchrow('SELECT * FROM care_send_claims WHERE event_key=$1',key)
+            if claim and claim['status'] != 'failed':
+                continue
+            # Historical sends from the previous worker are not replayed.
+            previous = await conn.fetchval("SELECT 1 FROM message_logs WHERE parent_id=$1 AND day_key=$2 AND category=$3 AND (slot_time=$4 OR slot_time IS NULL) AND event_key IS NULL AND status='sent' LIMIT 1",parent['id'],day,item['category'],item['time'])
+            if previous:
+                continue
+            failures = await conn.fetchrow("SELECT count(*) AS n,max(created_at) AS last FROM message_logs WHERE event_key=$1 AND status='failed'",key)
+            if failures['n'] >= MAX_SCHEDULER_RETRIES or (failures['last'] and now-failures['last'] < timedelta(minutes=5*max(1,failures['n']))):
+                continue
+            kind = item['type']
+            limit_key = {'checkin':'checkins','reminder':'reminders','activity':'activities'}[kind]
+            count = await conn.fetchval("SELECT count(*) FROM message_logs WHERE parent_id=$1 AND day_key=$2 AND msg_type=$3 AND status='sent'",parent['id'],day,kind)
+            if count >= limits.get(limit_key,0):
+                continue
+            # Separate committed claim survives a crash during the provider call.
+            won = await get_pool().fetchval("INSERT INTO care_send_claims(event_key,parent_id) VALUES($1,$2) ON CONFLICT(event_key) DO UPDATE SET status='sending' WHERE care_send_claims.status='failed' RETURNING event_key",key,parent['id'])
+            if not won:
+                continue
+            try:
+                result = await send_dynamic_checkin(parent,item['category'],local.timetuple().tm_yday,limits.get('variants_per_slot',3),medicine_name=item.get('medicine_name',''))
+            except Exception:
+                result = {'status':'uncertain','detail':'Submission interrupted. Inspect provider receipts before retrying.'}
+            state = result.get('status','failed')
+            await conn.execute('INSERT INTO message_logs(user_id,parent_id,day_key,category,body,msg_type,status,detail,sid,slot_time,event_key,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)',parent['user_id'],parent['id'],day,item['category'],item.get('medicine_name') or item['category'],kind,state,result.get('detail'),result.get('sid'),item['time'],key,now)
+            await conn.execute('UPDATE care_send_claims SET status=$2 WHERE event_key=$1',key,state)
+            # One event per parent per tick; the global gap also covers escalation.
+            break
 
 
 async def _deliver_due_messages_impl():
-    now_utc = datetime.now(timezone.utc)
-
-    try:
-        async with get_pool().acquire() as fetch_conn:
-            # Fetch all active parents
-            parents = await fetch_conn.fetch(
-                "SELECT * FROM parents WHERE deleted_at IS NULL"
-            )
-    except Exception as exc:
-        logger.error("Scheduler: failed to fetch parents - %s", exc)
+    if not whatsapp_enabled():
         return
-
-    for parent in parents:
+    now = datetime.now(timezone.utc)
+    for row in await get_pool().fetch('SELECT * FROM parents WHERE deleted_at IS NULL'):
         try:
-            async with get_pool().acquire() as conn:
-                # Activation check
-                activation = await conn.fetchrow(
-                    "SELECT * FROM activation_state WHERE user_id = $1", parent["user_id"]
-                )
-                if not activation or not activation["whatsapp_activated"]:
-                    continue
-
-                # Timezone
-                try:
-                    tz = ZoneInfo(parent["timezone"] or "Asia/Kolkata")
-                except Exception:
-                    tz = ZoneInfo("Asia/Kolkata")
-
-                local = now_utc.astimezone(tz)
-                hhmm = local.strftime("%H:%M")
-                day_key = local.strftime("%Y-%m-%d")
-
-                # Vacation check
-                vac_start = parent["vacation_start"]
-                vac_end = parent["vacation_end"]
-                if vac_start and vac_end and vac_start <= day_key <= vac_end:
-                    continue
-
-                # Activity window check
-                DEFAULT_START = "00:00"
-                DEFAULT_END = "23:59"
-                win_start = parent["activity_window_start"] or DEFAULT_START
-                win_end = parent["activity_window_end"] or DEFAULT_END
-                if win_start and win_end:
-                    if win_start <= win_end:
-                        is_outside = not (win_start <= hhmm <= win_end)
-                    else:
-                        is_outside = win_end < hhmm < win_start
-                    if is_outside:
-                        continue
-
-                # Cooldown check (15 min)
-                if await _check_cooldown(parent["id"]):
-                    logger.info("[scheduler] Skipped %s for %s due to cooldown.", parent["name"], parent["id"])
-                    continue
-
-                # Plan limits
-                ps = await conn.fetchrow("SELECT * FROM payment_state WHERE user_id = $1", parent["user_id"])
-                plan_id = resolve_plan_id((ps["plan"] if ps else None) or "nitya")
-                limits = plan_limits(plan_id)
-                variants_per_slot = limits.get("variants_per_slot", 3)
-
-                # Get user-configured schedule
-                schedule = await _get_parent_schedule(parent["id"])
-
-                # Combine all items
-                all_items = []
-                for item in schedule["checkins"]:
-                    all_items.append({"category": item["category"], "time": item["time"], "type": "checkin"})
-                for item in schedule["health"]:
-                    all_items.append({"category": item["category"], "time": item["time"], "type": "reminder"})
-                for item in schedule["routines"]:
-                    all_items.append({"category": item["category"], "time": item["time"], "type": "reminder"})
-                for item in schedule["medicines"]:
-                    all_items.append({
-                        "category": "medicine", "time": item["time"], "type": "reminder",
-                        "medicine_name": item["medicine_name"],
-                    })
-
-                # Seed from today's real counts (bug fix — see module docstring),
-                # not a fresh defaultdict(int) that loses the day's history
-                # every time this function re-runs a minute later.
-                sent_counts = await _todays_sent_counts(conn, parent["id"], day_key)
-
-                for item in all_items:
-                    slot_time = item["time"]
-                    # Is it due now?
-                    if slot_time > hhmm:
-                        continue
-
-                    # ── ANTI-FLOOD: absolute daily cap per parent ──
-                    total_today = await conn.fetchval(
-                        "SELECT count(*) FROM message_logs WHERE parent_id = $1 AND day_key = $2",
-                        parent["id"], day_key,
-                    )
-                    if (total_today or 0) >= MAX_DAILY_MESSAGES:
-                        logger.info("[scheduler] Daily cap (%s) reached for %s, skipping remaining.", MAX_DAILY_MESSAGES, parent["name"])
-                        break  # stop all sends for this parent today
-
-                    # Check if already sent today for this category+slot (success)
-                    already_sent = await conn.fetchrow(
-                        """
-                        SELECT 1 FROM message_logs
-                        WHERE parent_id = $1 AND day_key = $2 AND category = $3
-                          AND status IN ('sent', 'simulated')
-                          AND (slot_time IS NULL OR slot_time = $4)
-                        """,
-                        parent["id"], day_key, item["category"], slot_time,
-                    )
-                    if already_sent:
-                        continue
-
-                    # Retry/backoff logic with MAX RETRY CAP
-                    fail_stat = await conn.fetchrow(
-                        """
-                        SELECT count(*) as n, max(created_at) as last_at
-                        FROM message_logs
-                        WHERE parent_id = $1 AND day_key = $2 AND category = $3
-                          AND status = 'failed'
-                        """,
-                        parent["id"], day_key, item["category"],
-                    )
-                    fail_count = (fail_stat["n"] if fail_stat else 0) or 0
-                    # ── ANTI-FLOOD: give up after MAX_SCHEDULER_RETRIES failures ──
-                    if fail_count >= MAX_SCHEDULER_RETRIES:
-                        logger.info("[scheduler] Max retries (%s) exhausted for %s/%s, giving up for today.",
-                                    MAX_SCHEDULER_RETRIES, parent["name"], item["category"])
-                        continue
-                    last_fail_at = fail_stat["last_at"] if fail_stat else None
-                    if fail_count and last_fail_at is not None:
-                        if last_fail_at.tzinfo is None:
-                            last_fail_at = last_fail_at.replace(tzinfo=timezone.utc)
-                        wait_min = RETRY_BACKOFF_MINUTES[min(fail_count, len(RETRY_BACKOFF_MINUTES)) - 1]
-                        if now_utc < last_fail_at + timedelta(minutes=wait_min):
-                            continue
-
-                    # Plan limit check — now against the day's real total.
-                    msg_type = item["type"]
-                    _limit_key = _LIMIT_KEY_BY_MSG_TYPE.get(msg_type, "activities")
-                    if sent_counts[msg_type] >= limits.get(_limit_key, 0):
-                        continue
-
-                    # Send the message
-                    result = await send_dynamic_checkin(
-                        dict(parent),
-                        item["category"],
-                        local.timetuple().tm_yday,
-                        variants_per_slot,
-                        medicine_name=item.get("medicine_name", ""),
-                    )
-                    status = result.get("status")
-                    if status in ("sent", "simulated"):
-                        sent_counts[msg_type] += 1
-                    await conn.execute(
-                        """
-                        INSERT INTO message_logs
-                            (user_id, parent_id, day_key, category, body, msg_type, status, detail, sid, slot_time, created_at)
-                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-                        """,
-                        parent["user_id"], parent["id"], day_key, item["category"],
-                        f"{item['category']} check-in", msg_type, status, result.get("detail"),
-                        result.get("sid"), slot_time, now_utc,
-                    )
-                    if status in ("sent", "simulated"):
-                        logger.info("Delivered msg (%s) to parent %s: %s", status, parent["name"], item["category"])
-                    else:
-                        logger.warning("Scheduler: send FAILED for parent %s category %s - %s", parent["name"], item["category"], result.get("detail"))
-
-        except Exception as exc:
-            logger.error("Scheduler: unhandled error for parent %s - %s", parent["id"], exc)
-
-
-async def _deliver_due_messages():
-    await _with_lock("delivery", 55, _deliver_due_messages_impl)
+            await _deliver_parent(dict(row),now)
+        except Exception:
+            logger.exception('Parent scheduler failed for %s',row['id'])
 
 
 async def _check_reengagement_impl():
-    async with get_pool().acquire() as conn:
-        parents = await conn.fetch("SELECT * FROM parents WHERE deleted_at IS NULL")
-
-    for parent in parents:
+    if not whatsapp_enabled():
+        return
+    for row in await get_pool().fetch('SELECT * FROM parents WHERE deleted_at IS NULL'):
+        parent = dict(row)
         try:
-            async with get_pool().acquire() as conn:
-                activation = await conn.fetchrow("SELECT * FROM activation_state WHERE user_id = $1", parent["user_id"])
-                if not activation or not activation["whatsapp_activated"]:
+            async with get_pool().acquire() as conn, conn.transaction():
+                if not await conn.fetchval('SELECT pg_try_advisory_xact_lock(hashtextextended($1,0))','care-parent:'+str(parent['id'])):
                     continue
-            result = await send_reengagement(dict(parent), 2)
-            if result.get("status") in ("sent", "simulated"):
-                async with get_pool().acquire() as conn:
-                    await conn.execute(
-                        """
-                        INSERT INTO message_logs
-                            (user_id, parent_id, day_key, category, body, msg_type, status, detail, sid, created_at)
-                        VALUES ($1, $2, $3, 'reengagement', 'reengagement', 'reengagement', $4, $5, $6, $7)
-                        """,
-                        parent["user_id"], parent["id"], datetime.now(timezone.utc).strftime("%Y-%m-%d"),
-                        result.get("status"), result.get("detail"), result.get("sid"), datetime.now(timezone.utc),
-                    )
-        except Exception as exc:
-            logger.error("Scheduler: reengagement failed for parent %s - %s", parent["id"], exc)
+                active = await conn.fetchval('SELECT whatsapp_activated FROM activation_state WHERE user_id=$1',parent['user_id'])
+                schedule, _ = await load_schedule(conn,parent)
+                local = local_now(parent)
+                if not active or not eligible(parent,local,schedule):
+                    continue
+                delivered = await conn.fetchval("SELECT count(*) FROM message_logs WHERE parent_id=$1 AND day_key=$2 AND delivery_status IN ('delivered','read')",parent['id'],local.strftime('%Y-%m-%d'))
+                if not delivered:
+                    continue
+                last = await conn.fetchval('SELECT max(created_at) FROM message_logs WHERE parent_id=$1',parent['id'])
+                if last and datetime.now(timezone.utc)-last<timedelta(minutes=15):
+                    continue
+                count = await conn.fetchval('SELECT count(*) FROM message_logs WHERE parent_id=$1 AND day_key=$2',parent['id'],local.strftime('%Y-%m-%d'))
+                if count>=MAX_DAILY_MESSAGES:
+                    continue
+                result = await send_reengagement(parent,(schedule or {}).get('reengagement_hours',4))
+                if result.get('status') in ('sent','uncertain'):
+                    await conn.execute("INSERT INTO message_logs(user_id,parent_id,day_key,category,msg_type,status,detail,sid) VALUES($1,$2,$3,'reengagement','reengagement',$4,$5,$6)",parent['user_id'],parent['id'],local.strftime('%Y-%m-%d'),result['status'],result.get('detail'),result.get('sid'))
+        except Exception:
+            logger.exception('Reengagement failed for %s',parent['id'])
+
+
+async def _deliver_due_messages():
+    await _with_lock('delivery',0,_deliver_due_messages_impl)
 
 
 async def _check_reengagement():
-    await _with_lock("reengagement", 14 * 60, _check_reengagement_impl)
+    await _with_lock('reengagement',0,_check_reengagement_impl)
 
 
 async def _run_care_watch():
-    await _with_lock("care_watch", 4 * 60, run_care_watch_impl)
+    if whatsapp_enabled():
+        await _with_lock('care_watch',0,run_care_watch_impl)
 
 
 def start_scheduler():
     global _scheduler
     if _scheduler is not None:
         return
-    _scheduler = AsyncIOScheduler(timezone="UTC")
-    _scheduler.add_job(_deliver_due_messages, "interval", minutes=1, id="ayana_delivery", max_instances=1, coalesce=True)
-    _scheduler.add_job(_check_reengagement, "interval", minutes=15, id="ayana_reengagement", max_instances=1, coalesce=True)
-    _scheduler.add_job(_run_care_watch, "interval", minutes=5, id="ayana_care_watch", max_instances=1, coalesce=True)
+    _scheduler = AsyncIOScheduler(timezone='UTC')
+    for fn, minutes, job in [(_deliver_due_messages,1,'delivery'),(_check_reengagement,15,'reengagement'),(_run_care_watch,5,'care_watch'),(inbox.drain,1,'inbox'),(notifications.drain_notifications,1,'notifications')]:
+        _scheduler.add_job(fn,'interval',minutes=minutes,id='ayana_'+job,max_instances=1,coalesce=True)
     _scheduler.start()
-    logger.info("AYANA v2 scheduler started (user-configured tables).")
 
 
 def shutdown_scheduler():

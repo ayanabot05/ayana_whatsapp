@@ -13,7 +13,7 @@ import requests
 
 BASE_URL = os.environ.get(
     "REACT_APP_BACKEND_URL",
-    "https://e6ee39c5-98f8-45ea-aa21-f1d342c47485.preview.emergentagent.com",
+    "https://distance-care-3.preview.emergentagent.com",
 ).rstrip("/")
 
 EMAIL = "ravi.e1test@ayanabott.com"

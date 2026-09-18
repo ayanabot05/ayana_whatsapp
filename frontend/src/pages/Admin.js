@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/table";
 import { PaginationBar } from "@/components/ui/PaginationBar";
 import { DeliveryFunnel } from "@/components/DeliveryFunnel";
+import { AdminCoupons } from '@/features/billing/AdminCoupons';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 const USERS_PER_PAGE = 50;
@@ -188,7 +189,8 @@ export default function Admin() {
         )}
 
         <Tabs defaultValue="users">
-          <TabsList className="bg-ayana-alt">
+          <TabsList className="bg-ayana-alt flex-wrap h-auto">
+            <TabsTrigger value="coupons" data-testid="admin-tab-coupons">Coupons</TabsTrigger>
             <TabsTrigger value="users"       data-testid="admin-tab-users">Users</TabsTrigger>
             <TabsTrigger value="messages"    data-testid="admin-tab-messages">Deliveries</TabsTrigger>
             <TabsTrigger value="delivery-health" data-testid="admin-tab-delivery-health">Delivery health</TabsTrigger>
@@ -196,6 +198,7 @@ export default function Admin() {
             <TabsTrigger value="emergencies" data-testid="admin-tab-emergencies">Emergencies</TabsTrigger>
           </TabsList>
 
+          <TabsContent value="coupons" className="mt-6"><AdminCoupons /></TabsContent>
           <TabsContent value="users" className="mt-6">
             <div className="bg-white rounded-2xl border border-ayana-line overflow-x-auto" data-testid="admin-users-table">
               <Table>
