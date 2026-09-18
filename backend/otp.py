@@ -1,10 +1,11 @@
-"""Compatibility import for E.164 normalization.
+"""Phone normalization utility.
 
-All verification moved to services/verification.py and routes/account.py.
-There is deliberately no Twilio client, SMS path or onscreen OTP mode here.
+All verification is email-only via services/verification.py and routes/account.py.
+Email OTP codes are sent through Resend (email_sender.py).
+There is no SMS, Twilio, or phone-based OTP in AYANA.
 """
-from validation import validate_phone
+from validation import normalize_phone, validate_phone
 
 
 def _normalize_phone(phone: str) -> str:
-    return validate_phone(phone)
+    return normalize_phone(phone)
