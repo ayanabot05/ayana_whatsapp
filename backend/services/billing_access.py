@@ -20,6 +20,33 @@ async def access(conn,user_id):
     if await conn.fetchval('SELECT role FROM users WHERE id=$1',user_id)=='admin':
         return {'allowed':True,'plan':'raksha','status':'admin','lifetime':True,'expires_at':None,'auto_renews':False}
     state = await conn.fetchrow('SELECT * FROM payment_state WHERE user_id=$1',user_id)
+
+    # Check active subscriptions first — auto-renewing users have the highest
+    # priority after admin / lifetime grants.
+    active_sub = await conn.fetchrow(
+        """SELECT * FROM billing_subscriptions
+           WHERE user_id=$1
+             AND status IN ('authenticated','active')
+             AND (current_period_end IS NULL OR current_period_end > $2)
+             AND (cancel_at_period_end = false OR current_period_end > $2)
+           ORDER BY RANK.get(plan,0) DESC NULLS LAST, created_at DESC
+           LIMIT 1""".replace(
+            "RANK.get(plan,0) DESC NULLS LAST",
+            "CASE plan WHEN 'raksha' THEN 2 WHEN 'bandham' THEN 1 ELSE 0 END DESC",
+        ),
+        user_id, now,
+    )
+    if active_sub:
+        return {
+            'allowed': True,
+            'plan': active_sub['plan'],
+            'status': 'subscribed',
+            'lifetime': False,
+            'expires_at': active_sub['current_period_end'],
+            'auto_renews': not active_sub['cancel_at_period_end'],
+            'subscription_id': str(active_sub['id']),
+        }
+
     grants = await conn.fetch('SELECT * FROM access_grants WHERE user_id=$1 AND revoked_at IS NULL AND starts_at<=$2 AND (ends_at IS NULL OR ends_at>$2)',user_id,now)
     if grants:
         best = max(grants,key=lambda g:(RANK.get(g['plan'],0),g['ends_at'] is None,g['ends_at'] or now))

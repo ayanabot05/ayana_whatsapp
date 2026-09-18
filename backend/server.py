@@ -95,13 +95,13 @@ from models import (
     EmergencyContactsInput, MomentInput, RecoveryStartInput,
     MEDICINE_SHAPES, MEDICINE_COLORS, MEDICINE_TIMINGS,
     CheckoutInput, SendTestInput, PreviewInput, InviteInput,
-    AnalyticsEventInput, OtpSendInput, OtpVerifyInput, VacationInput,
+    AnalyticsEventInput, VacationInput,
     EmergencyEventUpdate, SiblingOtpInput, SiblingVerifyInput,
     MarkRepliesReadInput, SimulateReplyInput,
 )
 from medicine_sync import sync_medicine_reminders
 from storage import init_storage, put_object, get_object, signed_url as storage_signed_url, is_enabled as storage_enabled, APP_NAME as STORAGE_APP_NAME
-from otp import _normalize_phone
+from validation import normalize_phone as _normalize_phone
 from routes.account import router as account_router, require_email
 from services import verification
 from services.migrations import apply_care_migration
@@ -883,17 +883,9 @@ async def refresh_token(request: Request, response: Response):
     set_csrf_cookie(response, generate_csrf_token())
     return {"access_token": new_access, "refresh_token": new_refresh, "user": serialize(user)}
 
-# ---------------- Phone OTP verification (account owner's own number) ----------------
-
-
-@api.post("/auth/otp/send")
-@api.post("/auth/otp/resend")
-async def auth_otp_send(payload: OtpSendInput, user: dict = Depends(get_current_user), _csrf: None = Depends(validate_csrf_token)):
-    raise HTTPException(410, 'Mobile OTP is retired. Verify your email in Account settings.')
-
-@api.post("/auth/otp/verify")
-async def auth_otp_verify(payload: OtpVerifyInput, user: dict = Depends(get_current_user), _csrf: None = Depends(validate_csrf_token)):
-    raise HTTPException(410, 'Mobile OTP is retired. Verify your email in Account settings.')
+# ---------------- Verification is email-only (Resend) ----------------
+# Phone OTP was removed. All verification flows use email codes via
+# services/verification.py and routes/account.py.
 
 # Email-based recovery routes live in routes/account.py.
 @api.post("/auth/change-password")

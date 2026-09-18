@@ -4,7 +4,7 @@
   "hero": {
     "headline": "Your parents feel your presence daily",
     "sub": "2 taps a day — in their language, no typing",
-    "cta": "Start Free — $9/mo after trial",
+    "cta": "Start Free — $9.99/mo after trial",
     "trust_proof": "Built for 32M NRIs — 65% parents feel isolated"
   },
   "phone_chat": {
@@ -50,9 +50,9 @@
   },
   "pricing": {
     "title": "Choose your closeness",
-    "nitya": { "name": "Nitya", "tagline": "Amma feels you 4× daily", "price": "$9/mo" },
-    "bandham": { "name": "Bandham", "tagline": "Amma feels you 6× daily", "price": "$19/mo" },
-    "raksha": { "name": "Raksha", "tagline": "Amma feels you 8× daily", "price": "$29/mo" }
+    "nitya": { "name": "Nitya", "tagline": "Amma feels you 4× daily", "price": "$9.99/mo" },
+    "bandham": { "name": "Bandham", "tagline": "Amma feels you 6× daily", "price": "$19.99/mo" },
+    "raksha": { "name": "Raksha", "tagline": "Amma feels you 8× daily", "price": "$29.99/mo" }
   },
   "faq": {
     "title": "Questions?",
@@ -99,11 +99,11 @@
     "no_reports": "No reports generated yet",
     "send_test": "Send test check-in",
     "preview_message": "Preview message",
-    "otp_title": "Verify phone number",
-    "otp_sent": "OTP sent to",
-    "otp_enter": "Enter 6-digit code",
-    "otp_resend": "Resend OTP",
-    "otp_verify": "Verify",
+    "verify_title": "Verify email",
+    "verify_sent": "Code sent to your email",
+    "verify_enter": "Enter 6-digit code",
+    "verify_resend": "Resend code",
+    "verify_button": "Verify",
     "audit_title": "Activity History",
     "preferences_title": "Preferences",
     "delete_account": "Delete Account"

@@ -362,14 +362,6 @@ class AnalyticsEventInput(BaseModel):
     path: Optional[str] = None
 
 
-class OtpSendInput(BaseModel):
-    phone: str = Field(..., min_length=6, max_length=20)
-
-
-class OtpVerifyInput(BaseModel):
-    phone: str = Field(..., min_length=6, max_length=20)
-    code: str = Field(..., min_length=4, max_length=8)
-
 
 class VacationInput(BaseModel):
     start: Optional[str] = Field(None, pattern=r"^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$")

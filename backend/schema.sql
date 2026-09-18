@@ -55,6 +55,10 @@ create table users (
     city                  text,
     timezone              text not null default 'Asia/Kolkata',
     household_owner_id    uuid references users(id),
+    email_verified_at     timestamptz,
+    email_verification_required boolean not null default false,
+    phone_changed_at      timestamptz,
+    auth_version          integer not null default 0,
     created_at            timestamptz not null default now(),
     deleted_at            timestamptz
 );

@@ -8,7 +8,7 @@ describe("PricingCards", () => {
       id: "nitya",
       name: "AYANA Nitya",
       tagline: "Basic plan",
-      price: { USD: { month: 10, year: 100 }, INR: { month: 800, year: 8000 } },
+      price: { USD: { month: 9.99, year: 99.90 }, INR: { month: 949, year: 9490 } },
       features: ["Feature 1", "Feature 2"],
     },
     {
@@ -16,7 +16,7 @@ describe("PricingCards", () => {
       name: "AYANA Bandham",
       tagline: "Premium plan",
       highlight: true,
-      price: { USD: { month: 20, year: 200 }, INR: { month: 1600, year: 16000 } },
+      price: { USD: { month: 19.99, year: 199.90 }, INR: { month: 1799, year: 17990 } },
       features: ["Feature 1", "Feature 2", "Feature 3"],
     },
   ];
@@ -34,8 +34,8 @@ describe("PricingCards", () => {
     expect(screen.getByText("Most loved")).toBeInTheDocument();
     
     // Check initial price display (USD, month)
-    expect(screen.getByText("$10")).toBeInTheDocument();
-    expect(screen.getByText("$20")).toBeInTheDocument();
+    expect(screen.getByText("$9.99")).toBeInTheDocument();
+    expect(screen.getByText("$19.99")).toBeInTheDocument();
   });
 
   it("toggles billing cycle to yearly", () => {
@@ -44,9 +44,11 @@ describe("PricingCards", () => {
     const yearlyBtn = screen.getByTestId("billing-year");
     fireEvent.click(yearlyBtn);
     
-    // Check updated price display (USD, year)
-    expect(screen.getByText("$100")).toBeInTheDocument();
-    expect(screen.getByText("$200")).toBeInTheDocument();
+    // Annual view shows per-month equivalent (yearCents / 12 / 100)
+    // Nitya: 99.90 * 100 = 9990 cents / 12 = 832.5 → round → 833 / 100 = 8.33
+    // Bandham: 199.90 * 100 = 19990 cents / 12 = 1665.8 → round → 1666 / 100 = 16.66
+    expect(screen.getByText("$8.33")).toBeInTheDocument();
+    expect(screen.getByText("$16.66")).toBeInTheDocument();
   });
 
   it("changes currency via select", () => {
@@ -56,8 +58,8 @@ describe("PricingCards", () => {
     fireEvent.change(currencySelect, { target: { value: "INR" } });
     
     // Check updated price display (INR, month)
-    expect(screen.getByText("₹800")).toBeInTheDocument();
-    expect(screen.getByText("₹1600")).toBeInTheDocument();
+    expect(screen.getByText("₹949")).toBeInTheDocument();
+    expect(screen.getByText("₹1799")).toBeInTheDocument();
   });
 
   it("calls onSelect when a plan is chosen", () => {
@@ -67,7 +69,7 @@ describe("PricingCards", () => {
     const selectNitya = screen.getByTestId("select-plan-nitya");
     fireEvent.click(selectNitya);
     
-    expect(onSelectMock).toHaveBeenCalledWith("nitya", "month");
+    expect(onSelectMock).toHaveBeenCalledWith("nitya", "month", "USD");
   });
 
   it("shows selected state for the active plan", () => {
