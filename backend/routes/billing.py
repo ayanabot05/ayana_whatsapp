@@ -35,7 +35,7 @@ class VerifyInput(BaseModel):
 
 
 def owner_only(user):
-    if user.get('household_owner_id'):
+    if user.get('role') != 'admin' and user.get('household_owner_id'):
         raise HTTPException(403,'Only the account owner can manage billing.')
     require_email(user)
 

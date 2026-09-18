@@ -27,7 +27,7 @@ export const CheckoutDialog = ({ selection, onClose, onComplete, allowTrial = fa
     setCode(''); setError(''); setStatus(''); setLocalOrder(null);
     const current = ++sequence.current; setQuote(null);
     api.post('/payment/quote', { ...selection, currency, coupon_code: '' }).then(({ data }) => { if (current === sequence.current) setQuote(data); }).catch(e => { if (current === sequence.current) setError(formatAxiosError(e)); });
-    return () => { sequence.current++; };
+    return () => { sequence.current = current + 1; };
   }, [selection, currency]);
   const applyCode = async () => {
     const current = ++sequence.current; setBusy(true); setError(''); setQuote(null);

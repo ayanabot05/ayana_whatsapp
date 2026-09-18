@@ -1157,6 +1157,9 @@ function CircleTab({ circle, planId, plan, parents, reload }) {
   );
 }
 
+// Plan management now lives in the extracted billing feature (Razorpay
+// checkout, plan comparison, usage limits). Kept as a thin alias so the
+// <PlanTab .../> call site above doesn't need to change.
 const PlanTab = PlanPanel;
 
 // -----------------------------------------------------------------------

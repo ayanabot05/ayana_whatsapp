@@ -118,7 +118,7 @@ export function PricingCards({ plans = [], currencies = [], selectedPlan, onSele
 
               {/* CTA */}
               {onSelect ? (
-                <button onClick={() => onSelect(p.id, billing)} data-testid={`select-plan-${p.id}`}
+                <button onClick={() => onSelect(p.id, billing, currency)} data-testid={`select-plan-${p.id}`}
                   className={`mt-6 w-full py-3 rounded-full font-semibold transition-colors text-sm ${
                     p.highlight
                       ? "bg-ayana-gold text-white hover:bg-ayana-gold/90"

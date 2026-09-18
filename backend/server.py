@@ -2043,6 +2043,7 @@ async def payment_checkout(payload: CheckoutInput, request: Request, user: dict 
     if plan not in PLAN_BY_ID:
         plan = "nitya"
     usage = await _validate_plan_transition(user["id"], plan)
+    currency = getattr(payload, "currency", "INR") or "INR"
     if os.environ.get("PAYMENTS_ENABLED", "false").lower() != "true":
         async with get_pool().acquire() as conn:
             await conn.execute(
@@ -2059,14 +2060,9 @@ async def payment_checkout(payload: CheckoutInput, request: Request, user: dict 
             )
         await audit(user["id"], "payment_skipped_test_mode", {"plan": plan, "billing": billing})
         return {"skipped": True, "plan": plan, "billing": billing, "usage": usage, "message": "Payments are disabled in testing mode. Trial access granted."}
-    from payments import create_stripe_checkout, PaymentCheckoutInput
-    origin = payload.origin_url or os.environ.get("FRONTEND_URL", "")
-    result = await create_stripe_checkout(
-        str(user["id"]),
-        PaymentCheckoutInput(plan=plan, billing=billing, origin_url=origin),
-        request,
-    )
-    await audit(user["id"], "payment_checkout_created", {"plan": plan, "billing": billing, "session_id": result.get("session_id")})
+    from razorpay_payments import create_razorpay_order
+    result = await create_razorpay_order(str(user["id"]), plan, billing, currency)
+    await audit(user["id"], "payment_checkout_created", {"plan": plan, "billing": billing, "order_id": result.get("order_id")})
     return {"skipped": False, "plan": plan, "billing": billing, "usage": usage, **result}
 
 # ---------------- Activation ----------------
@@ -4117,10 +4113,10 @@ app.include_router(care_router)
 app.include_router(billing_router)
 app.include_router(coupon_router)
 
-# Stripe payments router (endpoints are self-prefixed with /api). Kept in a
+# Razorpay payments router (endpoints are self-prefixed with /api). Kept in a
 # separate module; only actually reachable when PAYMENTS_ENABLED=true.
-from payments import payments_router
-app.include_router(payments_router)
+from razorpay_payments import razorpay_router
+app.include_router(razorpay_router)
 
 _cors_origins = [
     o.strip()
@@ -4133,7 +4129,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_origins=_cors_origins,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "X-Hub-Signature-256", "X-Dev-Token", "Stripe-Signature", "X-CSRF-Token", "User-Agent"],
+    allow_headers=["Authorization", "Content-Type", "X-Hub-Signature-256", "X-Dev-Token", "X-Razorpay-Signature", "X-CSRF-Token", "User-Agent"],
     )
 
 @app.middleware("http")

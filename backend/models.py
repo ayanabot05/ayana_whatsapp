@@ -336,6 +336,7 @@ class MomentInput(BaseModel):
 class CheckoutInput(BaseModel):
     plan: str = Field("nitya", pattern="^(nitya|bandham|raksha|basic|care_plus)$")
     billing: str = Field("month", pattern="^(month|year)$")
+    currency: str = Field("INR", pattern="^(INR|USD|GBP|EUR|AED|SGD|AUD|CAD)$")
     origin_url: str = ""
 
 

@@ -16,6 +16,7 @@ import { toast } from "sonner";
 import { Logo } from "@/components/Logo";
 import { FALLBACK_PLANS, FALLBACK_CURRENCIES } from "../lib/fallbackPlans";
 import { cleanHabits } from "../lib/formHelpers";
+import { useRazorpay } from "@/lib/useRazorpay";
 
 const STEPS = ["Welcome", "Your plan", "Your parents", "Activate"];
 
@@ -125,15 +126,36 @@ export default function Onboarding() {
   };
 
 
-  const choosePlan = async (id, billing) => {
+  const { openRazorpayCheckout } = useRazorpay({
+    onSuccess: ({ plan: newPlan }) => {
+      toast.success(`Payment successful! ${plans.find(p => p.id === newPlan)?.name || newPlan} activated.`);
+      setLoading(false);
+      setStep(2);
+    },
+    onError: (msg) => {
+      toast.error(msg, { duration: 8000 });
+      setLoading(false);
+    },
+    onDismiss: () => {
+      setLoading(false);
+    },
+  });
+
+  const choosePlan = async (id, billing, currency) => {
     setPlanId(id);
     setLoading(true);
     try {
-      const { data } = await api.post("/payment/checkout", { plan: id, billing, origin_url: window.location.origin });
-      if (data?.checkout_url) { window.location.href = data.checkout_url; return; }
-      toast.success(`${plans.find(p => p.id === id)?.name} selected.`);
-      setStep(2);
-    } catch (e) { toast.error(formatAxiosError(e)); } finally { setLoading(false); }
+      const { data } = await api.post("/payment/checkout", { plan: id, billing, currency: currency || "INR", origin_url: window.location.origin });
+      if (data?.skipped) {
+        // Test mode / payments disabled — plan changed directly
+        toast.success(`${plans.find(p => p.id === id)?.name} selected.`);
+        setStep(2);
+        setLoading(false);
+        return;
+      }
+      // Open Razorpay checkout modal
+      openRazorpayCheckout(data, { name: user?.name, email: user?.email, phone: user?.phone });
+    } catch (e) { toast.error(formatAxiosError(e)); setLoading(false); }
   };
 
   const openAddParent = () => {

@@ -159,9 +159,12 @@ async def get_current_user(request: Request) -> dict:
 
 async def get_current_admin(request: Request) -> dict:
     user = await get_current_user(request)
-    if user.get("role")!= "admin":
+    if user.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Admin access required")
     return user
+
+# Alias used by routes that follow the "require_*" naming convention
+require_admin = get_current_admin
 
 async def seed_admin():
     admin_email = os.environ.get("ADMIN_EMAIL", "admin@ayana.care").lower()
