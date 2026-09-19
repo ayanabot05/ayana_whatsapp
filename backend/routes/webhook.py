@@ -1,4 +1,5 @@
 """AYANA webhook; extracted without changing API behaviour."""
+import asyncio
 import asyncpg
 import hmac
 import json
@@ -393,6 +394,17 @@ async def _record_reply(from_number: str, body_text: str, num_media: int = 0, pa
                         """,
                         detected, parent["id"],
                     )
+            # This is the parent's first inbound contact after a 131049 block
+            # on their number — clear the flag and re-attempt their opener,
+            # since the inbound message just established the trust signal
+            # Meta needed. Runs in the background so the reply-recording flow
+            # below is never delayed or failed by a welcome resend.
+            if parent.get("needs_inbound_click"):
+                await conn.execute("UPDATE parents SET needs_inbound_click=false WHERE id=$1", parent["id"])
+                owner_row = await conn.fetchrow("select * from users where id=$1", parent["user_id"])
+                if owner_row:
+                    from services.welcomes import welcome_parent_and_child
+                    asyncio.create_task(welcome_parent_and_child(dict(parent), dict(owner_row)))
 
     is_voice = False
     transcription = None
@@ -404,6 +416,25 @@ async def _record_reply(from_number: str, body_text: str, num_media: int = 0, pa
     lang = parent["language"] if parent and parent["language"] else "en"
     ml_flagged = False
     ml_score = None
+
+    owner_id = parent["user_id"] if parent else None
+
+    # Same trust-recovery step for the ACCOUNT OWNER'S own number: if the
+    # inbound message came from the owner's own phone (not the parent's —
+    # e.g. he tapped the click-to-chat link himself), clear his flag too and
+    # resend his welcome. Cheap to check unconditionally; only fires when the
+    # digits actually match his stored number.
+    if owner_id:
+        async with get_pool().acquire() as conn:
+            owner_flagged = await conn.fetchrow(
+                "select * from users where id=$1 and needs_inbound_click=true "
+                "and regexp_replace(phone,'\\D','','g')=regexp_replace($2,'\\D','','g')",
+                owner_id, from_number,
+            )
+            if owner_flagged:
+                await conn.execute("UPDATE users SET needs_inbound_click=false WHERE id=$1", owner_id)
+                from services.welcomes import welcome_parent_and_child
+                asyncio.create_task(welcome_parent_and_child(dict(parent), dict(owner_flagged)))
 
     async with get_pool().acquire() as conn:
         if button_payload:
@@ -455,7 +486,6 @@ async def _record_reply(from_number: str, body_text: str, num_media: int = 0, pa
         ml_flagged = assessment.get("ml_flagged", False)
         ml_score = assessment.get("ml_score")
 
-    owner_id = parent["user_id"] if parent else None
     feeling = intent.split(":")[1] if intent and ":" in intent else intent
 
     async with get_pool().acquire() as conn, conn.transaction():
@@ -628,9 +658,6 @@ async def replies_unread_count(user: dict = Depends(get_current_user)):
     return {"unread": count or 0, "latest": latest_out}
 
 
-
-
-
 @router.post("/replies/read")
 async def mark_replies_read(payload: MarkRepliesReadInput, user: dict = Depends(get_current_user), _csrf: None = Depends(validate_csrf_token)):
     async with get_pool().acquire() as conn:
@@ -651,10 +678,6 @@ async def mark_replies_read(payload: MarkRepliesReadInput, user: dict = Depends(
         except (IndexError, ValueError):
             marked = 0
     return {"ok": True, "marked": marked}
-
-
-
-
 
 
 @router.post("/replies/simulate")
@@ -693,6 +716,8 @@ async def _persist_delivery_status(status: dict) -> None:
     st = status.get("status")
     if not sid or not st:
         return
+    fail_detail = None
+    fail_code = None
     try:
         async with get_pool().acquire() as conn:
             if st == "sent":
@@ -717,15 +742,40 @@ async def _persist_delivery_status(status: dict) -> None:
                 )
             elif st == "failed":
                 errors = status.get("errors") or []
-                detail = (errors[0].get("title") if errors and isinstance(errors[0], dict) else None) or "delivery failed"
+                fail_detail = (errors[0].get("title") if errors and isinstance(errors[0], dict) else None) or "delivery failed"
+                fail_code = errors[0].get("code") if errors and isinstance(errors[0], dict) else None
                 await conn.execute(
                     """update message_logs
                        set delivery_status = 'failed', status = 'failed', detail = coalesce(detail, $2)
                        where sid = $1 and delivery_status IS DISTINCT FROM 'read' and delivery_status IS DISTINCT FROM 'delivered'""",
-                    sid, detail,
+                    sid, fail_detail,
                 )
+                # Meta code 131049: "not delivered to maintain healthy
+                # ecosystem engagement" — a cold-outbound trust rejection,
+                # not a transient failure. Flag the recipient (parent and/or
+                # owner) so the frontend can prompt them to message us first
+                # (click-to-chat), and so _record_reply() above knows to
+                # auto-resend the welcome the moment they do.
+                if fail_code == 131049:
+                    recipient = status.get("recipient_id", "")
+                    if recipient:
+                        await conn.execute(
+                            "UPDATE parents SET needs_inbound_click=true WHERE regexp_replace(phone,'\\D','','g')=regexp_replace($1,'\\D','','g')",
+                            recipient,
+                        )
+                        await conn.execute(
+                            "UPDATE users SET needs_inbound_click=true WHERE regexp_replace(phone,'\\D','','g')=regexp_replace($1,'\\D','','g')",
+                            recipient,
+                        )
+                        logger.warning("[webhook] 131049 ecosystem-engagement block for %s — flagged needs_inbound_click", recipient)
+            # welcome_deliveries has no message_logs row of its own (welcome
+            # sends aren't scheduler-driven check-ins), so this is the only
+            # place its failure reason is ever recorded.
             if st in ('delivered','read','failed'):
-                await conn.execute("UPDATE welcome_deliveries SET status=$2,updated_at=now() WHERE sid=$1 AND status NOT IN ('delivered','read')",sid,st)
+                await conn.execute(
+                    "UPDATE welcome_deliveries SET status=$2,detail=coalesce($3,detail),updated_at=now() WHERE sid=$1 AND status NOT IN ('delivered','read')",
+                    sid, st, fail_detail,
+                )
             # Phase 4: "Amma got your photo 📸" — moment delivery confirmation.
             if st in ("sent", "delivered", "read", "failed"):
                 moment = await conn.fetchrow("select * from moments where sid = $1", sid)
