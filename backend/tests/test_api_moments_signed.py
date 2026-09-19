@@ -7,9 +7,9 @@ import pytest
 # We need to test upload-image which uses put_object from storage
 @pytest.fixture
 def mock_storage():
-    with patch("server.put_object") as m_put:
+    with patch("routes.parents.put_object") as m_put:
         m_put.return_value = {"path": "mocked/path.jpg", "size": 1024}
-        with patch("server.get_object") as m_get:
+        with patch("routes.parents.get_object") as m_get:
             m_get.return_value = (b"fake_image_data", "image/jpeg")
             yield m_put, m_get
 
@@ -78,13 +78,13 @@ def test_signed_url(api_client, api_url, fresh_user, mock_storage):
     urllib.parse.parse_qs(parsed.query)
     filename = r.json()["filename"]
     
-    from server import _build_signed_url
+    from routes.parents import _build_signed_url
     expired_url = _build_signed_url(filename, expires_sec=-100)
     
     r4 = api_client.get(expired_url)
     assert r4.status_code == 403
 
-@patch("server.send_moment")
+@patch("routes.parents.send_moment")
 def test_post_moments(mock_send, api_client, api_url, fresh_user):
     mock_send.return_value = {"status": "sent"}
     h = fresh_user["headers"]

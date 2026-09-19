@@ -17,14 +17,19 @@ async def send_once(key,phone,name,checking_for,language):
     return {'status':state,'detail':result.get('detail')}
 
 
+def _safe_lang(value):
+    return value if value in ('en','te','hi') else 'en'
+
+
 async def welcome_parent_and_child(parent,owner,require_activation=False):
     if require_activation and not await get_pool().fetchval('SELECT whatsapp_activated FROM activation_state WHERE user_id=$1',parent['user_id']):
         return
     if parent.get('opted_out_at'):
         return
-    lang = parent.get('language') if parent.get('language') in ('en','te','hi') else 'en'
+    parent_lang = _safe_lang(parent.get('language'))
+    owner_lang = _safe_lang(owner.get('language') or owner.get('preferred_language'))
     pname = parent.get('preferred_name') or parent['name']
     cname = owner['name'].split()[0]
     phone_hash = hashlib.sha256(owner['phone'].encode()).hexdigest()[:16]
-    await send_once(f"parent:{parent['id']}",parent['phone'],pname,cname,lang)
-    await send_once(f"child:{owner['id']}:{phone_hash}",owner['phone'],cname,pname,'en')
+    await send_once(f"parent:{parent['id']}",parent['phone'],pname,cname,parent_lang)
+    await send_once(f"child:{owner['id']}:{phone_hash}",owner['phone'],cname,pname,owner_lang)

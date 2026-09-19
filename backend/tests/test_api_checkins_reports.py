@@ -55,7 +55,7 @@ def test_monthly_report_generate(api_client, api_url, fresh_user):
         
 def test_whatsapp_webhook(api_client, api_url):
     # valid signature
-    with patch("server.verify_meta_signature") as m_verify:
+    with patch("routes.webhook.verify_meta_signature") as m_verify:
         m_verify.return_value = True
         
         # We assume the webhook is /api/whatsapp/webhook

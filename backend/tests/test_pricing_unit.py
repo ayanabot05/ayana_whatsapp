@@ -17,31 +17,31 @@ def test_resolve_plan_id():
 def test_plan_limits():
     nitya = plan_limits("nitya")
     assert nitya["parents"] == 1
-    assert nitya["checkins"] == 2
+    assert nitya["checkins"] == 3
 
     bandham = plan_limits("bandham")
     assert bandham["parents"] == 2
-    assert bandham["checkins"] == 3
+    assert bandham["checkins"] == 4
 
     raksha = plan_limits("raksha")
     assert raksha["recovery_mode"] is True
     assert raksha["parents"] == 2
 
 def test_get_template_cost_estimate():
-    # nitya: 2 checkins + 2 reminders = 4 total
+    # Current Nitya: 3 check-ins + 3 reminders (activities excluded).
     c1 = get_template_cost_estimate("nitya")
-    assert c1["total_scheduled"] == 4
+    assert c1["total_scheduled"] == 6
     assert c1["paid_best_case"] == 1
-    assert c1["paid_worst_case"] == 4
-    assert c1["free_quick_replies_best_case"] == 3
+    assert c1["paid_worst_case"] == 6
+    assert c1["free_quick_replies_best_case"] == 5
 
-    # bandham: 3 checkins + 3 reminders = 6 total
+    # Bandham: 4 check-ins + 4 reminders.
     c2 = get_template_cost_estimate("bandham")
-    assert c2["total_scheduled"] == 6
+    assert c2["total_scheduled"] == 8
 
-    # raksha: 4 checkins + 4 reminders = 8 total
+    # Raksha: 4 check-ins + 6 reminders.
     c3 = get_template_cost_estimate("raksha")
-    assert c3["total_scheduled"] == 8
+    assert c3["total_scheduled"] == 10
 
 def test_invalid_plan_id_keyerror():
     # PLAN_BY_ID is a dict, accessing a missing key directly should raise KeyError
