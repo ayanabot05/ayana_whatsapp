@@ -3,6 +3,12 @@
 Coupon reservations do not expire while their Razorpay order remains payable:
 releasing them on modal dismiss could allow two discounted captured payments.
 The same account resumes its existing discounted order instead.
+
+Prorated upgrade credit: switching to a higher-ranked plan while paid time
+remains on the current one credits the unused value toward the new plan's
+price (see billing_access.prorated_credit). The credited grant is revoked
+only once the new order is confirmed paid, in fulfill(), so there's never a
+double-access window and a failed/abandoned payment never loses the old grant.
 """
 import logging
 import os
@@ -31,15 +37,22 @@ async def quote(conn,user,plan,billing,currency,code='',lock=False):
         raise HTTPException(400,'The minimum payment amount is 100 currency subunits.')
     coupon = await coupons.validate(conn,code,user,plan,billing,lock)
     discount = int((Decimal(subtotal)*Decimal(coupon['percent'])/100).quantize(Decimal('1'),rounding=ROUND_HALF_UP)) if coupon else 0
-    amount = subtotal-discount
     lifetime = bool(coupon and coupon['kind']=='lifetime')
-    if not lifetime and amount<100:
-        raise HTTPException(400,'The discounted payment is below the supported minimum.')
-    return {'plan':plan,'plan_name':PLAN_BY_ID[plan]['name'],'billing':billing,'currency':currency,'subtotal':subtotal,'discount':discount,'amount':amount,'lifetime':lifetime,'coupon_id':coupon['id'] if coupon else None,'coupon_hint':coupon['code_hint'] if coupon else None,'auto_renews':False,'terms':'Lifetime sponsored access; no payment or renewals.' if lifetime else 'One-time prepaid payment. Renew manually; no automatic charges.'}
+    credit, credited_grant_id = (0, None) if lifetime else await billing_access.prorated_credit(conn, user['id'], currency)
+    amount = subtotal - discount - credit
+    if not lifetime and amount < 100:
+        amount = 100  # never let proration zero out or go below the gateway minimum
+    return {
+        'plan':plan,'plan_name':PLAN_BY_ID[plan]['name'],'billing':billing,'currency':currency,
+        'subtotal':subtotal,'discount':discount,'credit':credit,'amount':amount,'lifetime':lifetime,
+        'coupon_id':coupon['id'] if coupon else None,'coupon_hint':coupon['code_hint'] if coupon else None,
+        'credited_grant_id':credited_grant_id,'auto_renews':False,
+        'terms':'Lifetime sponsored access; no payment or renewals.' if lifetime else 'One-time prepaid payment. Renew manually; no automatic charges.',
+    }
 
 
 def public_order(order):
-    return {key:order.get(key) for key in ('id','gateway_order_id','gateway_payment_id','plan','billing','currency','subtotal','discount','amount','status','is_test','detail','created_at')}
+    return {key:order.get(key) for key in ('id','gateway_order_id','gateway_payment_id','plan','billing','currency','subtotal','discount','credit','amount','status','is_test','detail','created_at')}
 
 
 async def create(user,payload):
@@ -66,7 +79,13 @@ async def create(user,payload):
         if price['amount']:
             gateway.client()  # Fail before reserving anything when configuration is missing.
         order_id = uuid.uuid4()
-        order = await conn.fetchrow('INSERT INTO billing_orders(id,user_id,idempotency_key,plan,billing,currency,subtotal,discount,amount,coupon_id,is_test) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *',order_id,user['id'],payload.idempotency_key,price['plan'],price['billing'],price['currency'],price['subtotal'],price['discount'],price['amount'],price['coupon_id'],gateway.test_mode())
+        order = await conn.fetchrow(
+            'INSERT INTO billing_orders(id,user_id,idempotency_key,plan,billing,currency,subtotal,discount,credit,amount,coupon_id,credited_grant_id,is_test) '
+            'VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *',
+            order_id,user['id'],payload.idempotency_key,price['plan'],price['billing'],price['currency'],
+            price['subtotal'],price['discount'],price['credit'],price['amount'],price['coupon_id'],
+            price['credited_grant_id'],gateway.test_mode(),
+        )
         if price['coupon_id']:
             await conn.execute('UPDATE billing_coupons SET reserved_by=$2,reserved_order_id=$3 WHERE id=$1',price['coupon_id'],user['id'],order_id)
         if price['lifetime']:
@@ -113,7 +132,7 @@ async def fulfill(local_id,payment,remote_order):
             if coupon['reserved_order_id']!=local_id or (coupon['redeemed_by'] and coupon['redeemed_by']!=owner):
                 raise HTTPException(409,'Coupon reconciliation needs review. Do not pay again.')
             await conn.execute('UPDATE billing_coupons SET redeemed_by=$2,redeemed_at=coalesce(redeemed_at,now()) WHERE id=$1',coupon['id'],owner)
-        await billing_access.grant_order(conn,order)
+        await billing_access.grant_order(conn,order,revoke_grant_id=order['credited_grant_id'])
         await conn.execute("UPDATE billing_orders SET status='paid',gateway_payment_id=$2,verified_at=now(),updated_at=now() WHERE id=$1",local_id,payment['id'])
         return {'status':'paid','access':await billing_access.access(conn,owner)}
 

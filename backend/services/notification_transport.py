@@ -14,8 +14,12 @@ async def send_update(phone, reply, session_open, language='en'):
     text = f"AYANA: {name} replied · {prompt}\n\n{body}\n\n{stamp}\n{url}"
     if session_open:
         return await post_meta({'messaging_product':'whatsapp','to':phone,'type':'text','text':{'body':text}})
-    if os.environ.get('WA_CHILD_REPLY_TEMPLATES_ENABLED', '').lower() != 'true':
-        return {'status': 'awaiting_template', 'detail': 'The child window is closed; dedicated reply templates must be approved and enabled.'}
+    # ayana_parent_reply_{en,te,hi} and ayana_parent_voice_{en,te,hi} are
+    # approved with a static Website button and a Quick-reply button, so we
+    # always try the template when the recipient's window is closed. Opt out
+    # only when Meta has explicitly disabled the templates upstream.
+    if os.environ.get('WA_CHILD_REPLY_TEMPLATES_ENABLED', 'true').lower() == 'false':
+        return {'status': 'awaiting_template', 'detail': 'Child reply templates are disabled by configuration.'}
     lang = language if language in ('en', 'te', 'hi') else 'en'
     kind = 'voice' if reply['is_voice'] else 'reply'
     params = [name, prompt, stamp] if kind == 'voice' else [name, prompt, body[:600], stamp]

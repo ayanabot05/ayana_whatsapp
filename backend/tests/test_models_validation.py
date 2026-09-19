@@ -15,22 +15,24 @@ from models import (
 
 def test_register_input():
     # Valid
-    reg = RegisterInput(name="Test", email="test@test.com", phone="+919876543210", password="password123")
+    reg = RegisterInput(name="Test", email="test@test.com", phone="+919876543210", password="Password123")
     assert reg.phone == "+919876543210"
 
-    # Invalid phone (missing +)
+    # International numbers without '+' are normalized; short +91 numbers fail.
+    reg = RegisterInput(name="Test", email="test@test.com", phone="919876543210", password="Password123")
+    assert reg.phone == "+919876543210"
     with pytest.raises(ValidationError):
-        RegisterInput(name="Test", email="test@test.com", phone="9876543210", password="password123")
+        RegisterInput(name="Test", email="test@test.com", phone="+9198765", password="Password123")
 
     # Invalid email
     with pytest.raises(ValidationError):
-        RegisterInput(name="Test", email="not_an_email", phone="+919876543210", password="password123")
+        RegisterInput(name="Test", email="not_an_email", phone="+919876543210", password="Password123")
 
     # Name length boundaries
     with pytest.raises(ValidationError):
-        RegisterInput(name="", email="test@test.com", phone="+919876543210", password="password123")
+        RegisterInput(name="", email="test@test.com", phone="+919876543210", password="Password123")
     with pytest.raises(ValidationError):
-        RegisterInput(name="a" * 81, email="test@test.com", phone="+919876543210", password="password123")
+        RegisterInput(name="a" * 81, email="test@test.com", phone="+919876543210", password="Password123")
 
 
 def test_medicine_item():
@@ -87,10 +89,8 @@ def test_parent_input():
 def test_schedule_input_limit_messages():
     msg = ScheduleMessage(time="08:00", category="morning_wish")
     
-    # nitya allows 2 + 1 maybe? plan_limits("nitya") typically allows ~2
-    # The requirement says "tier-based message count enforcement".
-    # I'll just check if it fails with too many and passes with right amount.
-    with pytest.raises(ValidationError, match="max .* daily messages"):
+    # Per-category limits are checked before the total daily-message cap.
+    with pytest.raises(ValidationError, match="allows up to 3 check-ins per day"):
         ScheduleInput(parent_id="123", mode="nitya", messages=[msg] * 20)
     
     with pytest.raises(ValidationError, match="Add at least 1 daily check-in"):
@@ -102,9 +102,10 @@ def test_emergency_contact():
     ec = EmergencyContact(name="Doc", phone="+919876543210")
     assert ec.phone == "+919876543210"
 
-    # Phone without + prefix
+    # Bare international numbers normalize to E.164.
+    assert EmergencyContact(name="Doc", phone="919876543210").phone == "+919876543210"
     with pytest.raises(ValidationError):
-        EmergencyContact(name="Doc", phone="9876543210")
+        EmergencyContact(name="Doc", phone="+9198765")
 
 
 def test_habits_input():

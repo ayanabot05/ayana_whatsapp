@@ -17,6 +17,7 @@ import {
 import { PaginationBar } from "@/components/ui/PaginationBar";
 import { DeliveryFunnel } from "@/components/DeliveryFunnel";
 import { AdminCoupons } from '@/features/billing/AdminCoupons';
+import { SanitySuite } from '@/components/SanitySuite';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 const USERS_PER_PAGE = 50;
@@ -196,9 +197,11 @@ export default function Admin() {
             <TabsTrigger value="delivery-health" data-testid="admin-tab-delivery-health">Delivery health</TabsTrigger>
             <TabsTrigger value="schedules"   data-testid="admin-tab-schedules">Schedules</TabsTrigger>
             <TabsTrigger value="emergencies" data-testid="admin-tab-emergencies">Emergencies</TabsTrigger>
+            <TabsTrigger value="sanity"      data-testid="admin-tab-sanity">Sanity suite</TabsTrigger>
           </TabsList>
 
           <TabsContent value="coupons" className="mt-6"><AdminCoupons /></TabsContent>
+          <TabsContent value="sanity" className="mt-6"><SanitySuite /></TabsContent>
           <TabsContent value="users" className="mt-6">
             <div className="bg-white rounded-2xl border border-ayana-line overflow-x-auto" data-testid="admin-users-table">
               <Table>
