@@ -72,7 +72,31 @@ export const CheckoutDialog = ({ selection, onClose, onComplete, allowTrial = fa
     {config?.test_mode && <p className="rounded-xl bg-amber-50 border border-amber-200 p-3 text-sm text-amber-900" data-testid="checkout-test-mode">Razorpay test mode. No real money will be charged.</p>}
     <label className="text-sm font-medium" htmlFor="checkout-currency">Currency charged</label><select id="checkout-currency" value={currency} disabled={busy} onChange={e => setCurrency(e.target.value)} data-testid="checkout-currency" className="border rounded-xl p-3 bg-white">{config?.currencies.map(c => <option key={c} value={c}>{c}</option>)}</select>
     <section className="rounded-xl border border-ayana-line p-4 space-y-3" data-testid="checkout-coupon-section"><label htmlFor="checkout-coupon" className="flex gap-2 items-center text-sm font-medium"><Ticket className="w-4 h-4" />Have a coupon or free-access code?</label><div className="flex gap-2"><Input id="checkout-coupon" data-testid="checkout-coupon-input" value={code} disabled={busy} placeholder="Enter your code" onChange={e => { setCode(e.target.value); setQuote(null); sequence.current++; }} /><Button type="button" variant="outline" disabled={busy || !currency} onClick={applyCode} data-testid="checkout-apply-coupon">Apply</Button></div><p className="text-xs text-ayana-secondary" data-testid="checkout-coupon-help">Free codes unlock Raksha and must match your verified email. 25% codes apply once to an annual purchase.</p></section>
-    {quote && <div className="space-y-2 text-sm" data-testid="checkout-quote"><div className="flex justify-between"><span>Plan price</span><span data-testid="checkout-subtotal">{money(quote.subtotal, currency)}</span></div><div className="flex justify-between"><span>Coupon discount</span><span data-testid="checkout-discount">−{money(quote.discount, currency)}</span></div><div className="flex justify-between border-t pt-3 font-semibold text-lg"><span>Total today</span><span data-testid="checkout-total">{money(quote.amount, currency)}</span></div><p className="text-xs text-ayana-secondary" data-testid="checkout-terms">{quote.terms}</p></div>}
+    {quote && (
+      <div className="space-y-2 text-sm" data-testid="checkout-quote">
+        <div className="flex justify-between">
+          <span>Plan price</span>
+          <span data-testid="checkout-subtotal">{money(quote.subtotal, currency)}</span>
+        </div>
+        {quote.discount > 0 && (
+          <div className="flex justify-between">
+            <span>Coupon discount</span>
+            <span data-testid="checkout-discount">−{money(quote.discount, currency)}</span>
+          </div>
+        )}
+        {quote.credit > 0 && (
+          <div className="flex justify-between text-ayana-primary" data-testid="checkout-credit">
+            <span>Credit for remaining time on your plan</span>
+            <span>−{money(quote.credit, currency)}</span>
+          </div>
+        )}
+        <div className="flex justify-between border-t pt-3 font-semibold text-lg">
+          <span>Total today</span>
+          <span data-testid="checkout-total">{money(quote.amount, currency)}</span>
+        </div>
+        <p className="text-xs text-ayana-secondary" data-testid="checkout-terms">{quote.terms}</p>
+      </div>
+    )}
     {error && <p role="alert" data-testid="checkout-error" className="text-sm text-red-700">{error}</p>}
     {status && <p role="status" data-testid="checkout-status" className="text-sm rounded-xl bg-ayana-bg p-3">{status}</p>}
     <Button disabled={busy || !quote} onClick={pay} data-testid="checkout-pay-button">{busy ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <ShieldCheck className="w-4 h-4 mr-2" />}{quote?.lifetime ? 'Activate lifetime access — free' : 'Pay securely with Razorpay'}</Button>

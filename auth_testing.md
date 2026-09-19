@@ -1,27 +1,11 @@
-# AYANA authentication regression protocol
+# Authentication extraction regression gate
 
-This application uses PostgreSQL/asyncpg, not MongoDB. Preserve its existing JWT,
-HttpOnly cookies and CSRF contract. Do not apply generic provider examples that
-switch databases, log reset links/codes, or introduce onscreen verification.
+The supplied generic authentication playbook is for a new MongoDB application. This existing application uses PostgreSQL/asyncpg and mature JWT/cookie helpers; do not replace its database, token lifetimes, or authentication semantics during extraction.
 
-1. Read `memory/test_credentials.md` and verify APP_ENV=test and loopback
-   `*_local` database before seeding or mutating any records.
-2. Provider credentials are not available. Keep EMAIL_ENABLED=false and
-   WHATSAPP_ENABLED=false in the running app. For real service-level tests,
-   intercept email/Meta HTTP only inside pytest; record outgoing email codes in
-   the test fixture, never expose them through app routes or logs.
-3. Disabled email service must return the SAME 503 for known and unknown reset
-   accounts. Enabled-service tests must prove generic responses, purpose/target
-   binding, expiry, guessing/resend limits, one-use concurrent consumption.
-4. Seed verified owner and unrelated-household fixtures with API-valid
-   example.com emails. A new unverified account's 403 on profile changes is an
-   intentional gate, not a reason to weaken verification.
-5. Use preview URL from frontend/.env for browser/API ingress checks. Check
-   login, cookies, `/auth/me`, CSRF, number change authorization and direct-profile
-   bypass. Preserve an exact `/replies/:id` deep link through login.
-6. Account email paths are POST `/api/profile/email/request` and
-   `/api/profile/email/confirm`. Password change is POST `/api/auth/change-password`.
-   Signup verification uses POST `/api/auth/email/request` and `/verify`.
-7. Verify old-email challenges cannot change an account after its email changes;
-   number-change proof must match the old number/email at commit time.
-8. No production credentials, OTP sends, database writes, or payments permitted.
+## Testing playbook
+
+1. Database verification: validate existing password hashing and user lookup behaviour against isolated asyncpg test doubles. Live database, index and admin-seeding verification is blocked until configuration is supplied. Do not run MongoDB commands against this PostgreSQL application.
+2. API testing: exercise register/login, cookies, `/api/auth/me`, refresh, logout, password changes, email OTP request/confirmation, household membership and CSRF checks through ASGI/TestClient. Preserve the existing paths, schemas, response fields and dependency identities.
+3. Mock only external boundaries (database, Redis, email, WhatsApp). Keep real request validation, JWT signing/verification, bcrypt, serialization and cookie handling in regression tests.
+4. Compare route manifests/OpenAPI against `/tmp/ayana-server-before-refactor.py` (also recoverable from git commit `b82a8b0`). Record pre-existing route overlaps separately; do not introduce new overlaps or reorder overlapping handlers.
+5. No live credentials exist. Read `memory/test_credentials.md`. Clearly label isolated coverage and live configuration limitations in each report.
