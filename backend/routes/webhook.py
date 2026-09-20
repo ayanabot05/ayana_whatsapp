@@ -394,17 +394,6 @@ async def _record_reply(from_number: str, body_text: str, num_media: int = 0, pa
                         """,
                         detected, parent["id"],
                     )
-            # This is the parent's first inbound contact after a 131049 block
-            # on their number — clear the flag and re-attempt their opener,
-            # since the inbound message just established the trust signal
-            # Meta needed. Runs in the background so the reply-recording flow
-            # below is never delayed or failed by a welcome resend.
-            if parent.get("needs_inbound_click"):
-                await conn.execute("UPDATE parents SET needs_inbound_click=false WHERE id=$1", parent["id"])
-                owner_row = await conn.fetchrow("select * from users where id=$1", parent["user_id"])
-                if owner_row:
-                    from services.welcomes import welcome_parent_and_child
-                    asyncio.create_task(welcome_parent_and_child(dict(parent), dict(owner_row)))
 
     is_voice = False
     transcription = None
@@ -419,11 +408,12 @@ async def _record_reply(from_number: str, body_text: str, num_media: int = 0, pa
 
     owner_id = parent["user_id"] if parent else None
 
-    # Same trust-recovery step for the ACCOUNT OWNER'S own number: if the
-    # inbound message came from the owner's own phone (not the parent's —
-    # e.g. he tapped the click-to-chat link himself), clear his flag too and
-    # resend his welcome. Cheap to check unconditionally; only fires when the
-    # digits actually match his stored number.
+    # Trust-recovery for the ACCOUNT OWNER only: a 131049 ("not delivered to
+    # maintain healthy ecosystem engagement") block on their own number is
+    # cleared by their first genuine inbound message — e.g. tapping the
+    # click-to-chat link in WhatsAppActivatePrompt. We only check the owner
+    # here; parents build trust naturally through the normal check-in/reply
+    # cycle and never need this flag.
     if owner_id:
         async with get_pool().acquire() as conn:
             owner_flagged = await conn.fetchrow(
@@ -752,17 +742,14 @@ async def _persist_delivery_status(status: dict) -> None:
                 )
                 # Meta code 131049: "not delivered to maintain healthy
                 # ecosystem engagement" — a cold-outbound trust rejection,
-                # not a transient failure. Flag the recipient (parent and/or
-                # owner) so the frontend can prompt them to message us first
-                # (click-to-chat), and so _record_reply() above knows to
+                # not a transient failure. Flag the ACCOUNT OWNER only (not
+                # parents — they build trust naturally via the normal
+                # check-in/reply cycle) so the frontend can prompt them to
+                # message us first, and so _record_reply() above knows to
                 # auto-resend the welcome the moment they do.
                 if fail_code == 131049:
                     recipient = status.get("recipient_id", "")
                     if recipient:
-                        await conn.execute(
-                            "UPDATE parents SET needs_inbound_click=true WHERE regexp_replace(phone,'\\D','','g')=regexp_replace($1,'\\D','','g')",
-                            recipient,
-                        )
                         await conn.execute(
                             "UPDATE users SET needs_inbound_click=true WHERE regexp_replace(phone,'\\D','','g')=regexp_replace($1,'\\D','','g')",
                             recipient,

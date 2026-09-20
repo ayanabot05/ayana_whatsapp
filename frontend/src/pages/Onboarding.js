@@ -17,6 +17,7 @@ import { Logo } from "@/components/Logo";
 import { FALLBACK_PLANS, FALLBACK_CURRENCIES } from "../lib/fallbackPlans";
 import { cleanHabits } from "../lib/formHelpers";
 import { useRazorpay } from "@/lib/useRazorpay";
+import { WhatsAppActivatePrompt } from "@/components/WhatsAppActivatePrompt";
 
 const STEPS = ["Welcome", "Your plan", "Your parents", "Activate"];
 
@@ -435,12 +436,15 @@ export default function Onboarding() {
                 </div>
               </div>
             )}
-            {step === 3 && (
-              <div className="text-center">
-                <span className="inline-flex w-16 h-16 rounded-2xl bg-ayana-whatsapp/15 items-center justify-center mb-5"><MessageCircle className="w-8 h-8 text-ayana-whatsapp" strokeWidth={1.5} /></span>
-                <h1 className="font-display text-3xl font-semibold text-ayana-text">Ready to activate their care circle</h1>
-                <p className="mt-3 text-ayana-secondary max-w-lg mx-auto">We'll send a warm welcome + a short how-to-reply guide to {parentNames || "your parent"} on WhatsApp, then begin daily check-ins.</p>
-                <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-3">
+              {step === 3 && (
+                <div className="text-center">
+                  <span className="inline-flex w-16 h-16 rounded-2xl bg-ayana-whatsapp/15 items-center justify-center mb-5"><MessageCircle className="w-8 h-8 text-ayana-whatsapp" strokeWidth={1.5} /></span>
+                  <h1 className="font-display text-3xl font-semibold text-ayana-text">Ready to activate their care circle</h1>
+                  <p className="mt-3 text-ayana-secondary max-w-lg mx-auto">We'll send a warm welcome + a short how-to-reply guide to {parentNames || "your parent"} on WhatsApp, then begin daily check-ins.</p>
+                  <div className="mt-6 max-w-md mx-auto text-left">
+                    <WhatsAppActivatePrompt recipientLabel="you" />
+                  </div>
+                  <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-3">
                   <button onClick={() => setStep(2)} className="inline-flex items-center gap-2 px-6 py-3.5 rounded-full border border-ayana-line text-ayana-text hover:bg-ayana-alt transition-colors"><ArrowLeft className="w-4 h-4" /> Edit parents</button>
                   <button onClick={activate} disabled={loading} data-testid="activate-care-circle"
                     className="inline-flex items-center gap-2 px-8 py-4 rounded-full text-white font-semibold transition-shadow shadow-lg hover:shadow-xl disabled:opacity-50"
