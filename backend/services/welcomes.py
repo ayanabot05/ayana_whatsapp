@@ -27,6 +27,42 @@ async def queue_child(owner, conn=None):
                   owner['id'], 'user', owner.get('contact_version', 0))
 
 
+async def queue_sibling(sibling, checking_for, conn=None):
+    """Durable counterpart to the old best-effort send_sibling_welcome().
+    checking_for is the parent-name display string (already truncated/joined
+    by the caller, same as the legacy function expected)."""
+    conn = conn or get_pool()
+    key = f"sibling:{sibling['id']}"
+    await enqueue(conn, key, sibling['phone'],
+                  {'name': (sibling.get('name') or 'there').split()[0],
+                   'checking_for': checking_for,
+                   'language': _safe_lang(sibling.get('language')),
+                   'purpose': 'sibling'},
+                  sibling['id'], 'sibling', sibling.get('contact_version', 0))
+    return key
+
+
+async def welcome_sibling(sibling, checking_for):
+    """Enqueue + immediately attempt delivery — call this from a
+    BackgroundTasks task the same way send_sibling_welcome used to be
+    called. Unlike the old function, a failure here is retried by drain()
+    instead of being lost."""
+    key = await queue_sibling(sibling, checking_for)
+    return await deliver(key)
+
+
+async def cancel_recipient(conn, kind, recipient_id):
+    """Cancel any not-yet-delivered welcome for a recipient being removed
+    (e.g. a sibling taken out of the care circle). Leaves already-sent rows
+    alone — this only stops future delivery attempts."""
+    await conn.execute(
+        """UPDATE welcome_deliveries SET status='cancelled',updated_at=now()
+           WHERE recipient_kind=$1 AND recipient_id=$2
+             AND status IN ('pending','retry','disabled','awaiting_consent')""",
+        kind, recipient_id,
+    )
+
+
 async def send_once(key, phone, name, checking_for, language):
     await enqueue(get_pool(), key, phone, {'name': name, 'checking_for': checking_for, 'language': _safe_lang(language), 'purpose': 'parent'})
     return await deliver(key)
@@ -88,7 +124,7 @@ async def deliver(key):
 
 async def drain():
     await get_pool().execute("UPDATE welcome_deliveries SET status='uncertain',detail='Interrupted welcome submission.',updated_at=now() WHERE status='sending' AND updated_at<now()-interval '5 minutes'")
-    rows = await get_pool().fetch("SELECT event_key FROM welcome_deliveries WHERE status IN ('pending','retry','disabled','awaiting_consent') AND next_attempt_at<=now() AND attempts<4 ORDER BY created_at LIMIT 20")
+    rows = await get_pool().fetch("SELECT event_key FROM welcome_deliveries WHERE status IN ('pending','retry','disabled','awaiting_consent') AND next_attempt_at<=now() AND attempts<4 ORDER BY next_attempt_at LIMIT 20")
     for row in rows:
         await deliver(row['event_key'])
 

@@ -215,3 +215,13 @@ async def persist_receipt(status):
         audio_state = 'retry' if state == 'failed' and error.get('code') in RETRYABLE_CODES else 'awaiting_request' if state == 'failed' and error.get('code') == 131047 else 'accepted' if state == 'sent' else state
         await conn.execute("UPDATE reply_notifications SET audio_status=$2 WHERE audio_sid=$1 AND audio_status NOT IN ('delivered','read')", sid, audio_state)
         await conn.execute("UPDATE child_content_requests SET status=$2 WHERE sid=$1 AND status NOT IN ('delivered','read')", sid, state)
+async def cancel_pending(conn, kind, recipient_id):
+    """Cancel not-yet-delivered reply notifications for a recipient being
+    removed (e.g. a sibling). Leaves already-accepted/sent/delivered rows
+    untouched — this only stops future delivery attempts."""
+    await conn.execute(
+        """UPDATE reply_notifications SET status='cancelled',updated_at=now()
+           WHERE recipient_kind=$1 AND recipient_id=$2
+             AND status IN ('pending','retry','awaiting_template','disabled')""",
+        kind, recipient_id,
+    )

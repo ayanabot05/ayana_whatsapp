@@ -1,4 +1,3 @@
-
 """AYANA-BOT application composition, lifecycle and remaining dashboard routes.
 
 See backend/SERVER_MAP.md for module ownership and regression test commands.
@@ -81,7 +80,7 @@ from models import MEDICINE_SHAPES, MEDICINE_COLORS, MEDICINE_TIMINGS, SendTestI
 from storage import init_storage, is_enabled as storage_enabled
 from validation import normalize_phone as _normalize_phone
 from routes.account import router as account_router
-from services import verification
+from services import verification, welcomes, notifications
 from services.migrations import apply_care_migration
 from services import inbox
 from services.delivery_stats import delivery_funnel as _delivery_funnel_shared
@@ -948,9 +947,10 @@ async def sibling_verify(payload: SiblingVerifyInput, background_tasks: Backgrou
         parent_rows = await conn.fetch("select name, preferred_name from parents where user_id = $1 and deleted_at is null", uid)
     parent_names = [ (p["preferred_name"] or p["name"]) for p in parent_rows ]
     owner_name = (user.get("name") or "your family").split()[0]
-    # Sibling gets the ayana_opener welcome (cold-number safe); owner is told
-    # who joined. Both best-effort in the background.
-    background_tasks.add_task(send_sibling_welcome, dict(sib), owner_name, parent_names)
+    checking_for = (", ".join([p for p in parent_names if p]) or owner_name or "your family")[:20]
+    # Durable: retried by welcomes.drain() on failure, not lost like the
+    # old background_tasks.add_task(send_sibling_welcome, ...) call.
+    background_tasks.add_task(welcomes.welcome_sibling, dict(sib), checking_for)
     if user.get("phone"):
         background_tasks.add_task(send_sibling_added_notice, user["phone"], payload.name.strip(), lang)
     await audit(user["id"], "sibling_added", {"phone": phone, "name": payload.name.strip()})
@@ -965,10 +965,13 @@ async def sibling_verify(payload: SiblingVerifyInput, background_tasks: Backgrou
 async def remove_sibling(sibling_id: str, background_tasks: BackgroundTasks, user: dict = Depends(get_current_user), _csrf: None = Depends(validate_csrf_token)):
     if is_member(user):
         raise HTTPException(status_code=403, detail="Only the account owner can remove siblings.")
-    async with get_pool().acquire() as conn:
+    async with get_pool().acquire() as conn, conn.transaction():
         sib = await conn.fetchrow(
-            "select * from care_circle_siblings where id = $1::uuid and owner_id = $2", sibling_id, str(user["id"])
+            "select * from care_circle_siblings where id = $1::uuid and owner_id = $2 for update", sibling_id, str(user["id"])
         )
+        if sib:
+            await notifications.cancel_pending(conn, 'sibling', sib['id'])
+            await welcomes.cancel_recipient(conn, 'sibling', sib['id'])
         await conn.execute(
             "delete from care_circle_siblings where id = $1::uuid and owner_id = $2", sibling_id, str(user["id"])
         )
