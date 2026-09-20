@@ -1,5 +1,7 @@
 import { useState, useMemo, useEffect, useCallback } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { CheckinsView } from '@/components/checkins/CheckinsView';
+import { carePlanPayload, normalizeMessages, careType } from '@/lib/carePlan';
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Users, CalendarHeart, MessageCircle, CheckCircle2, Plus, Pencil, Trash2,
@@ -74,7 +76,9 @@ export default function Dashboard() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
-  const [activeTab, setActiveTab] = useState("parents");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [activeTab, setActiveTab] = useState(() => searchParams.get('tab') || 'parents');
+  useEffect(() => { if (searchParams.get('tab')) setActiveTab(searchParams.get('tab')); }, [searchParams]);
   const [revealedReplies, setRevealedReplies] = useState(new Set());
 
   const bootQuery = useQuery({
@@ -108,7 +112,7 @@ export default function Dashboard() {
 
   const handleTabChange = (tab) => {
     setActiveTab(tab);
-    if (tab === "checkins") markRepliesRead();
+    const next = new URLSearchParams(searchParams); next.set('tab', tab); setSearchParams(next, { replace: true });
   };
 
   const loading = bootQuery.isLoading;
@@ -118,7 +122,7 @@ export default function Dashboard() {
     if (anyError) toast.error("Could not load your data. Please refresh the page.");
   }, [anyError]);
 
-  const load = () => queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+  const load = () => queryClient.invalidateQueries();
 
   const categories = useMemo(() => config?.categories || [], [config]);
   const relationships = config?.relationships || [];
@@ -239,7 +243,6 @@ export default function Dashboard() {
 
         <Tabs value={activeTab} onValueChange={handleTabChange}>
           <TabsList className="bg-[#faf6ec] border border-[#efe8d8] rounded-full p-1.5 flex w-full justify-start overflow-x-auto no-scrollbar h-auto gap-1 shadow-[0_1px_0_0_rgba(0,0,0,0.02)]">
-            <Link to="/replies" data-testid="dashboard-replies-link" className="inline-flex items-center gap-1 px-3 py-2 text-sm font-medium text-ayana-primary rounded-full hover:bg-white"><MessageCircle className="w-4 h-4" />Replies inbox</Link>
             <TabsTrigger value="parents" data-testid="tab-parents">Parents</TabsTrigger>
             <TabsTrigger value="checkins" data-testid="tab-checkins">
               Check-ins
@@ -314,7 +317,7 @@ export default function Dashboard() {
                             <div className="p-3 bg-[#faf6ec] rounded-xl border border-[#efe8d8]">
                               <div className="flex items-center justify-between gap-2">
                                 <span className="text-[11px] font-medium text-[#8a7f6d]">Daily • {parentSchedule.messages.filter(m=>m.type!=="reminder" && m.source!=="medicine_sync").length} times</span>
-                                <Switch checked={activeSchedule} data-testid={`toggle-schedule-${parentSchedule.id}`} onCheckedChange={async (v) => { await api.put(`/schedules/${parentSchedule.id}`, { parent_id: p.id, mode: parentSchedule.mode, messages: parentSchedule.messages, active: v, reengagement_hours: parentSchedule.reengagement_hours ?? 4 }); load(); }} />
+                                <Switch checked={activeSchedule} data-testid={`toggle-schedule-${parentSchedule.id}`} onCheckedChange={async (v) => { try { await api.patch(`/schedules/${parentSchedule.id}/active`, { active: v }); load(); } catch (error) { toast.error(formatAxiosError(error)); } }} />
                               </div>
                               <div className="flex flex-wrap gap-1.5 mt-2">
                                 {parentSchedule.messages.filter(m => m.type !== "reminder" && m.source !== "medicine_sync").map((m, i) => {
@@ -362,7 +365,7 @@ export default function Dashboard() {
           </TabBoundary></TabsContent>
 
           <TabsContent value="checkins" className="mt-6"><TabBoundary tab="checkins" onRetry={load}>
-            <CheckinsTab
+            <CheckinsView
               parents={parents}
               data={checkinsData}
               catByKey={catByKey}
@@ -836,20 +839,20 @@ function ParentDialog({ parent, config, limits, plan, schedules = [], onSaved, t
     { time: "08:00", category: "morning_wish", type: "checkin" },
     { time: "13:00", category: "lunch", type: "checkin" },
     { time: "21:00", category: "goodnight", type: "checkin" },
-  ].slice(0, maxCheckins);
+  ].slice(0, maxCheckins).concat({ time: '11:00', category: 'water', type: 'activity' });
 
   const buildFormFromParent = () => {
     if (!parent) return { ...blankParentForm(), messages: getDefaultMessages() };
     const sched = schedules.find((s) => s.parent_id === parent.id);
     const schedMessages = sched?.messages
-      ? sched.messages.filter((m) => m.type !== "reminder" && m.source !== "medicine_sync")
+      ? normalizeMessages(sched.messages)
       : getDefaultMessages();
     return {
       name: parent.name || "",
       relationship: parent.relationship || "mother",
       phone: parent.phone || "+91",
       language: parent.language || "en",
-      timezone: parent.timezone || getBrowserTimezone(),
+      timezone: parent.timezone || 'Asia/Kolkata',
       notes: parent.notes || "",
       preferred_name: parent.preferred_name || "",
       nicknames: parent.nicknames || [],
@@ -859,7 +862,11 @@ function ParentDialog({ parent, config, limits, plan, schedules = [], onSaved, t
       stories: parent.stories || [],
       activity_window_start: parent.activity_window_start || "06:00",
       activity_window_end: parent.activity_window_end || "22:00",
-      auto_activity_detection: false,
+      auto_activity_detection: parent.auto_activity_detection || false,
+      vacation_start: parent.vacation_start || '',
+      vacation_end: parent.vacation_end || '',
+      recovery_mode: sched?.recovery_mode || false,
+      recovery_until: sched?.recovery_until || null,
       medicine_list: parent.medicine_list || [],
       habits: parent.habits || blankParentForm().habits,
       messages: schedMessages.length ? schedMessages : getDefaultMessages(),
@@ -880,7 +887,8 @@ function ParentDialog({ parent, config, limits, plan, schedules = [], onSaved, t
   }, [open]);
 
   const save = async () => {
-    const checkinCount = form.messages.filter((m) => m.type !== "reminder").length;
+    if (!form.city?.trim()) { toast.error('Parent city is required.'); return; }
+    const checkinCount = form.messages.filter((m) => careType(m.category) === 'checkin').length;
     if (checkinCount > maxCheckins) {
       toast.error(`Your plan allows up to ${maxCheckins} check-ins per day. Please remove ${checkinCount - maxCheckins} or upgrade your plan.`);
       return;
@@ -910,27 +918,13 @@ function ParentDialog({ parent, config, limits, plan, schedules = [], onSaved, t
         activity_window_end: cleanOptionalString(form.activity_window_end),
       };
       const targetId = parent?.id || createdParentId;
-      const { data } = targetId ? await api.put(`/parents/${targetId}`, payload) : await api.post("/parents", payload);
-      const parentId = data?.id || targetId;
+      const request = carePlanPayload({ ...form, medicine_list: medicineListToSave }, plan?.id || 'nitya', existingSchedule || {});
+      const response = targetId ? await api.put(`/care-plans/${targetId}`, request) : await api.post('/care-plans', request);
+      const data = response.data.parent;
+      const parentId = data.id;
       if (!parent) setCreatedParentId(parentId);
 
-      const schedPayload = {
-        parent_id: parentId,
-        mode: plan?.id || "nitya",
-        messages: messages,
-        active: existingSchedule?.active ?? true,
-        reengagement_hours: reengagement_hours ?? 1,
-      };
-      if (existingSchedule) {
-        await api.put(`/schedules/${existingSchedule.id}`, schedPayload);
-      } else if (messages.length > 0) {
-        await api.post("/schedules", schedPayload);
-      }
-
-      toast.success(targetId ? "Parent details saved." : `${payload.name} is set up. First check-in tomorrow at 8:00 AM.`);
-      if (data?.medicine_reminders_dropped?.length) {
-        toast(`Note: Medicine times ${data.medicine_reminders_dropped.join(", ")} did not fit your plan limit (${maxReminders}). Adjust times or upgrade to include them.`, { duration: 8000 });
-      }
+      toast.success(targetId ? 'Parent and schedule saved together.' : `${payload.name} is set up. Check activation for the next message.`);
       setOpen(false); onSaved();
     } catch (e) { toast.error(formatAxiosError(e)); } finally { setBusy(false); }
   };

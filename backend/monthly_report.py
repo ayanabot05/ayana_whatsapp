@@ -272,8 +272,8 @@ def _generate_pdf_bytes(report, details):
 
 async def _mood_series(conn, parent_id, start_day: str, end_day: str, tz_name: str = None) -> list:
     tz = _tz(tz_name)
-    range_start = _day_key_to_dt(start_day)
-    range_end = _day_key_to_dt(end_day) + timedelta(days=1)
+    range_start = datetime.fromisoformat(start_day).replace(tzinfo=tz)
+    range_end = datetime.fromisoformat(end_day).replace(tzinfo=tz) + timedelta(days=1)
     replies = await conn.fetch(
         """
         select created_at, intent from parent_replies
@@ -300,7 +300,7 @@ async def _daily_details(conn, parent_id, start_day: str, end_day: str, tz_name:
 
     logs = await conn.fetch(
         """
-        select id, day_key, category, msg_type, status, reply_status, created_at, skipped
+        select *
         from message_logs 
         where parent_id = $1 
           and created_at >= $2 and created_at < $3
@@ -308,25 +308,23 @@ async def _daily_details(conn, parent_id, start_day: str, end_day: str, tz_name:
         order by created_at asc
         """,
         parent_id, range_start, range_end,
-        ["checkin", "reminder", "reengagement"],
+        ["checkin", "reminder", "activity", "safety", "reengagement"],
     )
     replies = await conn.fetch(
         """
-        select id, created_at, intent, is_voice, body from parent_replies
-        where parent_id = $1 and created_at >= $2 and created_at < $3
+        select * from parent_replies
+        where parent_id = $1 and (created_at >= $2 and created_at < $3 OR context_id=ANY($4::text[]))
         order by created_at asc
         """,
-        parent_id, range_start, range_end,
+        parent_id, range_start, range_end, [l['sid'] for l in logs if l['sid']],
     )
     emergencies = await conn.fetchval(
         "select count(*) from emergency_events where parent_id = $1 and created_at >= $2 and created_at < $3",
         parent_id, range_start, range_end,
     )
 
-    replies_by_day: dict[str, list] = {}
-    for r in replies:
-        replies_by_day.setdefault(_local_day(r["created_at"], tz), []).append(r)
-    consumed_by_day: dict[str, list] = {dk: [False] * len(rs) for dk, rs in replies_by_day.items()}
+    from services.reply_linking import linked_replies, response_state
+    links, _ = linked_replies([dict(l) for l in logs], [dict(r) for r in replies])
 
     days: dict = {}
     by_category: dict = {}
@@ -336,18 +334,12 @@ async def _daily_details(conn, parent_id, start_day: str, end_day: str, tz_name:
         d = days.setdefault(dk, {"day": dk, "sent": 0, "replied": 0, "items": []})
         delivered = log["status"] in ("sent", "simulated")
 
-        replied = False
-        day_reps = replies_by_day.get(dk, [])
-        flags = consumed_by_day.get(dk, [])
-        for i, r in enumerate(day_reps):
-            if not flags[i] and r["created_at"] >= log["created_at"]:
-                flags[i] = True
-                replied = True
-                break
+        matched = links.get(str(log['id']), [])
+        replied = bool(matched)
 
         if delivered:
             d["sent"] += 1
-        if replied or (log["reply_status"] == "done"):
+        if replied:
             d["replied"] += 1
             
         d["items"].append({
@@ -355,14 +347,14 @@ async def _daily_details(conn, parent_id, start_day: str, end_day: str, tz_name:
             "category": log["category"],
             "msg_type": log["msg_type"],
             "status": log["status"],
-            "reply_status": log["reply_status"],
-            "replied": replied or (log["reply_status"] == "done"),
+            "reply_status": response_state(matched),
+            "replied": replied,
         })
         
         cat = by_category.setdefault(log["category"], {"category": log["category"], "sent": 0, "replied": 0})
         if delivered:
             cat["sent"] += 1
-        if replied or (log["reply_status"] == "done"):
+        if replied:
             cat["replied"] += 1
 
     feelings = {"good": 0, "okay": 0, "not_well": 0}
@@ -373,13 +365,11 @@ async def _daily_details(conn, parent_id, start_day: str, end_day: str, tz_name:
             f = intent.split(":", 1)[1]
             if f in feelings:
                 feelings[f] += 1
-        elif intent.startswith(("done:", "skip:")):
-            action, _, cat = intent.partition(":")
-            if cat.startswith("medicine"):
-                if action == "done":
-                    medicine["done"] += 1
-                else:
-                    medicine["skipped"] += 1
+    for log in logs:
+        if log['category'] == 'medicine':
+            state = response_state(links.get(str(log['id']), []))
+            if state in ('done', 'skip'):
+                medicine['done' if state == 'done' else 'skipped'] += 1
 
     return {
         "days": sorted(days.values(), key=lambda x: x["day"]),

@@ -1,7 +1,7 @@
 """AYANA schedules; extracted without changing API behaviour."""
 import asyncio
 import json
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 from fastapi import Depends, APIRouter, HTTPException, Query
 from database import get_pool
@@ -15,6 +15,26 @@ from services.deps import audit, scope, _get_plan_id
 
 router = APIRouter()
 
+from pydantic import BaseModel
+
+
+class ScheduleActiveInput(BaseModel):
+    active: bool
+
+
+@router.patch('/schedules/{schedule_id}/active')
+async def set_schedule_active(schedule_id: str, payload: ScheduleActiveInput, user=Depends(get_current_user), _csrf=Depends(validate_csrf_token)):
+    async with get_pool().acquire() as conn, conn.transaction():
+        row = await conn.fetchrow('SELECT * FROM schedules WHERE id=$1::uuid AND user_id=$2 AND deleted_at IS NULL FOR UPDATE', schedule_id, scope(user))
+        if not row:
+            raise HTTPException(404, 'Schedule not found.')
+        if payload.active:
+            from services.billing_access import access
+            if not (await access(conn, scope(user)))['allowed']:
+                raise HTTPException(403, 'Care access has ended. Review your plan before resuming.')
+        await conn.execute('UPDATE schedules SET active=$2 WHERE id=$1', row['id'], payload.active)
+    return {'id': schedule_id, 'active': payload.active}
+
 
 # ---------------- Schedules ----------------
 @router.get("/schedules")
@@ -25,28 +45,26 @@ async def list_schedules(user: dict = Depends(get_current_user)):
         )
     return [serialize(d) for d in docs]
 
-async def _validate_by_plan(user, messages):
+async def _validate_by_plan(user, messages, recovery_mode=False):
     plan_id = await _get_plan_id(user)
     limits = plan_limits(plan_id)
     if not messages:
         raise HTTPException(status_code=400, detail="Add at least one daily check-in.")
-    checkins = sum(1 for m in messages if category_type(m.category) == "checkin")
-    reminders = sum(1 for m in messages if category_type(m.category) == "reminder")
-    if checkins > limits["checkins"]:
-        raise HTTPException(status_code=400, detail=f"Your plan allows up to {limits['checkins']} daily check-ins. Upgrade for more.")
-    if reminders > limits["reminders"]:
-        raise HTTPException(status_code=400, detail=f"Your plan allows up to {limits['reminders']} reminders. Upgrade for more.")
+    try:
+        ScheduleInput(parent_id='validation', mode=plan_id, messages=messages, recovery_mode=recovery_mode)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc))
     return plan_id
 
 @router.post("/schedules")
 async def create_schedule(payload: ScheduleInput, user: dict = Depends(get_current_user), _csrf: None = Depends(validate_csrf_token)):
-    async with get_pool().acquire() as conn:
+    async with get_pool().acquire() as conn, conn.transaction():
         parent = await conn.fetchrow(
             "select * from parents where id = $1::uuid and user_id = $2", payload.parent_id, scope(user)
         )
         if not parent:
             raise HTTPException(status_code=404, detail="Parent not found")
-        plan_id = await _validate_by_plan(user, payload.messages)
+        plan_id = await _validate_by_plan(user, payload.messages, payload.recovery_mode)
         messages = [m.model_dump() for m in payload.messages]
 
         row = await conn.fetchrow(
@@ -65,7 +83,7 @@ async def create_schedule(payload: ScheduleInput, user: dict = Depends(get_curre
         sync_result = sync_medicine_reminders(
             medicine_list=medicine_list,
             existing_messages=messages,
-            plan_id=plan_id,
+            plan_id=plan_id, recovery_mode=payload.recovery_mode,
         )
         await conn.execute(
             "update schedules set messages = $1::jsonb where id = $2",
@@ -84,13 +102,13 @@ async def create_schedule(payload: ScheduleInput, user: dict = Depends(get_curre
 
 @router.put("/schedules/{schedule_id}")
 async def update_schedule(schedule_id: str, payload: ScheduleInput, user: dict = Depends(get_current_user), _csrf: None = Depends(validate_csrf_token)):
-    async with get_pool().acquire() as conn:
+    async with get_pool().acquire() as conn, conn.transaction():
         sched = await conn.fetchrow(
             "select * from schedules where id = $1::uuid and user_id = $2", schedule_id, scope(user)
         )
         if not sched:
             raise HTTPException(status_code=404, detail="Schedule not found")
-        plan_id = await _validate_by_plan(user, payload.messages)
+        plan_id = await _validate_by_plan(user, payload.messages, payload.recovery_mode)
         parent = await conn.fetchrow("select * from parents where id = $1", sched["parent_id"])
         new_messages = [m.model_dump() for m in payload.messages]
 
@@ -99,7 +117,7 @@ async def update_schedule(schedule_id: str, payload: ScheduleInput, user: dict =
         sync_result = sync_medicine_reminders(
             medicine_list=medicine_list,
             existing_messages=new_messages,
-            plan_id=plan_id,
+            plan_id=plan_id, recovery_mode=payload.recovery_mode,
         )
         await conn.execute(
             """
@@ -145,11 +163,16 @@ async def start_recovery(schedule_id: str, payload: RecoveryStartInput, user: di
         if len(payload.extra_reminders) > max_extra:
             raise HTTPException(status_code=400, detail=f"Recovery mode allows up to {max_extra} extra reminders.")
         days = payload.days or limits.get("recovery_days", 30)
-        until = (date.today() + timedelta(days=days)).isoformat()
+        zone = await conn.fetchval('SELECT timezone FROM parents WHERE id=$1', sched['parent_id'])
+        until = (datetime.now(ZoneInfo(zone or 'Asia/Kolkata')).date() + timedelta(days=days)).isoformat()
         messages = sched["messages"]
         messages = json.loads(messages) if isinstance(messages, str) else (messages or [])
         base_msgs = [m for m in messages if not m.get("is_recovery")]
         extra = [{"time": m.time, "category": m.category, "type": "reminder", "is_recovery": True} for m in payload.extra_reminders]
+        try:
+            ScheduleInput(parent_id=str(sched['parent_id']), mode=plan_id, messages=base_msgs + extra, recovery_mode=True, recovery_until=until)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc))
         await conn.execute(
             "update schedules set messages = $1::jsonb, recovery_mode = true, recovery_until = $2 where id = $3::uuid",
             json.dumps(base_msgs + extra), until, schedule_id,
@@ -497,138 +520,11 @@ def _local_day_key(dt: datetime, tz_name: str) -> str:
 @router.get("/checkins")
 async def checkins_summary(
     user: dict = Depends(get_current_user),
-    days: int = Query(7, ge=1, le=30),
+    days: int = 7,
+    date: str | None = None,
+    parent_id: str | None = None,
 ):
-    owner = scope(user)
-    pool = get_pool()
-    parents = await pool.fetch(
-        "select * from parents where user_id = $1 and deleted_at is null limit 50", owner
-    )
-    if not parents:
-        return {"parents": [], "alerts": []}
-
-    parent_ids = [p["id"] for p in parents]
-    since = datetime.now(timezone.utc) - timedelta(days=days + 1)
-
-    logs, replies, open_events = await asyncio.gather(
-        pool.fetch(
-            """
-            select * from message_logs
-            where parent_id = any($1::uuid[])
-              and msg_type = any($2::text[])
-              and created_at >= $3
-            order by created_at asc
-            limit 2000
-            """,
-            parent_ids, ["checkin", "reminder", "reengagement"], since,
-        ),
-        pool.fetch(
-            """
-            select * from parent_replies
-            where parent_id = any($1::uuid[]) and created_at >= $2
-            order by created_at asc
-            limit 2000
-            """,
-            parent_ids, since,
-        ),
-        pool.fetch(
-            "select * from emergency_events where user_id = $1 and status = 'open' order by created_at desc limit 20",
-            owner,
-        ),
-    )
-
-    replies_by_parent: dict[str, list] = {}
-    for r in replies:
-        replies_by_parent.setdefault(str(r["parent_id"]), []).append(r)
-
-    # #13 sync: attribute each reply to at most ONE message (consume-once),
-    # identical to the monthly report's _daily_details logic — so the Check-ins
-    # tab, dashboard stats and the monthly report all report the SAME reply
-    # counts (the old logic marked every preceding send 'replied' off one late
-    # reply, inflating the dashboard above the report).
-    consumed_reply_ids: set = set()
-
-    def _find_reply(parent_id: str, log_dt: datetime, day_key: str, tz_name: str):
-        for r in replies_by_parent.get(parent_id, []):
-            if str(r["id"]) in consumed_reply_ids:
-                continue
-            if r["created_at"] < log_dt:
-                continue
-            if _local_day_key(r["created_at"], tz_name) != day_key:
-                continue
-            consumed_reply_ids.add(str(r["id"]))
-            return r
-        return None
-
-    out_parents = []
-    for p in parents:
-        pid = str(p["id"])
-        tz_name = p["timezone"] or "Asia/Kolkata"
-        try:
-            tz = ZoneInfo(tz_name)
-        except Exception:
-            tz = ZoneInfo("Asia/Kolkata")
-
-        p_logs = [l for l in logs if str(l["parent_id"]) == pid]
-        by_day: dict[str, list] = {}
-        for l in p_logs:
-            dk = _local_day_key(l["created_at"], tz_name)
-            by_day.setdefault(dk, []).append(l)
-
-        day_entries = []
-        for dk in sorted(by_day.keys(), reverse=True):
-            msgs = []
-            for l in sorted(by_day[dk], key=lambda x: x["created_at"]):
-                reply = _find_reply(pid, l["created_at"], dk, tz_name)
-                msgs.append({
-                    "id": str(l["id"]),
-                    "time": l["created_at"].astimezone(tz).strftime("%H:%M"),
-                    "category": l["category"],
-                    "msg_type": l["msg_type"],
-                    "status": l["status"],
-                    "reply_status": l["reply_status"],
-                    "replied": reply is not None,
-                    "reply": ({
-                        "body": reply["transcription"] or reply["body"],
-                        "intent": reply["intent"],
-                        "is_voice": reply["is_voice"],
-                        "created_at": reply["created_at"].isoformat(),
-                    } if reply else None),
-                })
-            replied_count = sum(1 for m in msgs if m["replied"] or m["reply_status"] == "done")
-            day_entries.append({
-                "day_key": dk,
-                "total": len(msgs),
-                "replied": replied_count,
-                "messages": msgs,
-            })
-
-        out_parents.append({
-            "parent_id": pid,
-            "name": p["name"],
-            "days": day_entries[:days],
-        })
-
-    alerts = []
-    parent_name_by_id = {str(p["id"]): p["name"] for p in parents}
-    for e in open_events:
-        alerts.append({
-            "kind": "emergency",
-            "event_id": str(e["id"]),
-            "parent_id": str(e["parent_id"]),
-            "parent_name": parent_name_by_id.get(str(e["parent_id"]), "Your parent"),
-            "body": e["body"],
-            "created_at": e["created_at"].isoformat(),
-        })
-    help_cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
-    for r in replies:
-        if r["intent"] == "reengagement:help" and r["created_at"] >= help_cutoff:
-            alerts.append({
-                "kind": "reengagement_help",
-                "parent_id": str(r["parent_id"]),
-                "parent_name": parent_name_by_id.get(str(r["parent_id"]), "Your parent"),
-                "body": r["body"],
-                "created_at": r["created_at"].isoformat(),
-            })
-
-    return {"parents": out_parents, "alerts": alerts}
+    from services.checkin_timeline import timeline
+    if not 1 <= days <= 30:
+        raise HTTPException(422, 'Days must be between 1 and 30.')
+    return await timeline(scope(user), days, date, parent_id)

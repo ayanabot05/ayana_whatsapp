@@ -18,6 +18,7 @@ import { FALLBACK_PLANS, FALLBACK_CURRENCIES } from "../lib/fallbackPlans";
 import { cleanHabits } from "../lib/formHelpers";
 import { useRazorpay } from "@/lib/useRazorpay";
 import { WhatsAppActivatePrompt } from "@/components/WhatsAppActivatePrompt";
+import { carePlanPayload, normalizeMessages } from '@/lib/carePlan';
 
 const STEPS = ["Welcome", "Your plan", "Your parents", "Activate"];
 
@@ -53,7 +54,7 @@ export default function Onboarding() {
     { time: "08:00", category: "morning_wish", type: "checkin" },
     { time: "13:00", category: "lunch", type: "checkin" },
     { time: "21:00", category: "goodnight", type: "checkin" },
-  ].slice(0, maxCheckins), [maxCheckins]);
+  ].slice(0, maxCheckins).concat({ time: '11:00', category: 'water', type: 'activity' }), [maxCheckins]);
 
   const newBlankParent = useCallback(
     () => ({...blankParentForm(), messages: defaultMessages() }),
@@ -116,6 +117,7 @@ export default function Onboarding() {
   const saveChild = async () => {
     if (!childConsent) { toast.error("Please confirm consent to continue."); return; }
     if (!child.name.trim()) { toast.error("Please enter your name."); return; }
+    if (!child.city?.trim()) { toast.error('Your city is required.'); return; }
     if (child.phone.length < 8) { toast.error("Please enter a valid phone number."); return; }
     if (!childEmailVerified) { toast.error("Please verify your email first."); return; }
     setLoading(true);
@@ -177,7 +179,7 @@ export default function Onboarding() {
       const schedRes = await api.get("/schedules");
       const mySched = (schedRes.data || []).find(s => s.parent_id === p.id);
       if (mySched) {
-        messages = (mySched.messages || []).filter(m => m.type!== "reminder" && m.source!== "medicine_sync");
+        messages = normalizeMessages(mySched.messages);
         if (messages.length === 0) messages = defaultMessages();
         setScheduleIds(prev => ({...prev, [p.id]: mySched.id }));
       }
@@ -185,11 +187,13 @@ export default function Onboarding() {
       setParentConsent(true);
       setNewMed(blankMedicine());
       setParentForm({
+        ...blankParentForm(),
+        ...p,
         name: p.name || "",
         relationship: p.relationship || "mother",
         phone: p.phone || "+91",
         language: p.language || "en",
-        timezone: p.timezone || getBrowserTimezone(),
+        timezone: p.timezone || 'Asia/Kolkata',
         notes: p.notes || "",
         preferred_name: p.preferred_name || "",
         nicknames: p.nicknames || [],
@@ -198,6 +202,9 @@ export default function Onboarding() {
         medicine_list: p.medicine_list || [],
         habits: p.habits || blankParentForm().habits,
         messages: messages,
+        recovery_mode: mySched?.recovery_mode || false,
+        recovery_until: mySched?.recovery_until || null,
+        schedule_state: mySched || {},
       });
     } catch (e) {
       toast.error("Could not load parent details.");
@@ -214,6 +221,7 @@ export default function Onboarding() {
 
   const saveParentForm = async () => {
     if (!parentForm.name.trim()) { toast.error("Please enter your parent's name."); return; }
+    if (!parentForm.city?.trim()) { toast.error('Parent city is required.'); return; }
     if (parentForm.phone.length < 8) { toast.error("Please enter a valid WhatsApp number."); return; }
     if (!parentConsent) { toast.error("Please confirm you have your parent's consent."); return; }
     if (parentForm.messages.length === 0) { toast.error("Add at least one daily check-in."); return; }
@@ -225,30 +233,18 @@ export default function Onboarding() {
       parentData.habits = cleanHabits(parentData.habits);
       let savedParent;
       if (editingParentId) {
-        const { data } = await api.put(`/parents/${editingParentId}`, parentData);
+        const response = await api.put(`/care-plans/${editingParentId}`, carePlanPayload(parentForm, planId, parentForm.schedule_state));
+        const data = response.data.parent;
         savedParent = data;
         setParentsList((list) => list.map((p) => (p.id === editingParentId? data : p)));
       } else {
-        const { data } = await api.post("/parents", parentData);
+        const response = await api.post('/care-plans', carePlanPayload(parentForm, planId));
+        const data = response.data.parent;
         savedParent = data;
         setParentsList((list) => [...list, data]);
         await api.post("/consent", { consent_type: "parent", agreed: true, text: `Consent confirmed for parent ${parentForm.name}.` });
       }
-      const existingSchedId = scheduleIds[savedParent.id];
-      const schedPayload = { parent_id: savedParent.id, mode: planId, messages, active: true, reengagement_hours: reengagement_hours?? 1 };
-      let dropped = savedParent.medicine_reminders_dropped;
-      if (existingSchedId) {
-        const { data: schedData } = await api.put(`/schedules/${existingSchedId}`, schedPayload);
-        dropped = dropped || schedData?.medicine_reminders_dropped;
-      } else {
-        const { data: schedData } = await api.post("/schedules", schedPayload);
-        setScheduleIds(prev => ({...prev, [savedParent.id]: schedData.id }));
-        dropped = dropped || schedData?.medicine_reminders_dropped;
-      }
       toast.success(editingParentId ? "Parent updated." : `${savedParent.name}'s schedule is saved in ${savedParent.timezone}. Activate care to begin future check-ins.`, { duration: 6000 });
-      if (dropped?.length) {
-        toast.warning(`Your plan couldn't fit all medicine reminder times — dropped: ${dropped.join(", ")}. Upgrade for more, or adjust times.`, { duration: 8000 });
-      }
       closeParentForm();
     } catch (e) {
       toast.error(formatAxiosError(e));
@@ -326,8 +322,8 @@ export default function Onboarding() {
                       <div className="mt-1.5 space-y-2"><input value={child.phone} readOnly data-testid="child-phone" className={inputCls} aria-label="Your WhatsApp number" /><PhoneChangeDialog user={user} onChanged={refreshUser} testid="onboarding-phone-change" /></div>
                     </div>
                     <div>
-                      <label className="text-sm font-medium text-ayana-text">Your city (optional)</label>
-                      <input value={child.city} onChange={(e) => setChild({...child, city: e.target.value })} data-testid="child-city" placeholder="London" className={`mt-1.5 ${inputCls}`} />
+                      <label className="text-sm font-medium text-ayana-text">Your city *</label>
+                      <input required value={child.city} onChange={(e) => setChild({...child, city: e.target.value })} data-testid="child-city" placeholder="London" className={`mt-1.5 ${inputCls}`} />
                     </div>
                   </div>
                   <div>

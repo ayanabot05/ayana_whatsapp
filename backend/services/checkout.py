@@ -39,6 +39,9 @@ async def quote(conn,user,plan,billing,currency,code='',lock=False):
     discount = int((Decimal(subtotal)*Decimal(coupon['percent'])/100).quantize(Decimal('1'),rounding=ROUND_HALF_UP)) if coupon else 0
     lifetime = bool(coupon and coupon['kind']=='lifetime')
     credit, credited_grant_id = (0, None) if lifetime else await billing_access.prorated_credit(conn, user['id'], currency)
+    credit = min(credit, max(0, subtotal - discount - (0 if lifetime else 100)))
+    if not credit:
+        credited_grant_id = None
     amount = subtotal - discount - credit
     if not lifetime and amount < 100:
         amount = 100  # never let proration zero out or go below the gateway minimum

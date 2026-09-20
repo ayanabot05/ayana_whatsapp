@@ -474,19 +474,25 @@ async def test_child_context_sid_authorization_and_wamid_dedup(seeded_users, mon
 
     calls = 0
 
-    async def fake_send_update(phone, reply_obj, opened, language):
+    async def fake_requested_content(payload):
         nonlocal calls
+        assert payload['to'] == owner['phone']
+        assert payload['text']['body'] == 'iter20-context'
         calls += 1
         return {"status": "sent", "sid": "iter20-child"}
 
-    monkeypatch.setattr(notifications, "send_update", fake_send_update)
+    monkeypatch.setattr(notifications, 'post_meta', fake_requested_content)
     ts = _now()
     await notifications.record_recipient_inbound(owner["phone"], ts, context_id="iter20-context-sid", requested=True, wam_id="iter20-wam-1")
     await notifications.record_recipient_inbound(owner["phone"], ts, context_id="iter20-context-sid", requested=True, wam_id="iter20-wam-1")
+    assert await get_pool().fetchval("SELECT count(*) FROM child_content_requests WHERE wam_id='iter20-wam-1'") == 1
+    await notifications.drain_requests()
+    await notifications.drain_requests()
 
     async with get_pool().acquire() as conn:
         await conn.execute("UPDATE users SET phone=$2 WHERE id=$1", owner["id"], "+14155550123")
     await notifications.record_recipient_inbound(owner["phone"], ts, context_id="iter20-context-sid", requested=True, wam_id="iter20-wam-2")
+    await notifications.drain_requests()
     assert calls == 1
 
 

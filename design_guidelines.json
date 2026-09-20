@@ -1,0 +1,147 @@
+{
+  "project_overview": {
+    "name": "AYANA Care Platform - Functional & Design Blueprint",
+    "app_type": "saas_app",
+    "description": "Incremental functional fixes and component blueprints for AYANA React App. Preserves existing visual identity (warm cream, emerald/coral accents, tailwind + shadcn primitives) while resolving timing sync bugs, unifying Check-ins with inline replies & voice notes, enforcing mandatory fields, restructuring care setup into 4 explicit sections, and streamlining activation."
+  },
+  "design_system": {
+    "theme": "light",
+    "typography": {
+      "font_family_heading": "Cabinet Grotesk / Display Sans",
+      "font_family_body": "Inter / System Sans",
+      "font_family_mono": "JetBrains Mono / Source Code Pro",
+      "hierarchy": {
+        "h1": "text-3xl sm:text-4xl font-semibold tracking-tight text-[#1a1a1a]",
+        "h2": "text-xl sm:text-2xl font-medium text-[#1a1a1a]",
+        "h3": "text-lg font-medium text-[#1a1a1a]",
+        "h4": "text-base font-medium text-[#1a1a1a]",
+        "body": "text-sm sm:text-base text-[#6b5f4a] leading-relaxed",
+        "small_accent": "text-xs text-[#9a9183]"
+      }
+    },
+    "colors": {
+      "bg_primary": "#fdfbf7",
+      "bg_card": "#ffffff",
+      "bg_alt": "#faf6ec",
+      "border": "#efe8d8",
+      "text_primary": "#1a1a1a",
+      "text_secondary": "#6b5f4a",
+      "text_muted": "#9a9183",
+      "brand_primary": "#ff6b35",
+      "brand_mint": "#0f3d2e",
+      "status_success": "#10b981",
+      "status_warning": "#f59e0b",
+      "status_error": "#ef4444"
+    },
+    "surface_and_elevation": {
+      "cards": "bg-white rounded-[16px] border border-[#efe8d8] p-4 sm:p-5 shadow-[0_1px_0_0_rgba(0,0,0,0.02)]",
+      "containers": "bg-[#faf6ec] rounded-xl border border-[#efe8d8] p-3 sm:p-4",
+      "glass": "backdrop-blur-xl bg-white/80 border border-[#efe8d8]"
+    }
+  },
+  "key_functionalities_and_architectural_fixes": {
+    "1_unified_checkins_and_accurate_replies": {
+      "problem_addressed": "Discrepancy in check-in vs reply timing where dad's afternoon/reengagement reply matched morning check-in state, plus redundant separate 'Replies' tab.",
+      "solution_design": {
+        "tab_consolidation": "Remove separate Replies inbox tab / page. Merge all reply text, audio voice messages, and status timelines directly into Check-ins tab on Dashboard.js.",
+        "parent_and_date_filtering": "Allow parent tab selection (Mom vs Dad) and date selector (week strip + month calendar modal). Filter check-ins and replies accurately by parent ID and date ISO.",
+        "accurate_message_mapping": "Map incoming WhatsApp replies to the exact category/time item (e.g. afternoon lunch vs morning wish/medicines) using reply intent / schedule_message_id rather than falling back to default first slot.",
+        "audio_player": "Embed native HTML5 audio element or custom waveform voice player inside check-in items when reply contains audio_url / is_voice=true."
+      }
+    },
+    "2_four_care_sections_restructuring": {
+      "problem_addressed": "Cluttered or ambiguous care schedule form in ParentCareForm.jsx and Onboarding.js.",
+      "solution_design": {
+        "sections": [
+          {
+            "index": 1,
+            "title": "Daily check-ins",
+            "fields": ["Morning wish", "Lunch check-in", "Evening check-in", "Goodnight check-in", "Re-engagement interval hours"]
+          },
+          {
+            "index": 2,
+            "title": "Daily Activities",
+            "fields": ["Wake up time", "Tea/Coffee time", "Walk/Exercise time", "Afternoon rest/Lunch time", "Dinner time", "Sleep time", "Active window from/to"]
+          },
+          {
+            "index": 3,
+            "title": "Medicines",
+            "fields": [
+              "Medicine name",
+              "Dose / mg / Qty (e.g. 500mg - 1 tab)",
+              "Reminder time",
+              "Shape (round, oval, capsule, oblong, diamond, square)",
+              "Color (white, cream, yellow, orange, pink, red, purple, blue, green, brown, beige)",
+              "Instruction / Timing (before_food, with_food, after_food)"
+            ],
+            "requirement": "Medicine shape and color MUST be included in the reminder payload sent to parent."
+          },
+          {
+            "index": 4,
+            "title": "Safety check",
+            "fields": [
+              "Days selection (Mon - Sun multi-select options)",
+              "Time (e.g. 06:00 PM)",
+              "From where / Location label (e.g. Evening walk at park, Market return, Home stay-alone check)"
+            ]
+          }
+        ]
+      }
+    },
+    "3_mandatory_cities_validation": {
+      "child_city": "Mandatory in Onboarding Step 0 (Child profile) and Account panel.",
+      "parent_city": "Mandatory in Onboarding Step 2 and ParentCareForm."
+    },
+    "4_activation_flow_cleanup": {
+      "problem_addressed": "Remove direct parent chat opening button ('open amma') to avoid confusing activation trigger.",
+      "solution_design": "Activation page (/activation) now exclusively features child activation confirmation, setup guidance, training video link, and back-to-dashboard navigation. No direct 'Open WhatsApp for parent' action."
+    }
+  },
+  "component_path_guidance": {
+    "dashboard_page": {
+      "path": "/app/frontend/src/pages/Dashboard.js",
+      "instructions": "Consolidate CheckinsTab. Include parent filter tabs, date picker, accurate check-in cards with inline reply text, voice note audio controls, and status badges (Sent, Replied, Child Notified). Remove 'Replies inbox' tab."
+    },
+    "parent_care_form": {
+      "path": "/app/frontend/src/components/ParentCareForm.jsx",
+      "instructions": "Update care schedule layout into 4 explicit sections: 1. Daily check-ins, 2. Daily Activities, 3. Medicines (with mg/qty, time, shape, color, instruction), 4. Safety check (days mon-sun, time, location). Enforce parent city validation."
+    },
+    "onboarding_page": {
+      "path": "/app/frontend/src/pages/Onboarding.js",
+      "instructions": "Make child city and parent city required. Align step 2 with 4 care sections. Update step 3 activation to be child-only confirmation."
+    },
+    "activation_page": {
+      "path": "/app/frontend/src/pages/Activation.js",
+      "instructions": "Clean activation guidance page. Remove direct parent WhatsApp chat triggers."
+    },
+    "replies_page": {
+      "path": "/app/frontend/src/pages/Replies.js",
+      "instructions": "Redirect or embed inside Dashboard check-ins section."
+    }
+  },
+  "testing_and_accessibility": {
+    "data_testid_convention": "All interactive elements (buttons, inputs, selects, tabs, audio controls) MUST include kebab-case data-testid attributes.",
+    "key_test_ids": [
+      "tab-checkins",
+      "checkin-date-picker",
+      "parent-select-mom",
+      "parent-select-dad",
+      "voice-player",
+      "med-shape",
+      "med-color",
+      "med-instruction",
+      "safety-check-days",
+      "safety-check-time",
+      "safety-check-location",
+      "child-city-input",
+      "parent-city-input"
+    ]
+  },
+  "instructions_to_main_agent": [
+    "Preserve all existing visual styling (colors, borders, fonts, spacing, shadcn dialogs/tabs).",
+    "Use sonner for user-facing toasts.",
+    "Ensure responsive layout for both mobile and desktop viewports.",
+    "Add data-testid to all newly added form fields and interactive elements.",
+    "Do not import or render missing image URLs; use existing Lucide icons and clean Tailwind surfaces."
+  ]
+}

@@ -24,9 +24,8 @@ async def access(conn,user_id):
     active_sub = await conn.fetchrow(
         """SELECT * FROM billing_subscriptions
            WHERE user_id=$1
-             AND status IN ('authenticated','active')
-             AND (current_period_end IS NULL OR current_period_end > $2)
-             AND (cancel_at_period_end = false OR current_period_end > $2)
+             AND status IN ('active','cancelled','halted','completed')
+             AND current_period_start <= $2 AND current_period_end > $2
            ORDER BY CASE plan WHEN 'raksha' THEN 2 WHEN 'bandham' THEN 1 ELSE 0 END DESC, created_at DESC
            LIMIT 1""",
         user_id, now,
@@ -38,7 +37,7 @@ async def access(conn,user_id):
             'status': 'subscribed',
             'lifetime': False,
             'expires_at': active_sub['current_period_end'],
-            'auto_renews': not active_sub['cancel_at_period_end'],
+            'auto_renews': active_sub['status'] == 'active' and not active_sub['cancel_at_period_end'],
             'subscription_id': str(active_sub['id']),
         }
 
@@ -86,7 +85,7 @@ async def prorated_credit(conn, user_id, currency):
            FROM access_grants g
            JOIN billing_orders o ON o.id = g.order_id
            WHERE g.user_id=$1 AND g.revoked_at IS NULL
-             AND g.ends_at IS NOT NULL AND g.ends_at > $2
+             AND g.starts_at <= $2 AND g.ends_at IS NOT NULL AND g.ends_at > $2
            ORDER BY g.ends_at DESC LIMIT 1""",
         user_id, now,
     )
@@ -134,5 +133,6 @@ async def grant_order(conn,order,lifetime=False,revoke_grant_id=None):
             "UPDATE access_grants SET revoked_at=now() WHERE id=$1 AND user_id=$2 AND revoked_at IS NULL",
             revoke_grant_id, order['user_id'],
         )
-    await conn.execute("INSERT INTO payment_state(user_id,status,plan,billing,billing_managed) VALUES($1,$2,$3,$4,true) ON CONFLICT(user_id) DO UPDATE SET status=excluded.status,plan=excluded.plan,billing=excluded.billing,billing_managed=true,updated_at=now()",order['user_id'],'sponsored' if lifetime else 'active',order['plan'],order['billing'])
+    if lifetime or start <= now:
+        await conn.execute("INSERT INTO payment_state(user_id,status,plan,billing,billing_managed) VALUES($1,$2,$3,$4,true) ON CONFLICT(user_id) DO UPDATE SET status=excluded.status,plan=excluded.plan,billing=excluded.billing,billing_managed=true,updated_at=now()",order['user_id'],'sponsored' if lifetime else 'active',order['plan'],order['billing'])
     await conn.execute('UPDATE users SET onboarding_step=greatest(onboarding_step,2) WHERE id=$1',order['user_id'])

@@ -1,48 +1,94 @@
 {
-  "summary": "End-to-end testing of AYANA-BOT iteration 2 (plans + conversational templates + WhatsApp LIVE). Backend: 30/30 pytest tests pass — /config returns plans (basic 149 INR / care_plus 399 INR), currencies (INR/USD/GBP/EUR/AED/SGD/AUD/CAD), categories with type tags, and whatsapp_enabled=true. Plan-based limits enforced: Basic rejects 4 check-ins (400 with 'up to 3'), rejects 3 reminders (400 with 'up to 2'), accepts 3+2; Care+ accepts 10 check-ins. Payment checkout stores {plan,billing} correctly and defaults unknown plans to basic. Conversational preview endpoint returns casual Telugu ('అమ్మా') + reply footer ('👉 రిప్లై') and Hindi/English footers with '👉' arrow, done/not-yet options. Admin & account flows intact. Frontend: signup→onboarding→basic plan pick→schedule editor→activation→dashboard flow completed. Landing pricing billing toggle (month↔year) and currency dropdown (INR↔USD) update prices correctly (₹149/mo, ₹1430/yr, $1.99/mo, $19/yr). Onboarding step order matches spec (child, parent, plan pick, schedule, activate). Schedule editor UI correctly caps Basic at 3 checkins + 2 reminders with add buttons disabled at limit. Dashboard edit-schedule dialog uses the grouped ScheduleEditor and respects plan limits. shadcn Select for category renders 8 options in a portal without dialog clipping. Admin dashboard shows 'WhatsApp: Live' badge and Users/Deliveries/Emergencies tabs.",
+  "summary": "Completed stricter backend-only readonly diagnostics (17 new executable tests) with deterministic clocks and real function-path assertions. No product code or live integrations were modified.",
   "backend_issues": {
-    "critical": [],
-    "minor": []
-  },
-  "frontend_issues": {
-    "ui_bugs": [
-      {"component": "Signup page (/signup)", "issue": "Phone field is a plain <input> with placeholder '+919876543210' — the new PhoneInput country-code dropdown component is NOT used here. Review request explicitly asked: 'Signup with country-code dropdown phone (+91 default) works'. No data-testid='signup-phone-code' exists. Users must type the full E.164 string manually.", "selector": "[data-testid='signup-phone']", "priority": "HIGH"}
+    "critical": [
+      {
+        "endpoint": "scheduler._deliver_parent + webhook receipt flow",
+        "issue": "After delivery failure is persisted on message_logs, scheduler still skips resend when care_send_claims status remains sent/non-failed; claim gate is reached and blocks delivery.",
+        "priority": "CRITICAL"
+      },
+      {
+        "endpoint": "services.notifications.drain_notifications",
+        "issue": "Notifications moved to failed via persist_receipt (including 131047/131016) are not selected by drain query, so failed rows are never retried by queue drain.",
+        "priority": "HIGH"
+      },
+      {
+        "endpoint": "/api/webhook/razorpay (subscription.charged)",
+        "issue": "Webhook period assignment uses receipt-time now/add_period(now) and has no event idempotency guard; replayed signed event overwrites current_period_start/end.",
+        "priority": "CRITICAL"
+      },
+      {
+        "endpoint": "/api/webhook/razorpay (subscription.charged)",
+        "issue": "Charged event can set cancelled subscription back to active without status guard.",
+        "priority": "HIGH"
+      },
+      {
+        "endpoint": "scheduler._deliver_parent",
+        "issue": "Delivery entitlement path does not call billing_access.access; with activation=true and payment_state.plan present, send proceeds even when access resolver reports allowed=false.",
+        "priority": "HIGH"
+      }
     ],
-    "integration_issues": [],
-    "design_issues": [
-      {"screen": "Dashboard header", "issues": ["Plan badge ('AYANA Basic · Trial') has no data-testid; consider adding data-testid='plan-badge' for automated tests."]},
-      {"screen": "Dashboard edit-schedule dialog", "issues": ["Radix DialogContent emits console warning: 'Missing Description or aria-describedby={undefined} for {DialogContent}' — add DialogDescription for a11y."]}
+    "minor": [
+      {
+        "endpoint": "routes.webhook._record_reply (audio path)",
+        "issue": "Unresolved audio media_url follows non-voice branch (is_voice=false, blank body) and STT is not invoked."
+      },
+      {
+        "endpoint": "routes.webhook button retry path",
+        "issue": "If first side-effect fails post-recording, duplicate retry bypasses second side-effect execution."
+      },
+      {
+        "endpoint": "routes.webhook._apply_button_tap_effects",
+        "issue": "Updates latest category row for day, not exact older replied message_log_id context."
+      },
+      {
+        "endpoint": "escalation._watch_parent",
+        "issue": "At Asia/Kolkata 22:01 with window_end 21:00, eligible gate suppresses warning path (positive control at 22:05 with end 23:00 reaches warning path)."
+      },
+      {
+        "endpoint": "scheduler + schedule_source pipeline",
+        "issue": "Nitya medicine sync can validate 3 slots but schedule expansion emits 4 sends; at 20:00 with reminders already at quota, Med C send is skipped by quota branch."
+      }
     ]
   },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
   "test_report_links": [
-    "/app/backend/tests/test_ayana_api.py",
-    "/app/backend/tests/conftest.py",
+    "/app/backend/tests/test_iteration22_readonly_diagnostics.py",
     "/app/test_reports/pytest/pytest_results.xml"
   ],
   "action_items": [
-    "Wire the <PhoneInput> component into /signup (replace the plain phone <input>) so E.164 is auto-built from country code + digits, matching the child/parent phone inputs elsewhere. Add data-testid='signup-phone-code' via the PhoneInput testid prop.",
-    "Add data-testid='plan-badge' to the header plan chip in Dashboard.js (line ~75) for future automated tests.",
-    "Add a DialogDescription (or aria-describedby) to the Add/Edit schedule and Add/Edit parent dialogs to silence Radix a11y warnings.",
-    "Update /app/memory/test_credentials.md — it still reports WHATSAPP_ENABLED=false but backend/.env now has WHATSAPP_ENABLED=true (Twilio sandbox); align docs with reality to avoid confusing next agents."
+    "Add explicit reconciliation between async receipt failures and care_send_claims status transitions.",
+    "Extend notification drain selector/policy for failed states with bounded retries where intended.",
+    "Harden billing webhook with event idempotency keying and provider-authoritative period boundaries/status checks.",
+    "Unify scheduler entitlement checks with billing_access.access to prevent plan/access divergence.",
+    "Bind reminder side-effects to exact reply context/message_log_id to prevent wrong-row mutation."
   ],
   "critical_code_review_comments": [
-    "backend/models.py ScheduleInput.limit_messages is still a no-op field_validator (returns v as-is); actual enforcement lives in server._validate_by_plan. Move to model_validator or drop the dead validator.",
-    "backend/server.py PUT /parents/{parent_id} still lacks a `deleted_at: None` filter on find_one — a soft-deleted parent can be resurrected via PUT. Low risk since UI never surfaces deleted parents, but worth tightening.",
-    "backend/server.py /messages/preview: ignored `custom_text` gets rendered without variant selection when the template exists AND custom_text is provided (custom_text wins). Good, but no path currently forces a non-default `day_index`; consider seeding a stable rotation key so users don't see the same variant twice in a row.",
-    "backend/whatsapp.py: on Twilio failure, send_whatsapp returns {status: 'failed', detail: <str(exc)>} which is fine, but activate() surfaces this to the client as-is. For UX, consider grouping failures by recipient and providing an actionable message (e.g., 'Not joined to sandbox yet').",
-    "backend/.env: WHATSAPP_ENABLED=true with TWILIO_AUTH_TOKEN committed in plaintext. Rotate this token after testing; consider moving to a secret manager.",
-    "CORS still uses allow_origins=['*'] + allow_credentials=True (invalid combination). Since the app uses Bearer tokens it works, but is a config smell.",
-    "Frontend Signup.js: does NOT use PhoneInput (see ui_bug above). All other phone fields (child-phone, parent-phone, pd-phone, sd-phone if present) correctly use PhoneInput with -code testid.",
-    "Frontend ScheduleEditor: add-reminder always defaults new rows to 'medicine' (firstOfType), so two consecutive reminder chips render as 'Medicine Reminder' until user changes the category. Minor UX: consider cycling defaults or defaulting the second reminder to 'water' since Basic plan allows only 2."
+    "Current readonly suite proves several paths are executable regressions, not hypothetical source-only risks.",
+    "Webhook and scheduler state machines still diverge under async-failure/replay conditions.",
+    "Billing charged webhook trusts event timing over provider subscription period authority."
   ],
   "updated_files": [
-    "/app/backend/tests/test_ayana_api.py (rewrote for new plan-based logic, WHATSAPP_ENABLED=true, conversational reply footer, /payment/checkout payload)"
+    "/app/backend/tests/test_iteration22_readonly_diagnostics.py",
+    "/app/backend/tests/_stubs/asyncpg.py",
+    "/app/backend/tests/_stubs/redis/__init__.py",
+    "/app/backend/tests/_stubs/redis/asyncio.py",
+    "/app/backend/tests/_stubs/apscheduler/__init__.py",
+    "/app/backend/tests/_stubs/apscheduler/schedulers/__init__.py",
+    "/app/backend/tests/_stubs/apscheduler/schedulers/asyncio.py",
+    "/app/test_reports/iteration_2.json"
   ],
-  "success_rate": {"backend": "100% (30/30)", "frontend": "~95% (full E2E flow works; signup PhoneInput is the only miss)"},
-  "test_credentials": "Admin: admin@ayana.care / AyanaAdmin@2026. Test user created during run: e2e_u18ygrnm@example.com / test1234 (Basic plan, activated). New signups must use E.164 phones like +919876543210 (@example.com emails only; pydantic EmailStr rejects .test/.local).",
-  "seed_data_creation": "Multiple TEST_-prefixed users/parents/schedules created via pytest and Playwright runs. e2e_* prefix used for browser flow user. No cleanup performed but names are easily identifiable.",
+  "success_rate": {
+    "backend": "100% on this iteration's strict diagnostics (17/17 passing)",
+    "frontend": "N/A (not requested)"
+  },
+  "seed_data_creation": "None",
   "retest_needed": true,
-  "main_agent_can_self_test": true,
-  "context_for_next_testing_agent": "Backend pytest suite lives at /app/backend/tests/test_ayana_api.py (30 tests, xdist 2 workers, ~7s). Fixtures: `fresh_user` gives a brand-new registered user with `.headers`; `auth_headers` reuses a session-scoped user. WHATSAPP_ENABLED=true so /activation/activate returns real Twilio results — status='failed' for numbers not joined to the sandbox is EXPECTED. Frontend flow: /signup → /onboarding steps 0..4 (child, parent, plan via PricingCards select-plan-basic/care_plus, schedule via ScheduleEditor, activation) → /dashboard. All phone fields except signup use <PhoneInput>. If the previous agent adds PhoneInput to Signup, the flow test can just fill signup-phone-code (via select_option '+91') + signup-phone (digits only).",
-  "rca of the issue": "Signup PhoneInput miss: the review request lists signup PhoneInput as an iteration goal, but /app/frontend/src/pages/Signup.js (lines 78-82) still renders a plain <input data-testid='signup-phone'>. All other phone inputs (Onboarding child/parent, Dashboard pd-phone, sd-phone) were correctly migrated to <PhoneInput>. Fix: replace the plain <input> block with `<PhoneInput value={form.phone} onChange={(v) => setForm({ ...form, phone: v })} testid=\"signup-phone\" />` and drop the `+` from the placeholder note. Backend RegisterInput.clean_phone already validates E.164, so PhoneInput's `${dial}${digits}` output remains compatible."
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Executed diagnostics count: previous suite had 26 tests (iteration_1 context); this run added 17 stricter tests. Command used: DATABASE_URL=postgresql://u:p@localhost:5432/db PYTHONPATH=/app/backend/tests/_stubs:/app/backend pytest -v --noconftest /app/backend/tests/test_iteration22_readonly_diagnostics.py --tb=short --junitxml=/app/test_reports/pytest/pytest_results.xml. Distinction: DIRECTLY EXECUTED findings include scheduler claim/receipt mismatch, drain exclusion of failed, audio unresolved non-voice path, retry side-effect bypass, billing replay period overwrite, cancelled->active reactivation, entitlement bypass. SOURCE-ONLY findings in this run: none newly added. EXTERNAL HYPOTHESES: none accepted; no live provider/db validation performed by design (MOCKED boundaries).",
+  "rca of the issue": "Primary pattern is distributed state without authoritative idempotent transition control: webhook receipts, scheduler claims, notification queue, and billing subscription state can diverge under retries/replays. Deterministic tests reproduced branch behavior without live WhatsApp/payment calls."
 }

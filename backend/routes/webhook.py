@@ -408,52 +408,25 @@ async def _record_reply(from_number: str, body_text: str, num_media: int = 0, pa
 
     owner_id = parent["user_id"] if parent else None
 
-    # Trust-recovery for the ACCOUNT OWNER only: a 131049 ("not delivered to
-    # maintain healthy ecosystem engagement") block on their own number is
-    # cleared by their first genuine inbound message — e.g. tapping the
-    # click-to-chat link in WhatsAppActivatePrompt. We only check the owner
-    # here; parents build trust naturally through the normal check-in/reply
-    # cycle and never need this flag.
-    if owner_id:
-        async with get_pool().acquire() as conn:
-            owner_flagged = await conn.fetchrow(
-                "select * from users where id=$1 and needs_inbound_click=true "
-                "and regexp_replace(phone,'\\D','','g')=regexp_replace($2,'\\D','','g')",
-                owner_id, from_number,
-            )
-            if owner_flagged:
-                await conn.execute("UPDATE users SET needs_inbound_click=false WHERE id=$1", owner_id)
-                from services.welcomes import welcome_parent_and_child
-                asyncio.create_task(welcome_parent_and_child(dict(parent), dict(owner_flagged)))
-
     async with get_pool().acquire() as conn:
+        exact_log = await conn.fetchrow('SELECT * FROM message_logs WHERE parent_id=$1 AND sid=$2 ORDER BY created_at LIMIT 1', parent['id'], context_id) if context_id else None
         if button_payload:
-            resolved = await _resolve_generic_button_intent(parent["id"], button_payload) if parent else None
-            if resolved is not None:
-                intent = resolved
-            elif button_payload.startswith(_STRUCTURED_INTENT_PREFIXES):
-                intent = button_payload
-            else:
-                # #2c: approved-template button with a non-structured / empty id
-                # — fall back to matching the localized TITLE the parent tapped.
-                intent = await _resolve_button_title_intent(parent["id"], body_text) if parent else button_payload
-                if not intent or intent == "text":
-                    intent = button_payload
-        elif media_url and (media_content_type or "").startswith("audio/"):
+            from services.button_intents import exact_button_intent
+            intent = exact_button_intent(dict(exact_log) if exact_log else None, button_payload, body_text)
+        elif (raw_payload or {}).get('type') == 'audio' or (media_content_type or '').startswith('audio/'):
             is_voice = True
-            stt = await transcribe_voice_note_detailed(media_url, language=lang, auth_headers=meta_auth_header())
+            try:
+                stt = await transcribe_voice_note_detailed(media_url, language=lang, auth_headers=meta_auth_header()) if media_url else None
+            except Exception as exc:
+                logger.warning('Voice transcription unavailable; keeping the original audio (%s)', type(exc).__name__)
+                stt = None
             transcription = stt.get("transcript") if stt else None
             stt_confidence = stt.get("confidence") if stt else None
             effective_text = transcription or "[voice note]"
             intent = parse_intent(None, effective_text)
             body_text = effective_text
         else:
-            last_log = None
-            if parent:
-                last_log = await conn.fetchrow(
-                    "select * from message_logs where parent_id = $1::uuid order by created_at desc limit 1",
-                    parent["id"],
-                )
+            last_log = exact_log
             last_msg_type = (last_log["msg_type"] if last_log else "checkin") or "checkin"
             intent = parse_intent(None, body_text, last_msg_type=last_msg_type)
 
@@ -504,6 +477,8 @@ async def _record_reply(from_number: str, body_text: str, num_media: int = 0, pa
                     "parent_id": str(parent["id"]) if parent else None, "intent": None}
         if not reply_row:
             return {'duplicate': True, 'parent_id': str(parent['id'])}
+        if context_id and reply_row['message_log_id']:
+            await conn.execute("UPDATE parent_replies SET association_source='context' WHERE id=$1", reply_row['id'])
         await notifications.enqueue_reply(conn, reply_row)
         if keywords and parent:
             await conn.execute(
@@ -555,7 +530,7 @@ async def _apply_button_tap_effects(reply: dict) -> None:
     """Runs once after _record_reply() for any tap that carried a button_payload."""
     intent = reply.get("intent") or ""
     action, _, category = intent.partition(":")
-    if action not in ("done", "pending", "skip", "feeling"):
+    if action not in ("done", "pending", "skip", "feeling", "arrived", "on_way", "activity_done"):
         return  # emergency:*, or an unresolved payload — leave to the existing emergency/family-notify flow
 
     parent_id = reply.get("parent_id")
@@ -565,36 +540,15 @@ async def _apply_button_tap_effects(reply: dict) -> None:
 
     category = _BUTTON_CATEGORY_ALIASES.get(category, category)
 
-    async with get_pool().acquire() as conn:
+    async with get_pool().acquire() as conn, conn.transaction():
+        claimed = await conn.fetchval('UPDATE parent_replies SET effects_applied_at=now() WHERE id=$1 AND effects_applied_at IS NULL RETURNING id', reply['id'])
+        if not claimed:
+            return
         p = await conn.fetchrow("select language, timezone from parents where id = $1::uuid", parent_id)
         language = (p["language"] if p and p["language"] else "en")
 
-        if action in ("done", "pending", "skip") and category:
-            # message_logs.day_key is written in the parent's local day by the
-            # scheduler — match it the same way or evening/early-morning taps miss.
-            try:
-                tz = ZoneInfo((p["timezone"] if p and p["timezone"] else None) or "Asia/Kolkata")
-            except Exception:
-                tz = ZoneInfo("Asia/Kolkata")
-            day_key = datetime.now(tz).strftime("%Y-%m-%d")
-            log = await conn.fetchrow(
-                """
-                select id from message_logs
-                where parent_id = $1::uuid and day_key = $2 and category = $3
-                order by created_at desc limit 1
-                """,
-                parent_id, day_key, category,
-            )
-            if log:
-                await conn.execute(
-                    "update message_logs set reply_status = $1 where id = $2",
-                    action, log["id"],
-                )
-            else:
-                logger.warning(
-                    "[webhook] No message_logs row found for parent %s category %s (day %s) — reply_status not updated",
-                    parent_id, category, day_key,
-                )
+        if action != 'feeling' and reply.get('context_id'):
+            await conn.execute('UPDATE message_logs SET reply_status=$1 WHERE id=$2 AND parent_id=$3 AND sid=$4 AND category=$5', action, reply.get('message_log_id'), parent_id, reply['context_id'], category)
 
     ack_text = _BUTTON_ACK_TEXT.get(action, {}).get(language) or _BUTTON_ACK_TEXT.get(action, {}).get("en")
     if ack_text:
@@ -701,6 +655,11 @@ async def simulate_reply(payload: SimulateReplyInput, user: dict = Depends(get_c
 # the message SID we stored on message_logs.sid. We persist the furthest state
 # reached so the dashboard/admin can show a real delivery funnel.
 async def _persist_delivery_status(status: dict) -> None:
+    from services.receipts import ingest
+    await ingest(status)
+
+
+async def _legacy_delivery_status(status: dict) -> None:
     await notifications.persist_receipt(status)
     sid = status.get("id")
     st = status.get("status")
@@ -922,7 +881,7 @@ async def _process_meta_payload(payload: dict) -> None:
                     )
                     if body_text.strip().lower() in ('stop', 'ఆపు', 'ఆపండి', 'बंद', 'रोकें') and reply.get('parent_id'):
                         await get_pool().execute('UPDATE parents SET opted_out_at=now() WHERE id=$1::uuid',reply['parent_id'])
-                    if button_payload and reply.get("parent_id") and not reply.get('duplicate'):
+                    if button_payload and reply.get("parent_id") and reply.get('id'):
                         await _apply_button_tap_effects(reply)
                 except Exception as e:
                     # Always 200 to Meta — a 5xx makes Meta retry the same
