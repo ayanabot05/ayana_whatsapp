@@ -29,6 +29,7 @@ import { EmailVerificationCard } from "@/components/EmailVerificationCard";
 import { PhoneChangeDialog } from "@/components/PhoneChangeDialog";
 import { CareStatus } from "@/components/CareStatus";
 import { PlanPanel } from '@/features/billing/PlanPanel';
+import { WhatsAppActivatePrompt } from "@/components/WhatsAppActivatePrompt";
 
 function TabBoundary({ tab, onRetry, children }) {
   return (
@@ -482,7 +483,7 @@ function AccountPanel({ user, plan, payment, circle, setActiveTab, refreshUser }
     }
   };
 
-  return (
+    return (
     <div className="bg-white rounded-[16px] border border-[#efe8d8] p-4 sm:p-6 shadow-[0_1px_0_0_rgba(0,0,0,0.02)]">
       <div className="flex items-center justify-between mb-4">
         <h2 className="font-display text-[18px] font-medium text-[#1a1a1a]">Account</h2>
@@ -493,6 +494,11 @@ function AccountPanel({ user, plan, payment, circle, setActiveTab, refreshUser }
         )}
       </div>
 
+      {user?.needs_inbound_click && (
+        <div className="mb-5">
+          <WhatsAppActivatePrompt recipientLabel="you" />
+        </div>
+      )}
       <div className="mb-5 space-y-4"><EmailVerificationCard user={user} onVerified={refreshUser} testid="account-email" /><PhoneChangeDialog user={user} onChanged={refreshUser} /></div>
       {!editing ? (
         <div className="space-y-3">

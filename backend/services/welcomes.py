@@ -5,9 +5,21 @@ from whatsapp import _send_content_template_with_retry, whatsapp_enabled
 
 
 async def send_once(key,phone,name,checking_for,language):
-    won = await get_pool().fetchval("INSERT INTO welcome_deliveries(event_key,phone) VALUES($1,$2) ON CONFLICT DO NOTHING RETURNING event_key",key,phone)
-    if not won:
-        return dict(await get_pool().fetchrow('SELECT * FROM welcome_deliveries WHERE event_key=$1',key))
+    # A prior 'failed' attempt (e.g. Meta code 131049 — cold-outbound trust
+    # rejection) must be retryable once the recipient's trust signal is
+    # re-established (see webhook.py's needs_inbound_click recovery). Only
+    # a genuinely settled outcome — accepted/sent/delivered/read — short-
+    # circuits here; anything else falls through to a real resend, and the
+    # ON CONFLICT DO UPDATE keeps the same event_key row instead of failing
+    # the insert.
+    existing = await get_pool().fetchrow('SELECT * FROM welcome_deliveries WHERE event_key=$1',key)
+    if existing and existing['status'] in ('accepted','sent','delivered','read'):
+        return dict(existing)
+    await get_pool().execute(
+        "INSERT INTO welcome_deliveries(event_key,phone) VALUES($1,$2) "
+        "ON CONFLICT(event_key) DO UPDATE SET phone=excluded.phone,updated_at=now()",
+        key,phone,
+    )
     if not whatsapp_enabled():
         result = {'status':'disabled','detail':'WhatsApp sending is disabled.'}
     else:
