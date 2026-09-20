@@ -162,12 +162,14 @@ async def create_parent(payload: ParentInput, background_tasks: BackgroundTasks,
     background_tasks.add_task(welcome_parent_and_child, dict(row), dict(user), True)
 
     out = serialize(row)
-    out["welcome_sent"] = True
+    out["welcome_sent"] = False
+    out["welcome_status"] = 'awaiting_activation'
     return out
 
 @router.put("/parents/{parent_id}")
 async def update_parent(parent_id: str, payload: ParentInput, user: dict = Depends(get_current_user), _csrf: None = Depends(validate_csrf_token)):
-    async with get_pool().acquire() as conn:
+    from database import atomic_care_save
+    async with atomic_care_save() as conn:
         parent = await conn.fetchrow(
             "select * from parents where id = $1::uuid and user_id = $2 and deleted_at is null",
             parent_id, scope(user),

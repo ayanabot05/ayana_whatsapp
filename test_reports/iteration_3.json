@@ -1,44 +1,82 @@
 {
-  "summary": "Iteration 3 (Care+ family co-care + Send test check-in) end-to-end tested. Backend: 42/42 pytest tests pass (30 regression + 12 new). New coverage: POST /messages/send-test writes message_logs and returns Twilio status (sent/failed/simulated); GET/POST /circle & /circle/invite for Care+ owners (role, plan, max_members=3, dedupe, own-email-block, cancel-invite); Basic owner invite blocked with 403 upgrade message; register-time auto-link (invited email -> household_owner_id set, onboarding_complete=true, member sees OWNER's parents/schedules via scope()); member blocked from POST /payment/checkout and POST /circle/invite with 403; owner can DELETE /circle/member/{id} and the removed user's own scope is empty. Frontend: full flow verified via Playwright — Owner signup -> Onboarding steps 0..4 (child/parent/plan-care_plus/schedule/activate) -> Dashboard; Parents tab Send button opens SendTestDialog (send-test-category select + send-test-confirm) and closes cleanly; Care circle tab (tab-circle) shows invite-form for Care+ owner, adds a pending invite (member email listed with '1/3 members used'); member signs up with invited email and is redirected DIRECTLY to /dashboard (bypasses onboarding, toast '💛 joined family care circle'), sees owner's parent 'TEST_UI_Amma' in Parents tab, and CircleTab shows 'Shared care circle · You're co-caring in TEST_UI_Owner's circle (owner@…)' with NO invite-form.",
+  "summary": "Executed backend+frontend regression verification on isolated disposable PostgreSQL and offline frontend build/component scope. Dad context-linking checks passed; 3 backend regressions remain failing; live public-browser verification blocked (frontend/.env missing REACT_APP_BACKEND_URL).",
   "backend_issues": {
-    "critical": [],
-    "minor": []
+    "critical": [
+      {
+        "endpoint": "services/notification_transport.reply_url",
+        "issue": "send_update assumes reply['parent_id'] always present; KeyError crashes notification path for reply payload shapes without parent_id.",
+        "priority": "HIGH"
+      },
+      {
+        "endpoint": "services/notifications.deliver + services/receipts.persist_receipt",
+        "issue": "After uncertain/interrupted send path, receipt progression test still leaves sid state unresolved (expected sent status not persisted).",
+        "priority": "HIGH"
+      },
+      {
+        "endpoint": "services.notifications.record_recipient_inbound / child content request flow",
+        "issue": "Context SID authorization + wam_id dedup regression still not triggering expected enqueue count (0 instead of 1).",
+        "priority": "HIGH"
+      },
+      {
+        "endpoint": "backend/schema.sql",
+        "issue": "Fresh schema apply logs `unrecognized configuration parameter \"cron.database_name\"` at pg_cron section on local PG15 fixture.",
+        "priority": "HIGH"
+      }
+    ],
+    "minor": [
+      {
+        "endpoint": "frontend/src/lib/api.js",
+        "issue": "Frontend API base URL falls back to hardcoded localhost (violates env-only URL contract for deployment parity)."
+      }
+    ]
   },
   "frontend_issues": {
-    "ui_bugs": [
-      {"component": "Dashboard header (member view)", "issue": "Member sees 'Finish setup' button because activation.whatsapp_activated is checked against the MEMBER's own activation_state (which is always false — members share data via scope but activation_state is user-scoped). Clicking it takes the member to /onboarding, which the member should never see (they were auto-linked). Fix: hide 'Finish setup' when user.household_owner_id is set, or check owner's activation_state, or route members away from /onboarding.", "selector": "[data-testid='finish-setup']", "priority": "MEDIUM"},
-      {"component": "Dashboard header stat (member view)", "issue": "'Care circle' stat card shows 'Off' for a linked member even though the owner has activated WhatsApp — same root cause as above (member reads own activation_state, not owner's). Cosmetic.", "selector": "dashboard-stats", "priority": "LOW"}
+    "ui_bugs": [],
+    "integration_issues": [
+      {
+        "flow": "Public E2E/browser smoke",
+        "issue": "frontend/.env missing; no REACT_APP_BACKEND_URL/public URL available. Live browser/deployment check unverified by policy.",
+        "affected_selectors": []
+      }
     ],
-    "integration_issues": [],
     "design_issues": []
   },
   "test_report_links": [
-    "/app/backend/tests/test_ayana_api.py",
-    "/app/backend/tests/test_circle_and_send.py",
-    "/app/backend/tests/conftest.py",
-    "/app/test_reports/pytest/pytest_results.xml"
+    "/app/backend/tests/test_iteration3_reply_linking_and_buttons.py",
+    "/app/backend/tests/test_iteration20_service_suite.py",
+    "/app/backend/tests/test_iteration23_sql_contracts.py",
+    "/app/frontend/src/components/checkins/CheckinsView.iter3.test.jsx",
+    "/app/test_reports/pytest/pytest_results.xml",
+    "/app/test_reports/pg_iso_iter3/log/schema_apply.log",
+    "/app/test_reports/pg_iso_iter3/log/migrations_apply.log",
+    "/app/test_reports/pg_iso_iter3/log/migrations_reapply.log"
   ],
   "action_items": [
-    "In Dashboard.js, gate the 'Finish setup' button on !user.household_owner_id (member should never be pushed to onboarding). Ideally also fetch/derive owner's activation state so the 'Care circle' stat card shows 'Active' for shared members.",
-    "Consider guarding /onboarding route so that a user with household_owner_id gets redirected to /dashboard (belt-and-suspenders in case a member navigates manually).",
-    "Backend server.py POST /activation/activate uses str(user['_id']) for parents/schedules lookup instead of scope(user); a linked member calling it would get 400 'Please add a parent and a schedule'. Acceptable today (member has no need to activate) but be consistent with scope() — either 403 members explicitly or use scope()."
+    "Fix notification_transport.reply_url/send_update contract mismatch so parent_id is always provided or safely optional.",
+    "RCA and fix uncertain receipt reconciliation path so sent/delivered state is persisted after interruption recovery.",
+    "Fix child content request SID authorization/dedup flow to enqueue exactly once for valid inbound context.",
+    "Harden schema.sql pg_cron block for environments lacking cron.database_name (guard clause or compatibility-safe SQL).",
+    "Remove localhost fallback in frontend API config and require REACT_APP_BACKEND_URL.",
+    "Provide preview/public URL env to allow Playwright E2E on real routed deployment."
   ],
   "critical_code_review_comments": [
-    "server.py /activation/activate (lines 310-347) queries db.parents/db.schedules by str(user['_id']) but everywhere else uses scope(user). Recommend either scope() or an explicit is_member() 403 for consistency.",
-    "server.py /circle/accept is dead code paths-wise since register auto-links on email match; keeping it is fine, but there is no /accept UI. Consider removing or wire a 'Join family' page for users who register BEFORE the invite (they'd need to trigger accept manually).",
-    "circle_invites has no unique index on (owner_id, email, status) — duplicate detection uses find_one, which is fine, but a partial index would be safer under concurrency.",
-    "Dashboard.js SendTestDialog only lists categories.map without grouping; for Basic plans the 'medicine' etc reminder categories are available in the send-test picker (which is fine — this is an on-demand ping, not a scheduled message).",
-    "Dashboard.js CircleTab 'Finish setup' issue described above — member UX is not fully household-aware.",
-    "Twilio auth token is committed in backend/.env; rotate after testing (existing comment from prior iteration still valid)."
+    "Notification pathways still have brittle payload-shape assumptions under async retries.",
+    "Schema bootstrap is not fully portable across PostgreSQL runtimes due pg_cron config usage.",
+    "Deployment parity risk: frontend hardcoded localhost fallback can silently bypass configured backend URL."
   ],
   "updated_files": [
-    "/app/backend/tests/test_circle_and_send.py (new — 12 tests for send-test, care circle invite/accept/remove, basic-plan 403, auto-link, member data sharing)"
+    "/app/backend/tests/test_iteration23_sql_contracts.py",
+    "/app/frontend/src/components/checkins/CheckinsView.iter3.test.jsx",
+    "/app/test_reports/iteration_3.json"
   ],
-  "success_rate": {"backend": "100% (42/42)", "frontend": "100% for the requested iteration-3 flows (send-test, invite, auto-link, shared parents, member UI). 1 minor UX gap noted (Finish setup button for members)."},
-  "test_credentials": "Admin: admin@ayana.care / AyanaAdmin@2026. UI flow created: owner_ui_<hash>@example.com / test1234 (Care+, activated) + member_ui_<hash>@example.com / test1234 (auto-linked). Pre-existing: owner1@example.com / test1234 (Care+) and sib1@example.com (linked member) per review context.",
-  "seed_data_creation": "Pytest run created ~15 TEST_*/c_*/sib_*/dup_*/cancel_*/member_*/toremove_*@example.com users + one TEST_UI_Owner + TEST_UI_Member via UI. No cleanup performed; identifiable by TEST_/e2e_/owner_ui_/member_ui_ prefixes.",
-  "retest_needed": false,
-  "main_agent_can_self_test": true,
-  "context_for_next_testing_agent": "Backend tests split across /app/backend/tests/test_ayana_api.py (regression, 30 tests) and /app/backend/tests/test_circle_and_send.py (iteration 3, 12 tests). Total 42 tests, xdist=2, ~13s. Onboarding testids are step0-next/step1-next/step3-next/step4-activate (NOT child-next/parent-next). PhoneInput testid pattern: fill '<testid>' with digits only — country code selector is '<testid>-code'. WHATSAPP_ENABLED=true — send-test/activation return 'failed' for non-sandbox numbers, not a bug. The one open UX bug is the 'Finish setup' button + 'Care circle: Off' stat leaking through for members because activation_state is user-scoped while parents/schedules are household-scoped.",
-  "rca of the issue": "Member 'Finish setup' UX bug — RCA: In server.py, /activation is fetched with str(user['_id']) and the record is written per-user during owner's activation. When a member logs in, GET /activation returns {} (default) so activation.whatsapp_activated=false, and Dashboard.js renders the Finish setup CTA (line 81-83). Fix in frontend: change condition to `!activation.whatsapp_activated && !user?.household_owner_id`. Optionally also change backend to return the owner's activation for members: `state = await db.activation_state.find_one({'user_id': scope(user)})`."
+  "success_rate": {
+    "backend": "85% (17/20 selected regression tests passing)",
+    "frontend": "Build PASS + component regression PASS; live browser E2E unverified"
+  },
+  "test_credentials": "No verified app credentials available in /app/memory/test_credentials.md (file explicitly states none).",
+  "seed_data_creation": "Test-only data created inside disposable DB: ayana_local on isolated PG fixture /app/test_reports/pg_iso_iter3 (port 55434).",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Reusable commands: (1) export DATABASE_URL='postgresql://postgres@localhost:55434/ayana_local' APP_ENV=test WHATSAPP_ENABLED=false SCHEDULER_ENABLED=false JWT_SECRET='test-jwt-secret-test-jwt-secret-test' ADMIN_EMAIL='admin@example.test' ADMIN_PASSWORD='AdminPass123!' FRONTEND_URL='https://example.test' PYTHONPATH=/app/backend ; pytest -v --tb=short /app/backend/tests/test_iteration3_reply_linking_and_buttons.py /app/backend/tests/test_iteration20_service_suite.py /app/backend/tests/test_iteration23_sql_contracts.py --junitxml=/app/test_reports/pytest/pytest_results.xml. (2) frontend component: cd /app/frontend && yarn test --watchAll=false --runTestsByPath /app/frontend/src/components/checkins/CheckinsView.iter3.test.jsx. (3) frontend build: cd /app/frontend && yarn build.",
+  "rca of the issue": "Observed backend failures are reproducible on real disposable PostgreSQL fixture with providers mocked by tests. Root patterns: (a) notification payload contract mismatch (missing parent_id assumptions), (b) async interruption/receipt state-machine drift, (c) child SID authorization enqueue path mismatch. Schema portability issue stems from pg_cron parameter assumption during destructive schema bootstrap."
 }

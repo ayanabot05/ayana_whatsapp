@@ -1,8 +1,8 @@
 from datetime import datetime, timezone
-from uuid import UUID
+from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from typing import List, Optional
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 
 from pricing import plan_limits
 from validation import validate_phone, validate_password
@@ -95,7 +95,13 @@ class LoginInput(BaseModel):
 class ChildProfileInput(BaseModel):
     name: str = Field(..., min_length=1, max_length=80)
     phone: str = Field(..., min_length=6, max_length=20)
-    city: Optional[str] = Field(None, max_length=80)
+    city: str = Field(..., min_length=1, max_length=80)
+    @field_validator('city')
+    @classmethod
+    def required_city(cls, value):
+        if not value.strip():
+            raise ValueError('City is required.')
+        return value.strip()
     timezone: str = Field(..., min_length=2, max_length=64)
     _valid_timezone = field_validator('timezone')(_iana_timezone)
     @field_validator("phone")
@@ -111,14 +117,32 @@ MEDICINE_TIMINGS = {"morning", "afternoon", "evening", "bedtime", "before_food",
 
 
 class MedicineItem(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid4()), max_length=80)
     name: str = Field(..., min_length=1, max_length=80)
-    dose: Optional[str] = Field(None, max_length=30)
-    shape: Optional[str] = Field(None, max_length=20)
-    color: Optional[str] = Field(None, max_length=20)
+    dose: str = Field(..., min_length=1, max_length=60)
+    shape: str = Field(..., min_length=1, max_length=20)
+    color: str = Field(..., min_length=1, max_length=20)
     timing: Optional[str] = Field(None, max_length=20)
     reminder_time: Optional[str] = Field(None, pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
     notes: Optional[str] = Field(None, max_length=200)
     is_recovery: bool = False
+    reminder_times: List[str] = Field(default_factory=list, max_length=6)
+
+    @model_validator(mode='after')
+    def complete_medicine(self):
+        import re
+        self.name, self.dose = self.name.strip(), self.dose.strip()
+        if not self.name or not self.dose:
+            raise ValueError('Medicine name and dose/quantity are required.')
+        if not self.reminder_times and self.reminder_time:
+            self.reminder_times = [self.reminder_time]
+        if not self.reminder_times or any(not re.fullmatch(r'([01]\d|2[0-3]):[0-5]\d', t) for t in self.reminder_times):
+            raise ValueError('Choose a valid medicine reminder time.')
+        self.reminder_times = sorted(set(self.reminder_times))
+        self.reminder_time = self.reminder_times[0]
+        if not self.timing and not (self.notes or '').strip():
+            raise ValueError('Add the medicine instructions provided to your parent.')
+        return self
 
     @field_validator("shape")
     @classmethod
@@ -159,6 +183,7 @@ VALID_CATEGORIES = {
     "tea_check", "walk_check",
     "medicine", "water", "bp_check", "sugar_check", "health_check",
     "how_feeling", "goodnight", "love_note",
+    "office_return", "market_return", "shopping_return", "temple_return", "outing_return",
 }
 
 
@@ -170,7 +195,13 @@ class ParentInput(BaseModel):
     language: str = Field(..., min_length=2, max_length=8)
     timezone: str = Field(..., min_length=2, max_length=64)
     _valid_timezone = field_validator('timezone')(_iana_timezone)
-    city: Optional[str] = Field(None, max_length=80)
+    city: str = Field(..., min_length=1, max_length=80)
+    @field_validator('city')
+    @classmethod
+    def required_city(cls, value):
+        if not value.strip():
+            raise ValueError('Parent city is required.')
+        return value.strip()
     other_parent_name: Optional[str] = Field(None, max_length=40)
     notes: Optional[str] = Field(None, max_length=300)
     birthday: Optional[str] = Field(None, pattern=r"^(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$")
@@ -237,11 +268,22 @@ class ParentInput(BaseModel):
 
 # ---------- Schedule ----------
 class ScheduleMessage(BaseModel):
+    active: bool = True
     time: str = Field(..., pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
     category: str = Field(..., min_length=1, max_length=40)
     type: Optional[str] = Field(None, max_length=20)
     custom_text: Optional[str] = Field(None, max_length=500)
     source: Optional[str] = Field(None, max_length=20)
+    medicine_id: Optional[str] = Field(None, max_length=80)
+    weekdays: List[int] = Field(default_factory=lambda: list(range(7)), min_length=1, max_length=7)
+    location_label: Optional[str] = Field(None, max_length=80)
+
+    @field_validator('weekdays')
+    @classmethod
+    def valid_days(cls, value):
+        if any(d < 0 or d > 6 for d in value):
+            raise ValueError('Choose weekdays from Monday to Sunday.')
+        return sorted(set(value))
 
     @field_validator("category")
     @classmethod
@@ -260,31 +302,29 @@ class ScheduleInput(BaseModel):
     recovery_until: Optional[str] = None
     reengagement_hours: int = Field(1, ge=1, le=24)
 
-    @field_validator("messages")
-    @classmethod
-    def limit_messages(cls, v, info):
+    @model_validator(mode='after')
+    def limit_messages(self):
         from templates_data import category_type
-        mode = info.data.get("mode", "nitya") if hasattr(info, "data") else "nitya"
-        limits = plan_limits(mode)
-        if len(v) == 0:
+        limits = plan_limits(self.mode)
+        if not self.messages:
             raise ValueError("Add at least 1 daily check-in")
-
-        counts = {"checkin": 0, "reminder": 0, "activity": 0}
-        for m in v:
-            counts[category_type(m.category)] += 1
-
-        limit_key = {"checkin": "checkins", "reminder": "reminders", "activity": "activities"}
-        labels = {"checkin": "check-ins", "reminder": "medicine reminders", "activity": "daily activities"}
-        recovery_extra = limits.get("recovery_extra_reminders", 0) if (info.data.get("recovery_mode") and limits.get("recovery_mode")) else 0
-        for t, n in counts.items():
-            allowed = limits.get(limit_key[t], 0) + (recovery_extra if t == "reminder" else 0)
-            if n > allowed:
-                raise ValueError(f"This plan allows up to {allowed} {labels[t]} per day.")
-
-        max_total = limits["templates_per_day"] + recovery_extra
-        if len(v) > max_total:
-            raise ValueError(f"This plan allows max {max_total} daily messages.")
-        return v
+        extra = limits.get('recovery_extra_reminders', 0) if self.recovery_mode and limits.get('recovery_mode') else 0
+        budgets = {'checkin': limits['checkins'], 'reminder': limits['reminders'] + extra, 'activity': limits.get('activities', 0), 'safety': 1, 'water': 1}
+        seen = set()
+        for m in self.messages:
+            identity = (m.category, m.time, m.medicine_id, tuple(m.weekdays))
+            if identity in seen:
+                raise ValueError('Remove the duplicate reminder at the same time.')
+            seen.add(identity)
+        for day in range(7):
+            counts = dict.fromkeys(budgets, 0)
+            for m in self.messages:
+                if m.active and day in m.weekdays:
+                    counts['water' if m.category == 'water' else category_type(m.category)] += 1
+            for kind, count in counts.items():
+                if count > budgets[kind]:
+                    raise ValueError(f'This plan allows {budgets[kind]} {kind} reminders per day. Every saved reminder must fit.')
+        return self
 
 
 # ---------- Recovery mode (Raksha) ----------

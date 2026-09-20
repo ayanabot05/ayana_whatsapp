@@ -49,7 +49,10 @@ async def _notify_family_warning(conn,parent,day,kind,missed=0):
         async with get_pool().acquire() as contact_conn, contact_conn.transaction():
             await contact_conn.execute('SELECT pg_advisory_xact_lock(hashtextextended($1,0))','recipient:'+str(person['id']))
             table = 'users' if 'password_hash' in person else 'care_circle_siblings'
-            phone = await contact_conn.fetchval(f'SELECT phone FROM {table} WHERE id=$1',person['id'])
+            if table == 'users':
+                phone = await contact_conn.fetchval('SELECT phone FROM users WHERE id=$1 AND (id=$2 OR household_owner_id=$2) AND deleted_at IS NULL', person['id'], parent['user_id'])
+            else:
+                phone = await contact_conn.fetchval('SELECT phone FROM care_circle_siblings WHERE id=$1 AND owner_id=$2 AND verified', person['id'], parent['user_id'])
             if not phone:
                 continue
             key = f"warning:{kind}:{parent['id']}:{day}:{person['id']}"
@@ -65,13 +68,16 @@ async def _watch_parent(parent):
         active = await conn.fetchval('SELECT whatsapp_activated FROM activation_state WHERE user_id=$1',parent['user_id'])
         local = local_now(parent)
         schedule, _ = await load_schedule(conn,parent)
-        if not active or not eligible(parent,local,schedule):
+        if not active or not eligible(parent,local,schedule,check_hours=False):
+            return
+        from services.billing_access import access
+        if not (await access(conn, parent['user_id']))['allowed']:
             return
         day = local.strftime('%Y-%m-%d')
         start = local.replace(hour=6,minute=0,second=0,microsecond=0)
         end = local.replace(hour=22,minute=0,second=0,microsecond=0)
         middle = local.replace(hour=14,minute=0,second=0,microsecond=0)
-        if local<middle:
+        if local<middle or local>=end+timedelta(hours=1):
             return
         logs = await conn.fetch("SELECT * FROM message_logs WHERE parent_id=$1 AND day_key=$2 AND msg_type IN ('checkin','reminder','activity') AND delivery_status IN ('delivered','read') AND created_at BETWEEN $3 AND $4 ORDER BY created_at",parent['id'],day,start,min(local,end))
         if not logs:
@@ -88,6 +94,8 @@ async def _watch_parent(parent):
             sent = await _notify_family_warning(conn,parent,day,'main',len(logs))
             await conn.execute('UPDATE care_watch SET main_warn_sent=$3,updated_at=now() WHERE parent_id=$1 AND day_key=$2',parent['id'],day,sent)
         elif local<end and not watch['first_warn_sent']:
+            if not eligible(parent,local,schedule):
+                return
             # Only morning deliveries qualify for the morning-specific template.
             if not any(log['created_at']<middle for log in logs):
                 return

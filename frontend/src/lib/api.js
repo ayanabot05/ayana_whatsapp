@@ -1,8 +1,8 @@
 import axios from "axios";
 
-// Fall back to local dev server so missing env var never causes cryptic failures.
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || "http://localhost:8001";
-export const API = `${BACKEND_URL}/api`;
+const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
+if (!BACKEND_URL) throw new Error('REACT_APP_BACKEND_URL must be configured before starting AYANA.');
+export const API = `${BACKEND_URL.replace(/\/$/, '')}/api`;
 
 // Use the fetch adapter (axios' default XHR transport intermittently hangs on
 // the very first request behind this ingress).

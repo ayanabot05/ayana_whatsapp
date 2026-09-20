@@ -23,6 +23,7 @@ async def drain():
     if _processor is None:
         return
     await get_pool().execute("UPDATE inbound_events SET status='pending' WHERE status='processing' AND next_attempt_at<now()-interval '5 minutes' AND attempts<5")
+    await get_pool().execute("UPDATE inbound_events SET status='failed',detail='Processing exhausted after interrupted attempts.' WHERE status='processing' AND next_attempt_at<now()-interval '5 minutes' AND attempts>=5")
     for _ in range(20):
         event = await get_pool().fetchrow("UPDATE inbound_events SET status='processing',attempts=attempts+1,next_attempt_at=now()+interval '1 minute' WHERE wam_id=(SELECT wam_id FROM inbound_events WHERE status='pending' AND next_attempt_at<=now() AND attempts<5 ORDER BY received_at FOR UPDATE SKIP LOCKED LIMIT 1) RETURNING *")
         if not event:

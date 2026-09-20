@@ -1,0 +1,10 @@
+.git
+**/node_modules
+**/__pycache__
+**/.pytest_cache
+**/.venv
+test_reports/pg_*
+test_reports/test.env
+test_reports/**/log
+backend/tests/_stubs
+frontend/build

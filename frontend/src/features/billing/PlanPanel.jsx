@@ -50,7 +50,7 @@ export const PlanPanel = ({ plans, currencies, planId, plan, usage, circle, relo
     toast.success(
       isSponsored ? 'Lifetime Raksha access enabled — completely free.' :
       isTrial ? 'Trial plan selected.' :
-      isSubscription ? 'Subscription active — auto-renews each period.' :
+      isSubscription ? 'Payment authorization received. Subscription status is being verified.' :
       'Payment captured and verified.'
     );
     await Promise.all([
@@ -70,7 +70,7 @@ export const PlanPanel = ({ plans, currencies, planId, plan, usage, circle, relo
   }
 
   const isLifetime = access?.lifetime;
-  const onSelect = isLifetime ? undefined : (id, billing) => setSelection({ plan: id, billing });
+  const onSelect = isLifetime ? undefined : (id, billing, currency) => setSelection({ plan: id, billing, currency });
 
   return (
     <div className="space-y-5 max-w-4xl" data-testid="plan-panel">
@@ -93,7 +93,7 @@ export const PlanPanel = ({ plans, currencies, planId, plan, usage, circle, relo
           </p>
         )}
         {!isLifetime && (
-          <Button variant="outline" onClick={() => setSelection({ plan: 'raksha', billing: 'year' })} data-testid="redeem-lifetime-code">
+          <Button variant="outline" onClick={() => { setPayMode('once'); setSelection({ plan: 'raksha', billing: 'year', currency: currencies?.[0]?.code || currencies?.[0] }); }} data-testid="redeem-lifetime-code">
             <Ticket className="w-4 h-4 mr-2" />
             Redeem a free-access code
           </Button>

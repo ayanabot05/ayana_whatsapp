@@ -50,6 +50,8 @@ async def verify_email(payload: CodeInput, user=Depends(get_current_user)):
         updated = await conn.fetchrow("UPDATE users SET email_verified_at=now(), email_verification_required=false WHERE id=$1 AND email=$2 RETURNING *", user['id'], proof['email'])
         if not updated:
             raise HTTPException(409, 'Your email changed. Request a new verification code.')
+        from services.welcomes import queue_child
+        await queue_child(dict(updated), conn)
     return {'verified': True, 'user': serialize(updated)}
 
 
@@ -89,9 +91,17 @@ async def confirm_phone_change(payload: CodeInput, background_tasks: BackgroundT
         await conn.execute('SELECT pg_advisory_xact_lock(hashtextextended($1,0))', 'phone:' + proof['target'])
         await assert_phone_available(conn, proof['target'], user['id'])
         await verification.consume(conn, proof)
-        updated = await conn.fetchrow("UPDATE users SET phone=$2,phone_changed_at=now(),email_verified_at=now(),email_verification_required=false WHERE id=$1 RETURNING *", user['id'], proof['target'])
+        updated = await conn.fetchrow("UPDATE users SET phone=$2,phone_changed_at=now(),contact_version=contact_version+1,needs_inbound_click=false,email_verified_at=now(),email_verification_required=false WHERE id=$1 RETURNING *", user['id'], proof['target'])
         # Sibling records with a verified matching email represent the same person.
-        await conn.execute('UPDATE care_circle_siblings SET phone=$2 WHERE lower(email)=lower($1) AND email_verified_at IS NOT NULL', current['email'], proof['target'])
+        siblings = await conn.fetch('SELECT id FROM care_circle_siblings WHERE lower(email)=lower($1) AND email_verified_at IS NOT NULL ORDER BY id', current['email'])
+        for sibling in siblings:
+            await conn.execute('SELECT pg_advisory_xact_lock(hashtextextended($1,0))', 'recipient:' + str(sibling['id']))
+        await conn.execute('UPDATE care_circle_siblings SET phone=$2,phone_changed_at=now(),contact_version=contact_version+1 WHERE lower(email)=lower($1) AND email_verified_at IS NOT NULL', current['email'], proof['target'])
+        from services.notifications import recover_contact
+        await recover_contact(conn, 'user', user['id'], proof['target'])
+        for sibling in siblings:
+            await recover_contact(conn, 'sibling', sibling['id'], proof['target'])
+        await conn.execute("UPDATE welcome_deliveries SET phone=$2,status='pending',attempts=0,next_attempt_at=now(),contact_version=$3 WHERE recipient_id=$1 AND status NOT IN ('accepted','sent','delivered','read','uncertain','sending')", user['id'], proof['target'], updated['contact_version'])
         await conn.execute("INSERT INTO audit_logs(user_id,action,meta) VALUES($1,'phone_changed',$2::jsonb)", user['id'], json.dumps({'old_last4':current['phone'][-4:], 'new_last4':proof['target'][-4:]}))
         # Re-send the WhatsApp opener to the child's NEW number for every active
         # parent so the 24h window opens on the new phone. welcome_deliveries

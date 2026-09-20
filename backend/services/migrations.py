@@ -7,7 +7,7 @@ async def apply_care_migration():
     async with get_pool().acquire() as conn, conn.transaction():
         await conn.execute("SELECT pg_advisory_xact_lock(hashtextextended('ayana:migrations', 0))")
         await conn.execute("CREATE TABLE IF NOT EXISTS app_migrations (name text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())")
-        for name in ('004_reliable_care','005_account_sessions','006_checkout_coupons','007_subscriptions','008_drop_legacy_phone_verified'):
+        for name in ('004_reliable_care','005_account_sessions','006_checkout_coupons','007_subscriptions','008_drop_legacy_phone_verified','009_care_consistency'):
             if not await conn.fetchval('SELECT 1 FROM app_migrations WHERE name=$1',name):
                 sql = (Path(__file__).parents[1]/f'migrations/{name}.sql').read_text()
                 await conn.execute(sql)

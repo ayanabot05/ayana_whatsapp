@@ -1,4 +1,31 @@
 import json
+from contextlib import asynccontextmanager
+from contextvars import ContextVar
+
+_transaction_connection = ContextVar('ayana_transaction_connection', default=None)
+
+
+class _ScopedPool:
+    def __init__(self, connection):
+        self.connection = connection
+
+    @asynccontextmanager
+    async def acquire(self):
+        yield self.connection
+
+    def __getattr__(self, name):
+        return getattr(self.connection, name)
+
+
+@asynccontextmanager
+async def atomic_care_save():
+    """Reuse route validation under one request-local transaction."""
+    async with get_pool().acquire() as conn, conn.transaction():
+        token = _transaction_connection.set(conn)
+        try:
+            yield conn
+        finally:
+            _transaction_connection.reset(token)
 import os
 from pathlib import Path
 from dotenv import load_dotenv
@@ -101,6 +128,9 @@ async def close_db():
 
 
 def get_pool() -> asyncpg.Pool:
+    current = _transaction_connection.get()
+    if current is not None:
+        return _ScopedPool(current)
     """
     Every other file imports this instead of a Mongo-style `db` object.
     Usage pattern, e.g. in auth.py:

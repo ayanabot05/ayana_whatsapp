@@ -95,14 +95,10 @@ async def create_subscription(gateway_plan_id: str, user_id, notes: dict | None 
             client().subscription.create,
             {
                 'plan_id': gateway_plan_id,
-                # total_count=0 → infinite recurring until cancelled
-                # Razorpay uses 0 for unlimited; for yearly this means renews every year.
-                'total_count': 0,
+                # Finite billing mandate: Razorpay rejects total_count=0.
+                'total_count': 10 if (notes or {}).get('billing') == 'yearly' else 120,
                 'quantity': 1,
-                'notify_info': {
-                    'notify_phone': 0,
-                    'notify_email': 1,
-                },
+                'customer_notify': True,
                 'notes': notes or {},
             },
         )

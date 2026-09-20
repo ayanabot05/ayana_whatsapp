@@ -1,41 +1,115 @@
 {
-  "summary": "Full end-to-end testing of AYANA-BOT (React + FastAPI + MongoDB). Backend: 24/24 pytest tests pass covering health, auth (register/login/admin/duplicate/invalid-phone), full onboarding chain (child->parent->schedule->checkout->activate), schedule mode limits (normal caps at 5, care_plus allows 10, empty rejected), parents CRUD, schedules toggle/delete, messages preview/logs, admin (stats/users/messages/emergencies + role gating), account delete. Frontend: Landing (hero+CTA+FAQ accordion), signup->onboarding 5-step wizard, dashboard tabs (Parents add/edit/delete via dialog, Schedules toggle/edit, Activity, Account delete), admin dashboard (stats + Users/Deliveries/Emergencies tabs), legal pages (/privacy, /terms, /disclaimer) all render correctly. WhatsApp send is simulated (WHATSAPP_ENABLED=false) and payments skipped (PAYMENTS_ENABLED=false) as intended.",
+  "summary": "Backend-only readonly review completed with isolated diagnostic tests. Core hypotheses around webhook/session recovery, welcome idempotency, scheduler claim handling, retry gaps, recovery-mode limits, and reply association were reproducibly validated. No application code was modified.",
   "backend_issues": {
-    "critical": [],
-    "minor": []
+    "critical": [
+      {
+        "endpoint": "/api/whatsapp/webhook",
+        "issue": "Inbound from child/unknown non-parent records recipient_sessions but _record_reply exits early (parent_id=None), so needs_inbound_click recovery/welcome resend path is unreachable.",
+        "priority": "CRITICAL"
+      },
+      {
+        "endpoint": "services/welcomes.send_once",
+        "issue": "Concurrent same event_key calls can both pass pre-check and both send (non-atomic claim between SELECT and UPSERT).",
+        "priority": "CRITICAL"
+      },
+      {
+        "endpoint": "scheduler._deliver_parent + webhook delivery receipts",
+        "issue": "Scheduler skips event when care_send_claims.status != failed; async receipt failure updates message_logs but not claim, so slot can be stuck skipped.",
+        "priority": "CRITICAL"
+      },
+      {
+        "endpoint": "services/notifications.drain_notifications",
+        "issue": "Failed notification states are excluded from retry selector; async failed receipts are not drained/retried by queue worker.",
+        "priority": "HIGH"
+      },
+      {
+        "endpoint": "routes/webhook._apply_button_tap_effects",
+        "issue": "Button effects update latest category/day log, not exact replied-to message_log_id/context row; can mutate wrong reminder row.",
+        "priority": "HIGH"
+      },
+      {
+        "endpoint": "routes/webhook audio ingestion",
+        "issue": "If resolve_meta_media_url returns None, audio message is recorded as non-voice text branch (blank body), causing incorrect reply classification/notification path.",
+        "priority": "HIGH"
+      },
+      {
+        "endpoint": "webhook retry path for button side effects",
+        "issue": "If _apply_button_tap_effects fails after _record_reply commit, webhook retry hits duplicate path and permanently bypasses side effect.",
+        "priority": "HIGH"
+      }
+    ],
+    "minor": [
+      {
+        "endpoint": "escalation._watch_parent",
+        "issue": "At parent-local 22:05 with default window_end=22:00, eligible gate blocks watch run; post-window main warning does not fire."
+      },
+      {
+        "endpoint": "whatsapp.send_reengagement",
+        "issue": "Provider status=uncertain is not marked sent, so repeated reengagement attempts can resend uncertain template."
+      },
+      {
+        "endpoint": "whatsapp.mark_opener_sent",
+        "issue": "Resets reengagement_sent=false for every opener/template type update, enabling repeated nudges after later template sends."
+      },
+      {
+        "endpoint": "models.ScheduleInput",
+        "issue": "messages validator reads recovery_mode before field parsed (field-order dependency), so Raksha recovery extra reminders are rejected."
+      },
+      {
+        "endpoint": "services/schedule_source.load_schedule",
+        "issue": "Expired recovery_until is ignored; recovery messages still loaded/sent unless manually removed."
+      },
+      {
+        "endpoint": "services/schedule_source.load_schedule",
+        "issue": "Single medicine schedule slot expands to multiple sends by medicine name at same time, causing schedule-slot vs send-count mismatch under reminder caps."
+      },
+      {
+        "endpoint": "whatsapp.send_dynamic_checkin",
+        "issue": "Health reminders outside parent window are correctly blocked_template; this is safe blocking but indicates incomplete out-of-window health template feature."
+      },
+      {
+        "endpoint": "scheduler._deliver_parent",
+        "issue": "Plan entitlement source is payment_state.plan only; billing_access.access resolver is not consulted (source-level review)."
+      }
+    ]
   },
   "frontend_issues": {
     "ui_bugs": [],
     "integration_issues": [],
-    "design_issues": [
-      {"screen": "Dashboard Activity tab", "issues": ["Empty state shows correctly but has no data-testid on the empty container; only data-testid='activity-list' appears once logs exist. Test scripts that wait on activity-list will time out for new users. Consider adding data-testid='activity-empty' or wrapping the tab content in a stable testid."]}
-    ]
+    "design_issues": []
   },
   "test_report_links": [
-    "/app/backend/tests/test_ayana_api.py",
-    "/app/backend/tests/conftest.py",
+    "/app/backend/tests/test_iteration21_readonly_regressions.py",
+    "/app/backend/tests/test_models_validation.py",
+    "/app/backend/tests/test_medicine_sync_unit.py",
     "/app/test_reports/pytest/pytest_results.xml"
   ],
   "action_items": [
-    "(Optional/minor) Add a stable data-testid on the Dashboard Activity tab container that is always rendered (currently activity-list only appears when logs > 0)."
+    "Add atomic welcome claim (single-statement claim/update) and durable worker for pending/failed welcome_deliveries.",
+    "Reconcile scheduler claim state with async receipt failures; allow retry path for failed async deliveries.",
+    "Extend notification retry/drain policy to include failed asynchronous statuses with bounded retry logic.",
+    "Bind button effects and family context updates to exact replied message (message_log_id/context.sid), not latest category.",
+    "Handle unresolved audio media URL explicitly as media failure, not blank text reply.",
+    "Make button side effects idempotent and replay-safe across webhook retries.",
+    "Fix ScheduleInput recovery_mode/messages validation order and enforce recovery_until expiry in schedule loader/worker.",
+    "Align entitlement checks across scheduler and billing_access.access to avoid quota divergence."
   ],
   "critical_code_review_comments": [
-    "backend/models.py: `ScheduleInput.limit_messages` field_validator is a no-op (returns v as-is); the actual mode-based limit is enforced only inside the route. Consider using a model_validator to keep validation with the schema.",
-    "backend/server.py: `whatsapp/webhook` uses `parent['user_id']` (already a string) but `parent_id` stored as ObjectId in `parent_replies` is fine; no bug found.",
-    "backend/auth.py: `seed_admin` correctly resets admin password if ADMIN_PASSWORD changed. bcrypt used with $2b$ hashes. JWT-only auth (no httpOnly cookie set on login). Per spec this is a JWT-in-localStorage design (documented), so acceptable; the /logout endpoint deletes a cookie that is never set — dead code but harmless.",
-    "backend/server.py: /api/parents/{parent_id} PUT does not require deleted_at is null filter — a previously-deleted parent could be resurrected via PUT. Low risk; consider adding {'deleted_at': None} to the find_one.",
-    "CORS: `allow_credentials=True` with `allow_origins=['*']` (from CORS_ORIGINS='*') is a browser-invalid combination; browsers will reject credentialed requests. Since the frontend uses Bearer tokens not cookies, it does not break the app, but this is a config smell — set explicit origins in production."
+    "Multiple reliability paths remain source-coupled to optimistic synchronous outcomes; async provider failures are not fully modeled in retry/claim state transitions.",
+    "Idempotency is inconsistent across inbound processing stages (commit-before-side-effect with duplicate short-circuit).",
+    "Several limits/eligibility checks derive from partial state (plan only, message category latest, window gate strictness) leading to silent drops/misattribution."
   ],
   "updated_files": [
-    "/app/backend/tests/__init__.py (created)",
-    "/app/backend/tests/conftest.py (created)",
-    "/app/backend/tests/test_ayana_api.py (created)"
+    "/app/backend/tests/test_iteration21_readonly_regressions.py",
+    "/app/test_reports/iteration_1.json"
   ],
-  "success_rate": {"backend": "100%", "frontend": "100%"},
-  "test_credentials": "Admin: admin@ayana.care / AyanaAdmin@2026 (works). Test users created via /api/auth/register with @example.com (@*.test blocked by email-validator).",
-  "seed_data_creation": "Multiple TEST_-prefixed users/parents/schedules were created in mongodb during testing. Cleanup not performed but data is prefixed for easy identification.",
-  "retest_needed": false,
-  "main_agent_can_self_test": true,
-  "context_for_next_testing_agent": "All V1 flows verified end-to-end against the preview URL. Backend pytest suite lives at /app/backend/tests/test_ayana_api.py (24 tests, LoadScopeScheduling, 2 workers). Emails must use non-reserved TLDs (e.g. @example.com) because pydantic EmailStr rejects @.test / @.local. WhatsApp status='simulated' in activation results is expected (WHATSAPP_ENABLED=false).",
-  "rca of the issue": "N/A - no bugs found. Initial test failures were due to my own use of @ayana.test emails which pydantic EmailStr rejects; fixed by switching to @example.com."
+  "success_rate": {
+    "backend": "100% test execution (26/26 passing diagnostic/unit tests)",
+    "frontend": "N/A (backend-only request)"
+  },
+  "seed_data_creation": "None",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Run the same diagnostic suite with real asyncpg/redis dependencies enabled (without stubs) to validate against production-like import/runtime. Keep tests readonly; do not start live providers. Focus retest on webhook retry idempotency and async receipt retry semantics after fixes.",
+  "rca of the issue": "Root pattern: state transitions are split across DB rows/tables without a single authoritative retry contract. Repro used isolated mocks to show claim/write ordering, fallback paths, and validator/load ordering mismatches. Mitigation direction: atomic claims + explicit finite-state machine for delivery/retry + exact context binding + deterministic validation order."
 }

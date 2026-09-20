@@ -1,6 +1,7 @@
 """Provider boundary for ordinary child updates. No out-of-window free-text fallback."""
 import os
 import httpx
+from urllib.parse import urlencode
 from whatsapp import _creds, _messages_url, _meta_phone, whatsapp_enabled
 from email_sender import _esc, email_enabled
 
@@ -9,9 +10,10 @@ async def send_update(phone, reply, session_open, language='en'):
     if not whatsapp_enabled():
         return {'status': 'disabled', 'detail': 'WhatsApp sending is disabled.'}
     name, prompt, stamp = reply['parent_name'], reply['prompt'], reply['display_time']
-    url = f"{os.environ['FRONTEND_URL'].rstrip('/')}/replies/{reply['id']}"
+    url = reply_url(reply)
     body = reply.get('body') or '[voice note]'
-    text = f"AYANA: {name} replied · {prompt}\n\n{body}\n\n{stamp}\n{url}"
+    preview = body if len(body) <= 3300 else body[:3300] + '\n[Full reply in Check-ins]'
+    text = f"AYANA: {name} replied · {prompt}\n\n{preview}\n\n{stamp}\n{url}"
     if session_open:
         return await post_meta({'messaging_product':'whatsapp','to':phone,'type':'text','text':{'body':text}})
     # ayana_parent_reply_{en,te,hi} and ayana_parent_voice_{en,te,hi} are
@@ -23,7 +25,8 @@ async def send_update(phone, reply, session_open, language='en'):
     lang = language if language in ('en', 'te', 'hi') else 'en'
     kind = 'voice' if reply['is_voice'] else 'reply'
     params = [name, prompt, stamp] if kind == 'voice' else [name, prompt, body[:600], stamp]
-    components = [{'type':'body','parameters':[{'type':'text','text':str(v)} for v in params]}]
+    components = [{'type':'body','parameters':[{'type':'text','text':' '.join(str(v).split())} for v in params]}]
+    components.append({'type':'button','sub_type':'quick_reply','index':'1','parameters':[{'type':'payload','payload':f"ayana:{kind}:{reply['id']}"}]})
     # Enable only if Meta's approved URL button uses /replies/{{1}}.
     if os.environ.get('WA_REPLY_DYNAMIC_URLS', '').lower() == 'true':
         components.append({'type':'button','sub_type':'url','index':'0','parameters':[{'type':'text','text':str(reply['id'])}]})
@@ -55,7 +58,7 @@ async def send_update_email(recipient, reply, notification_id):
         return {'status':'unverified_email'}
     if not email_enabled() or not os.environ.get('RESEND_API_KEY') or not os.environ.get('EMAIL_FROM'):
         return {'status':'disabled'}
-    link = f"{os.environ['FRONTEND_URL'].rstrip('/')}/replies/{reply['id']}"
+    link = reply_url(reply)
     html = f"<p>{_esc(reply['parent_name'])} sent a care reply.</p><p><a href=\"{_esc(link)}\">Open the reply in your AYANA account</a></p>"
     try:
         async with httpx.AsyncClient(timeout=10) as client:
@@ -63,3 +66,14 @@ async def send_update_email(recipient, reply, notification_id):
         return {'status':'sent','id':response.json().get('id')} if response.is_success else {'status':'failed'}
     except httpx.HTTPError:
         return {'status':'failed'}
+
+
+def reply_url(reply):
+    if not reply.get('parent_id'):
+        # Compatibility for old persisted jobs: the authenticated redirect
+        # resolves the parent/date; do not block notification delivery.
+        return os.environ['FRONTEND_URL'].rstrip('/') + '/replies/' + str(reply['id'])
+    query = {'tab': 'checkins', 'parent': str(reply['parent_id']), 'reply': str(reply['id'])}
+    if reply.get('local_date'):
+        query['date'] = reply['local_date']
+    return os.environ['FRONTEND_URL'].rstrip('/') + '/dashboard?' + urlencode(query)

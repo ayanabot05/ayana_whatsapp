@@ -47,3 +47,13 @@ async def archive_audio(reply):
         await get_pool().execute('UPDATE parent_replies SET media_storage_path=$2,media_content_type=$3 WHERE id=$1', reply['id'], path, content_type)
     except Exception as exc:
         logger.warning('Voice archive pending for reply %s (%s)', reply['id'], type(exc).__name__)
+
+
+async def recover_pending():
+    if not storage.is_enabled():
+        return
+    rows = await get_pool().fetch("SELECT * FROM parent_replies WHERE is_voice=true AND media_id IS NOT NULL AND media_storage_path IS NULL AND media_attempts<5 AND media_next_attempt_at<=now() AND created_at>now()-interval '7 days' ORDER BY created_at LIMIT 10")
+    for raw in rows:
+        row = await get_pool().fetchrow("UPDATE parent_replies SET media_attempts=media_attempts+1,media_next_attempt_at=now()+interval '30 minutes' WHERE id=$1 AND media_next_attempt_at<=now() RETURNING *", raw['id'])
+        if row:
+            await archive_audio(dict(row))

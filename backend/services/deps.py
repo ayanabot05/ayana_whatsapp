@@ -105,7 +105,7 @@ async def _sync_medicine_reminders_for_parent(user, parent_id, medicine_list: li
         result = sync_medicine_reminders(
             medicine_list=medicine_list or [],
             existing_messages=messages,
-            plan_id=plan_id,
+            plan_id=plan_id, recovery_mode=sched['recovery_mode'],
         )
         await conn.execute(
             "update schedules set messages = $1::jsonb where id = $2",
