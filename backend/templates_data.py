@@ -59,13 +59,13 @@ CHECKIN_CATEGORIES = {
 
 REMINDER_CATEGORIES = {
     "medicine",
+}
+
+ACTIVITY_CATEGORIES = {
     "water",
     "bp_check",
     "sugar_check",
     "health_check",
-}
-
-ACTIVITY_CATEGORIES = {
     "walk_check",
     "tea_check",
     "how_feeling",
@@ -189,6 +189,37 @@ def get_nicknames_for_day(
 # ────────────────────────────────────────────────────────────────────────────
 
 SLOT_VARIANTS: dict[str, dict[str, list[str]]] = {
+
+    # ────────────────────────────────────────────────────────────────────────
+    # SAFETY RETURN CHECKS (in-session wording; templates_data has no safety
+    # bodies otherwise, so these previously fell back to the mood question).
+    # Destination-specific — a temple check is never reused for office/market.
+    # ────────────────────────────────────────────────────────────────────────
+    "office_return": {
+        "en": ["Hi {nick1}, did you reach home from work? 💼 Was your day good? Home safe? 💛"],
+        "te": ["హాయ్ {nick1}, ఆఫీస్/పని నుండి ఇంటికి వచ్చారా? 💼 ఈరోజు పని ఎలా ఉంది? సురక్షితంగా వచ్చారా? 💛"],
+        "hi": ["हाय {nick1}, क्या आप ऑफिस/काम से घर आ गए? 💼 आज काम कैसा रहा? सुरक्षित पहुँचे? 💛"],
+    },
+    "market_return": {
+        "en": ["Hi {nick1}, back from the market safely? 🛒 Did you reach home? 💛"],
+        "te": ["హాయ్ {nick1}, మార్కెట్ నుండి సురక్షితంగా వచ్చారా? 🛒 ఇంటికి చేరారా? 💛"],
+        "hi": ["हाय {nick1}, क्या आप बाजार से सुरक्षित आ गए? 🛒 घर पहुँचे? 💛"],
+    },
+    "shopping_return": {
+        "en": ["Hi {nick1}, back from shopping? 🛍️ How was it? Home safe? 💛"],
+        "te": ["హాయ్ {nick1}, షాపింగ్ నుండి తిరిగి వచ్చారా? 🛍️ ఎలా జరిగింది? సురక్షితంగా ఇంటికి చేరారా? 💛"],
+        "hi": ["हाय {nick1}, क्या आप शॉपिंग से वापस आ गए? 🛍️ कैसी रही? सुरक्षित घर पहुँचे? 💛"],
+    },
+    "temple_return": {
+        "en": ["Hi {nick1}, back from the temple? 🛕 How was darshan? Home safe? 💛"],
+        "te": ["హాయ్ {nick1}, గుడి నుండి తిరిగి వచ్చారా? 🛕 దర్శనం ఎలా జరిగింది? సురక్షితంగా ఇంటికి చేరారా? 💛"],
+        "hi": ["हाय {nick1}, क्या आप मंदिर से वापस आ गए? 🛕 दर्शन कैसा रहा? सुरक्षित घर पहुँचे? 💛"],
+    },
+    "outing_return": {
+        "en": ["Hi {nick1}, did you reach home safely? 🏡 How was your outing? 💛"],
+        "te": ["హాయ్ {nick1}, సురక్షితంగా ఇంటికి చేరారా? 🏡 బయటకు వెళ్లడం ఎలా ఉంది? 💛"],
+        "hi": ["हाय {nick1}, क्या आप सुरक्षित घर पहुँच गए? 🏡 बाहर जाना कैसा रहा? 💛"],
+    },
 
     # ────────────────────────────────────────────────────────────────────────
     # MORNING
@@ -960,6 +991,40 @@ BUTTONS: dict[str, dict[str, list[tuple[str, str]]]] = {
             ("बाद में जाऊँगा/जाऊँगी ⏰", "pending:walk"),
             ("आज नहीं", "skip:walk"),
         ],
+    },
+
+
+    # ────────────────────────────────────────────────────────────────────────
+    # SAFETY RETURN CHECKS
+    # Titles are matched by services/button_intents.exact_button_intent (SAFETY)
+    # on their text: "on the way" -> on_way, "shopping/darshan done" ->
+    # activity_done, "reached / home safe" -> arrived. "Not yet" stays a general
+    # reply and is NEVER read as "reached home safely".
+    # ────────────────────────────────────────────────────────────────────────
+    "office_return": {
+        "en": [("Reached home ✅", "arrived:office_return"), ("On the way 🚗", "on_way:office_return"), ("Not yet 🚶", "later:office_return")],
+        "te": [("ఇంటికి వచ్చా ✅", "arrived:office_return"), ("దారిలో ఉన్నా 🚗", "on_way:office_return"), ("ఇంకా లేదు 🚶", "later:office_return")],
+        "hi": [("सुरक्षित हूँ ✅", "arrived:office_return"), ("रास्ते में हूँ 🚗", "on_way:office_return"), ("अभी नहीं ⏰", "later:office_return")],
+    },
+    "market_return": {
+        "en": [("Reached home ✅", "arrived:market_return"), ("On the way 🚗", "on_way:market_return"), ("Not yet 🚶", "later:market_return")],
+        "te": [("ఇంటికి వచ్చా ✅", "arrived:market_return"), ("దారిలో ఉన్నా 🚗", "on_way:market_return"), ("ఇంకా లేదు 🚶", "later:market_return")],
+        "hi": [("सुरक्षित हूँ ✅", "arrived:market_return"), ("रास्ते में हूँ 🚗", "on_way:market_return"), ("अभी नहीं ⏰", "later:market_return")],
+    },
+    "shopping_return": {
+        "en": [("Reached home ✅", "arrived:shopping_return"), ("On the way 🚗", "on_way:shopping_return"), ("Shopping done 🛍️", "activity_done:shopping_return")],
+        "te": [("ఇంటికి వచ్చా ✅", "arrived:shopping_return"), ("దారిలో ఉన్నా 🚗", "on_way:shopping_return"), ("షాపింగ్ అయ్యింది 🛍️", "activity_done:shopping_return")],
+        "hi": [("सुरक्षित हूँ ✅", "arrived:shopping_return"), ("रास्ते में हूँ 🚗", "on_way:shopping_return"), ("शॉपिंग हो गई 🛍️", "activity_done:shopping_return")],
+    },
+    "temple_return": {
+        "en": [("Reached home ✅", "arrived:temple_return"), ("On the way 🚗", "on_way:temple_return"), ("Darshan done 🛕", "activity_done:temple_return")],
+        "te": [("ఇంటికి వచ్చా ✅", "arrived:temple_return"), ("దారిలో ఉన్నా 🚗", "on_way:temple_return"), ("దర్శనం అయ్యింది 🛕", "activity_done:temple_return")],
+        "hi": [("सुरक्षित हूँ ✅", "arrived:temple_return"), ("रास्ते में हूँ 🚗", "on_way:temple_return"), ("दर्शन हो गया 🛕", "activity_done:temple_return")],
+    },
+    "outing_return": {
+        "en": [("Reached home ✅", "arrived:outing_return"), ("On the way 🚗", "on_way:outing_return"), ("Not yet 🚶", "later:outing_return")],
+        "te": [("ఇంటికి వచ్చా ✅", "arrived:outing_return"), ("దారిలో ఉన్నా 🚗", "on_way:outing_return"), ("ఇంకా లేదు 🚶", "later:outing_return")],
+        "hi": [("सुरक्षित हूँ ✅", "arrived:outing_return"), ("रास्ते में हूँ 🚗", "on_way:outing_return"), ("अभी नहीं ⏰", "later:outing_return")],
     },
 }
 

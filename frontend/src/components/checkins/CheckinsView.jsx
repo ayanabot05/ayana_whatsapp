@@ -7,7 +7,11 @@ import { Button } from '@/components/ui/button';
 import { ReplyItem } from './ReplyItem';
 
 const dateAt = zone => new Intl.DateTimeFormat('en-CA', { timeZone: zone || 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
-const label = value => (value || '').replace(/_/g, ' ');
+// Friendly, DISTINCT labels for the reply_status action set (incl. the safety
+// states arrived / on_way / activity_done). Falls back to a generic transform
+// for delivery statuses and categories, so nothing renders raw.
+const STATUS_LABELS = { done: 'Done', pending: 'Not yet', skip: 'Skipped', replied: 'Replied', arrived: 'Reached home safely', on_way: 'On the way', activity_done: 'Activity done' };
+const label = value => STATUS_LABELS[value] || (value || '').replace(/_/g, ' ');
 
 export const CheckinsView = ({ parents = [], catByKey = {} }) => {
   const [params, setParams] = useSearchParams();

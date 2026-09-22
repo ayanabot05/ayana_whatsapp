@@ -523,8 +523,22 @@ async def checkins_summary(
     days: int = 7,
     date: str | None = None,
     parent_id: str | None = None,
+    page: int = 1,
+    page_size: int | None = None,
 ):
     from services.checkin_timeline import timeline
+    from services import cache
     if not 1 <= days <= 30:
         raise HTTPException(422, 'Days must be between 1 and 30.')
-    return await timeline(scope(user), days, date, parent_id)
+    if page < 1:
+        raise HTTPException(422, 'page must be >= 1.')
+    if page_size is not None and not 1 <= page_size <= 100:
+        raise HTTPException(422, 'page_size must be between 1 and 100.')
+    uid = scope(user)
+    # Read-through cache namespaced by the user's version. Writes bump the
+    # version (see services.cache.bump_version) so every view stays in sync.
+    ver = await cache.get_version(uid)
+    key = f"v{ver}:checkins:{uid}:{days}:{date or 'none'}:{parent_id or 'all'}:{page}:{page_size or 'all'}"
+    return await cache.cached_json(
+        key, 12, lambda: timeline(uid, days, date, parent_id, page, page_size)
+    )
