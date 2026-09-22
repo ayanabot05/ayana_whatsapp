@@ -29,6 +29,12 @@ async def save(payload, background_tasks, user, parent_id=None):
         schedule = payload.schedule.model_copy(update={'parent_id': pid})
         previous = await conn.fetchrow('SELECT id FROM schedules WHERE parent_id=$1::uuid AND user_id=$2 AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 1', pid, scope(user))
         saved = await update_schedule(str(previous['id']), schedule, user) if previous else await create_schedule(schedule, user)
+    # One-sync: care-plan changed -> invalidate this user's cached views.
+    try:
+        from services import cache
+        await cache.bump_version(scope(user))
+    except Exception:
+        pass
     return {'parent': parent, 'schedule': saved}
 
 

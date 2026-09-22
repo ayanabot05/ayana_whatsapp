@@ -60,7 +60,13 @@ def test_render_slot_buttons():
         assert len(label) <= 20 # Title limit
 
 def test_category_type():
+    # Only medicine consumes the 'reminders' (medicine) budget. Water and the
+    # health checks belong to the Daily-activities section (matches the frontend
+    # ScheduleEditor/ParentCareForm), so they must NOT count as reminders.
     assert category_type("medicine") == "reminder"
-    assert category_type("sugar_check") == "reminder"
+    assert category_type("water") == "activity"
+    assert category_type("bp_check") == "activity"
+    assert category_type("sugar_check") == "activity"
+    assert category_type("health_check") == "activity"
     assert category_type("morning_wish") == "checkin"
     assert category_type("lunch") == "checkin"

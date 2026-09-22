@@ -77,10 +77,18 @@ async def _deliver_parent(parent, now):
             if failures['n'] >= MAX_SCHEDULER_RETRIES or (failures['last'] and now-failures['last'] < timedelta(minutes=5*max(1,failures['n']))):
                 continue
             kind = item['type']
-            limit_key = {'checkin':'checkins','reminder':'reminders','activity':'activities'}[kind]
-            count = await conn.fetchval("SELECT count(*) FROM message_logs WHERE parent_id=$1 AND day_key=$2 AND msg_type=$3 AND status='sent'",parent['id'],day,kind)
-            if count >= limits.get(limit_key,0):
-                continue
+            if item['category'] == 'water':
+                # Water has its own dedicated daily allowance (1), matching
+                # models.limit_messages. It never consumes medicine (reminder)
+                # capacity, and does not compete with the other activities.
+                count = await conn.fetchval("SELECT count(*) FROM message_logs WHERE parent_id=$1 AND day_key=$2 AND category='water' AND status='sent'",parent['id'],day)
+                if count >= 1:
+                    continue
+            else:
+                limit_key = {'checkin':'checkins','reminder':'reminders','activity':'activities'}[kind]
+                count = await conn.fetchval("SELECT count(*) FROM message_logs WHERE parent_id=$1 AND day_key=$2 AND msg_type=$3 AND category<>'water' AND status='sent'",parent['id'],day,kind)
+                if count >= limits.get(limit_key,0):
+                    continue
             # Separate committed claim survives a crash during the provider call.
             won = await get_pool().fetchval("INSERT INTO care_send_claims(event_key,parent_id) VALUES($1,$2) ON CONFLICT(event_key) DO UPDATE SET status='sending' WHERE care_send_claims.status='failed' RETURNING event_key",key,parent['id'])
             if not won:

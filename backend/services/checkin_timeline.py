@@ -5,7 +5,7 @@ from database import get_pool
 from services.reply_linking import build_parent_days, parent_zone
 
 
-async def timeline(owner, days=7, selected_date=None, parent_id=None):
+async def timeline(owner, days=7, selected_date=None, parent_id=None, page=1, page_size=None):
     try:
         chosen = date.fromisoformat(selected_date) if selected_date else None
     except ValueError:
@@ -41,7 +41,17 @@ async def timeline(owner, days=7, selected_date=None, parent_id=None):
                     r['notifications'] = [{k: str(v) if k in ('recipient_id', 'reply_id') else v for k, v in dict(n).items()} for n in outcomes if n['reply_id'] == r['id']]
         parent_days = build_parent_days(parent, logs, replies)
         parent_days = [d for d in parent_days if start_day.isoformat() <= d['day_key'] < end_day.isoformat()]
-        result.append({'parent_id': str(parent['id']), 'name': parent.get('preferred_name') or parent['name'],
-                       'relationship': parent['relationship'], 'timezone': str(zone), 'days': parent_days})
+        total_days = len(parent_days)
+        if page_size:
+            # Newest day first, then slice. Only applied when the caller asks for
+            # pagination, so the default response shape/order is unchanged.
+            paged = sorted(parent_days, key=lambda d: d['day_key'], reverse=True)
+            parent_days = paged[(page - 1) * page_size: page * page_size]
+        entry = {'parent_id': str(parent['id']), 'name': parent.get('preferred_name') or parent['name'],
+                 'relationship': parent['relationship'], 'timezone': str(zone), 'days': parent_days}
+        if page_size:
+            entry.update({'page': page, 'page_size': page_size, 'total_days': total_days,
+                          'has_more': page * page_size < total_days})
+        result.append(entry)
     events = await pool.fetch("SELECT id,parent_id,body,created_at FROM emergency_events WHERE user_id=$1 AND status='open' ORDER BY created_at DESC LIMIT 20", owner)
     return {'parents': result, 'alerts': [{'kind': 'emergency', 'event_id': str(e['id']), 'parent_id': str(e['parent_id']), 'body': e['body'], 'created_at': e['created_at'].isoformat()} for e in events]}

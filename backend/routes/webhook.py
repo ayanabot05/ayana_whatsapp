@@ -490,6 +490,13 @@ async def _record_reply(from_number: str, body_text: str, num_media: int = 0, pa
             )
     await archive_audio(dict(reply_row))
     await notifications.drain_notifications()
+    # One-sync: invalidate this owner's cached views so the new reply shows up
+    # consistently across dashboard / check-ins / replies on the next fetch.
+    try:
+        from services import cache
+        await cache.bump_version(owner_id)
+    except Exception:
+        pass
     return dict(reply_row)
 
 

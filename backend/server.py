@@ -80,6 +80,7 @@ from models import MEDICINE_SHAPES, MEDICINE_COLORS, MEDICINE_TIMINGS, SendTestI
 from storage import init_storage, is_enabled as storage_enabled
 from validation import normalize_phone as _normalize_phone
 from routes.account import router as account_router
+from routes.care_plan import router as care_plan_router
 from services import verification, welcomes, notifications
 from services.migrations import apply_care_migration
 from services import inbox
@@ -1091,6 +1092,7 @@ async def dashboard_bootstrap(user: dict = Depends(get_current_user)):
 
 app.include_router(api)
 app.include_router(account_router)
+app.include_router(care_plan_router)
 app.include_router(replies_router)
 app.include_router(care_router)
 app.include_router(billing_router)

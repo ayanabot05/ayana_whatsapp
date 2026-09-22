@@ -1,6 +1,7 @@
 """Recipient-aware outbox. Acceptance, media and fallback have independent state."""
 import asyncio
 import logging
+import os
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 from database import get_pool
@@ -156,8 +157,14 @@ async def drain_notifications():
         await deliver(n['id'])
     for n in await pool.fetch("SELECT * FROM reply_notifications WHERE audio_status IN ('pending','retry') AND audio_attempts<4 AND audio_next_attempt_at<=now() ORDER BY created_at LIMIT 20"):
         await deliver_audio(n)
-    for n in await pool.fetch("SELECT * FROM reply_notifications WHERE status IN ('failed','retry','blocked_policy','awaiting_template','uncertain','disabled') AND (status<>'uncertain' OR updated_at<now()-interval '5 minutes') AND coalesce(email_status,'')<>'sent' AND email_attempts<4 AND email_next_attempt_at<=now() AND created_at>now()-interval '24 hours' ORDER BY created_at LIMIT 20"):
-        await fallback_email(n)
+    # WhatsApp is the PRIMARY channel for per-reply relays (session text when the
+    # child's 24h window is open, approved template when it's closed). Email is a
+    # LAST RESORT: it fires only after WhatsApp has been retried (attempts>=3) and
+    # still hasn't been accepted. Set REPLY_EMAIL_FALLBACK_ENABLED=false to make
+    # replies WhatsApp-only with no email at all.
+    if os.environ.get('REPLY_EMAIL_FALLBACK_ENABLED', 'true').lower() == 'true':
+        for n in await pool.fetch("SELECT * FROM reply_notifications WHERE status IN ('failed','retry','blocked_policy','awaiting_template','uncertain','disabled') AND attempts>=3 AND (status<>'uncertain' OR updated_at<now()-interval '5 minutes') AND coalesce(email_status,'')<>'sent' AND email_attempts<4 AND email_next_attempt_at<=now() AND created_at>now()-interval '24 hours' ORDER BY created_at LIMIT 20"):
+            await fallback_email(n)
     await drain_requests()
 
 

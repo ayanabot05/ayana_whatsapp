@@ -401,6 +401,9 @@ async def test_notification_transport_template_builder_and_phone_prefix(monkeypa
 
 @pytest.mark.asyncio
 async def test_receipt_progression_fallback_once_and_uncertain_not_retried(seeded_users, monkeypatch):
+    # Enable email fallback to test the legacy behavior
+    monkeypatch.setenv('REPLY_EMAIL_FALLBACK_ENABLED', 'true')
+    
     owner = seeded_users["owner"]
     parent = await _create_parent(owner["id"], "TEST20_N_Receipt", "+14155551002")
     reply = await _create_reply(owner["id"], parent["id"], "iter20-receipt")
@@ -415,7 +418,7 @@ async def test_receipt_progression_fallback_once_and_uncertain_not_retried(seede
             owner["phone"],
         )
         r2 = await conn.fetchval(
-            "INSERT INTO reply_notifications(reply_id,recipient_kind,recipient_id,to_phone,sid,status,detail) VALUES($1,'user',$2,$3,'iter20-sid-r2','accepted','iter20-receipt') RETURNING id",
+            "INSERT INTO reply_notifications(reply_id,recipient_kind,recipient_id,to_phone,sid,status,attempts,detail) VALUES($1,'user',$2,$3,'iter20-sid-r2','accepted',3,'iter20-receipt') RETURNING id",
             reply2["id"],
             owner["id"],
             owner["phone"],
