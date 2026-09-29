@@ -80,9 +80,9 @@ async def send_audio(phone, reply):
 
 def outcome(result, attempts):
     code = result.get('error_code')
-    if code == 131047 and attempts < 4:
+    if code == 131047 and attempts < 8:
         return 'awaiting_template'
-    if code in RETRYABLE_CODES and attempts < 4:
+    if code in RETRYABLE_CODES and attempts < 8:
         return 'retry'
     if code == 131049:
         return 'blocked_policy'
@@ -90,7 +90,7 @@ def outcome(result, attempts):
 
 
 async def deliver(notification_id):
-    n = await get_pool().fetchrow("UPDATE reply_notifications SET status='sending',attempts=attempts+1,updated_at=now() WHERE id=$1 AND status IN ('pending','retry','awaiting_template','disabled') AND next_attempt_at<=now() AND attempts<4 RETURNING *", notification_id)
+    n = await get_pool().fetchrow("UPDATE reply_notifications SET status='sending',attempts=attempts+1,updated_at=now() WHERE id=$1 AND status IN ('pending','retry','awaiting_template','disabled') AND next_attempt_at<=now() AND attempts<8 RETURNING *", notification_id)
     if not n:
         return
     try:
@@ -145,6 +145,16 @@ async def fallback_email(n):
         recipient = await recipient_for(conn, n, reply['user_id']) if reply else None
         if not recipient or reply['parent_deleted_at']:
             return
+        # Respect user's email_notifications preference
+        if n['recipient_kind'] == 'user':
+            import json
+            prefs_row = await conn.fetchrow('SELECT preferences FROM users WHERE id=$1', n['recipient_id'])
+            if prefs_row:
+                prefs = prefs_row['preferences']
+                prefs = json.loads(prefs) if isinstance(prefs, str) else (prefs or {})
+                if prefs.get('email_notifications') is False:
+                    await conn.execute("UPDATE reply_notifications SET email_status='disabled_by_user',updated_at=now() WHERE id=$1", n['id'])
+                    return
         result = await send_update_email(dict(recipient), reply, n['id'])
         await conn.execute("UPDATE reply_notifications SET email_status=$2,email_id=$3,email_attempts=email_attempts+1,email_next_attempt_at=now()+interval '15 minutes' WHERE id=$1", n['id'], result['status'], result.get('id'))
 
@@ -153,7 +163,7 @@ async def drain_notifications():
     pool = get_pool()
     await pool.execute("UPDATE reply_notifications SET status='uncertain',detail='Interrupted submission.',updated_at=now() WHERE status='sending' AND updated_at<now()-interval '5 minutes'")
     await pool.execute("UPDATE reply_notifications SET audio_status='uncertain' WHERE audio_status='sending' AND audio_next_attempt_at<now()-interval '5 minutes'")
-    for n in await pool.fetch("SELECT id FROM reply_notifications WHERE status IN ('pending','retry','awaiting_template','disabled') AND next_attempt_at<=now() AND attempts<4 ORDER BY created_at LIMIT 30"):
+    for n in await pool.fetch("SELECT id FROM reply_notifications WHERE status IN ('pending','retry','awaiting_template','disabled') AND next_attempt_at<=now() AND attempts<8 ORDER BY created_at LIMIT 30"):
         await deliver(n['id'])
     for n in await pool.fetch("SELECT * FROM reply_notifications WHERE audio_status IN ('pending','retry') AND audio_attempts<4 AND audio_next_attempt_at<=now() ORDER BY created_at LIMIT 20"):
         await deliver_audio(n)
@@ -163,7 +173,7 @@ async def drain_notifications():
     # still hasn't been accepted. Set REPLY_EMAIL_FALLBACK_ENABLED=false to make
     # replies WhatsApp-only with no email at all.
     if os.environ.get('REPLY_EMAIL_FALLBACK_ENABLED', 'true').lower() == 'true':
-        for n in await pool.fetch("SELECT * FROM reply_notifications WHERE status IN ('failed','retry','blocked_policy','awaiting_template','uncertain','disabled') AND attempts>=3 AND (status<>'uncertain' OR updated_at<now()-interval '5 minutes') AND coalesce(email_status,'')<>'sent' AND email_attempts<4 AND email_next_attempt_at<=now() AND created_at>now()-interval '24 hours' ORDER BY created_at LIMIT 20"):
+        for n in await pool.fetch("SELECT * FROM reply_notifications WHERE status IN ('failed','retry','blocked_policy','uncertain','disabled') AND attempts>=3 AND (status<>'uncertain' OR updated_at<now()-interval '5 minutes') AND coalesce(email_status,'')<>'sent' AND email_attempts<4 AND email_next_attempt_at<=now() AND created_at>now()-interval '24 hours' AND recipient_kind<>'user' ORDER BY created_at LIMIT 20"):
             await fallback_email(n)
     await drain_requests()
 

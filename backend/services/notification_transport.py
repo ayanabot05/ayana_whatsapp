@@ -32,7 +32,11 @@ async def send_update(phone, reply, session_open, language='en'):
         components.append({'type':'button','sub_type':'url','index':'0','parameters':[{'type':'text','text':str(reply['id'])}]})
     token, phone_id = _creds()
     payload = {'messaging_product':'whatsapp','to':phone,'type':'template','template':{'name':f'ayana_parent_{kind}_{lang}','language':{'code':lang},'components':components}}
-    return await post_meta(payload, token, phone_id)
+    result = await post_meta(payload, token, phone_id)
+    import logging
+    logging.getLogger('ayana.notify').info('[notify-child] phone=%s template=%s status=%s error=%s sid=%s',
+        phone, f'ayana_parent_{kind}_{lang}', result.get('status'), result.get('error_code'), result.get('sid'))
+    return result
 
 
 async def post_meta(payload, token=None, phone_id=None):

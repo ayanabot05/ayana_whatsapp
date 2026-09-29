@@ -123,6 +123,7 @@ async def deliver(key):
 
 
 async def drain():
+    await recover_stuck_deliveries()
     await get_pool().execute("UPDATE welcome_deliveries SET status='uncertain',detail='Interrupted welcome submission.',updated_at=now() WHERE status='sending' AND updated_at<now()-interval '5 minutes'")
     rows = await get_pool().fetch("SELECT event_key FROM welcome_deliveries WHERE status IN ('pending','retry','disabled','awaiting_consent') AND next_attempt_at<=now() AND attempts<4 ORDER BY next_attempt_at LIMIT 20")
     for row in rows:
@@ -136,6 +137,42 @@ async def inbound_recovery(phone, stamp):
     await get_pool().execute("UPDATE welcome_deliveries SET status='retry',attempts=0,next_attempt_at=now() WHERE phone=$1 AND recipient_kind IN ('user','sibling') AND status IN ('awaiting_inbound','failed','disabled')", phone)
     await get_pool().execute("UPDATE users SET needs_inbound_click=false WHERE phone=$1", phone)
 
+
+async def recover_stuck_deliveries():
+    """Recover welcome/notification deliveries where the recipient's phone has changed."""
+    pool = get_pool()
+    # Fix welcome deliveries with stale phone numbers for users
+    await pool.execute("""
+        UPDATE welcome_deliveries w SET phone=r.phone, status='retry', attempts=0, next_attempt_at=now()
+        FROM users r WHERE w.recipient_kind='user' AND w.recipient_id=r.id
+        AND w.phone <> r.phone AND r.deleted_at IS NULL
+        AND w.status IN ('failed','disabled','awaiting_inbound')
+    """)
+    # Fix welcome deliveries with stale phone numbers for siblings
+    await pool.execute("""
+        UPDATE welcome_deliveries w SET phone=r.phone, status='retry', attempts=0, next_attempt_at=now()
+        FROM care_circle_siblings r WHERE w.recipient_kind='sibling' AND w.recipient_id=r.id
+        AND w.phone <> r.phone AND r.verified
+        AND w.status IN ('failed','disabled','awaiting_inbound')
+    """)
+    # Fix welcome deliveries with stale phone numbers for parents
+    await pool.execute("""
+        UPDATE welcome_deliveries w SET phone=r.phone, status='retry', attempts=0, next_attempt_at=now()
+        FROM parents r WHERE w.recipient_kind='parent' AND w.recipient_id=r.id
+        AND w.phone <> r.phone AND r.deleted_at IS NULL
+        AND w.status IN ('failed','disabled','awaiting_inbound')
+    """)
+    # Also recover reply_notifications with stale phones
+    from services.notifications import recover_contact
+    # Reset stuck reply notifications for users whose phone changed
+    await pool.execute("""
+        UPDATE reply_notifications n SET status='pending', to_phone=u.phone, sid=NULL, attempts=0, next_attempt_at=now(), detail=NULL
+        FROM users u, parent_replies r
+        WHERE r.id=n.reply_id AND n.recipient_kind='user' AND n.recipient_id=u.id
+        AND n.to_phone <> u.phone AND u.deleted_at IS NULL
+        AND n.status IN ('failed','disabled','blocked_policy','awaiting_template')
+        AND r.created_at > now() - interval '48 hours'
+    """)
 
 async def welcome_parent_and_child(parent, owner, require_activation=False):
     if require_activation and not await get_pool().fetchval('SELECT whatsapp_activated FROM activation_state WHERE user_id=$1', parent['user_id']):

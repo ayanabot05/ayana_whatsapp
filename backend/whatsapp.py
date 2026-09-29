@@ -44,6 +44,17 @@ _CATEGORY_TEMPLATE_NAME = {
     "mood": "ayana_mood",
     "reengagement": "ayana_reengagement",
     "report_ready": "ayana_report_ready",
+    "office_return": "ayana_office_return",
+    "market_return": "ayana_market_return",
+    "shopping_return": "ayana_shopping_return",
+    "temple_return": "ayana_temple_return",
+    "outing_return": "ayana_outing_return",
+    "first_warn_child": "ayana_first_warn_child",
+    "main_warn_child": "ayana_main_warn_child",
+    "first_warn_parent": "ayana_first_warn_parent",
+    "child_welcome": "ayana_child_welcome",
+    "parent_reply": "ayana_parent_reply",
+    "parent_voice": "ayana_parent_voice",
 }
 
 TEMPLATE_LANG_CODE_MAP = {"en": "en", "te": "te", "hi": "hi"}
@@ -404,8 +415,6 @@ async def send_dynamic_checkin(parent: Dict[str, Any], category: str, day_index:
     language = parent.get("language", "en")
 
     if not await is_session_open(parent_id):
-        if category in ('water','bp_check','sugar_check','health_check'):
-            return {'status':'blocked_template','detail':'A dedicated health-check template is required outside the parent window; medicine wording is unsafe for this check.'}
         if category in ('office_return','market_return','shopping_return','temple_return','outing_return'):
             lang = parent.get('language') if parent.get('language') in ('en','te','hi') else 'en'
             variables = {'1':parent.get('preferred_name') or parent['name']}
@@ -451,12 +460,12 @@ async def send_reengagement(parent: Dict[str, Any], reengagement_hours: int = 4)
         if last_inbound > opener_sent_at:
             return {"skipped": True, "reason": "parent_replied"}
 
-    template_name = _get_template_name("reengagement", language)
-    if template_name and whatsapp_enabled():
-        result = await _send_content_template_with_retry(phone, template_name, language, {"1": preferred}, "reengagement")
+    lang = language if language in ('en', 'te', 'hi') else 'en'
+    template_name = f"ayana_reengagement_{lang}"
+    if whatsapp_enabled():
+        result = await _send_content_template_with_retry(phone, template_name, lang, {"1": preferred}, "reengagement")
     else:
-        body = f"{preferred}, we miss hearing from you 💛\n\nJust checking — are you alright?"
-        result = send_whatsapp(phone, body)
+        result = {"status": "disabled", "detail": "WhatsApp sending is disabled."}
 
     if result and result.get("status") in ("sent", "simulated"):
         await mark_reengagement_sent(parent_id)
@@ -684,8 +693,12 @@ async def send_parent_goodbye(parent: Dict[str, Any]) -> Dict[str, Any]:
         return {"status": "skipped", "detail": "no phone"}
     name = parent.get("preferred_name") or parent.get("name") or "there"
     lang = parent.get("language") or "en"
+    parent_id = parent.get("id")
     body = _GOODBYE_TEXT.get(lang, _GOODBYE_TEXT["en"]).format(name=name)
-    return send_whatsapp(phone, body)
+    if parent_id and await is_session_open(parent_id):
+        return send_whatsapp(phone, body)
+    # Outside 24h window — use the goodnight/mood template as closest match
+    return await send_template_for_category(parent, "goodnight", 0, 3)
 
 
 _CHILD_WELCOME_TEXT = {
@@ -733,13 +746,14 @@ async def send_child_welcome(user: Dict[str, Any]) -> Dict[str, Any]:
     return {"status": "skipped", "detail": "gated until first parent added"}
 
 
-async def send_plan_change(phone: str, language: str, plan_name: str, direction: str) -> Dict[str, Any]:
-    if not phone:
-        return {"status": "skipped", "detail": "no phone"}
-    lang = _lang2(language)
-    tset = _PLAN_CHANGE_TEXT.get(lang, _PLAN_CHANGE_TEXT["en"])
-    body = tset.get(direction, tset["same"]).format(plan=plan_name)
-    return send_whatsapp(phone, body)
+async def send_plan_change(phone: str, plan_name: str, direction: str, language: str = "en") -> Dict[str, Any]:
+    lang = language if language in ('en', 'te', 'hi') else 'en'
+    body = _PLAN_CHANGE_TEXT.get(lang, _PLAN_CHANGE_TEXT["en"]).get(direction, _PLAN_CHANGE_TEXT["en"]["upgrade"]).format(plan=plan_name)
+    # Try free-form first; if it fails with 131047, log it but don't crash
+    result = send_whatsapp(phone, body)
+    if result.get('error_code') == 131047:
+        logger.info('[plan-change] Free-form failed (24h window closed) for %s — notification skipped (no dedicated template)', phone)
+    return result
 
 
 async def send_parent_removed_child_notice(child_phone: str, language: str, parent_name: str) -> Dict[str, Any]:
@@ -747,7 +761,10 @@ async def send_parent_removed_child_notice(child_phone: str, language: str, pare
         return {"status": "skipped", "detail": "no phone"}
     lang = _lang2(language)
     body = _PARENT_REMOVED_CHILD_TEXT.get(lang, _PARENT_REMOVED_CHILD_TEXT["en"]).format(parent=parent_name or "your parent")
-    return send_whatsapp(child_phone, body)
+    result = send_whatsapp(child_phone, body)
+    if result.get('error_code') == 131047:
+        logger.info('[notification] Free-form failed (24h window closed) for %s — %s notification skipped', child_phone, 'notice_type')
+    return result
 
 
 async def send_member_removed_notice(member_phone: str, language: str = "en") -> Dict[str, Any]:
@@ -755,7 +772,10 @@ async def send_member_removed_notice(member_phone: str, language: str = "en") ->
         return {"status": "skipped", "detail": "no phone"}
     lang = _lang2(language)
     body = _MEMBER_REMOVED_TEXT.get(lang, _MEMBER_REMOVED_TEXT["en"])
-    return send_whatsapp(member_phone, body)
+    result = send_whatsapp(member_phone, body)
+    if result.get('error_code') == 131047:
+        logger.info('[notification] Free-form failed (24h window closed) for %s — %s notification skipped', member_phone, 'notice_type')
+    return result
 
 
 async def send_document_link(to_phone: str, document_link: str, filename: str = "AYANA-Report.pdf", caption: str = "") -> Dict[str, Any]:
@@ -814,13 +834,13 @@ async def send_sibling_added_notice(owner_phone: str, sibling_name: str, languag
         return {"status": "skipped", "detail": "no phone"}
     lang = _lang2(language)
     body = _SIBLING_ADDED_TEXT.get(lang, _SIBLING_ADDED_TEXT["en"]).format(name=sibling_name or "A sibling")
-    return send_whatsapp(owner_phone, body)
+    result = send_whatsapp(owner_phone, body)
+    if result.get('error_code') == 131047:
+        logger.info('[notification] Free-form failed (24h window closed) for %s — %s notification skipped', owner_phone, 'notice_type')
+    return result
 
 
-# ── Cooldown Helper for Scheduler ──────────────────────────────────────────
-async def record_parent_reply_time(parent_id: str):
-    """Set the Redis key so the scheduler skips sending for 15 minutes."""
-    redis_client.set(f"parent:{parent_id}:last_reply", datetime.now(timezone.utc).isoformat(), ex=900)
+
 
 
 # --- ADDED FOR MONTHLY REPORT PDF - CLEAN (no duplicate imports) ---

@@ -10,8 +10,10 @@ from io import BytesIO
 from database import get_pool
 from pricing import plan_limits, PLAN_BY_ID
 from whatsapp import send_report_ready, send_report_pdf_with_link, send_document_link
+import os
 from storage import put_object, signed_url, is_enabled as storage_enabled
 logger = logging.getLogger("ayana.monthly_report")
+_LOGO_PATH = os.environ.get('AYANA_LOGO_PATH', '/mnt/data/ayana_emblem_400.png')
 _FEELING_SCORE = {"good": 1.0, "okay": 0.5, "not_well": 0.0}
 def _tz(tz_name):
     try:
@@ -25,8 +27,11 @@ def _local_day(dt, tz):
 def _month_bounds(year, month):
     last_day = monthrange(year, month)[1]
     return f"{year:04d}-{month:02d}-01", f"{year:04d}-{month:02d}-{last_day:02d}"
-def _day_key_to_dt(day_key):
-    return datetime.strptime(day_key, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+def _day_key_to_dt(day_key, tz=None):
+    if not tz:
+        tz = timezone.utc
+    dt = datetime.strptime(day_key, "%Y-%m-%d").replace(tzinfo=tz)
+    return dt.astimezone(timezone.utc)
 
 
 def _generate_pdf_bytes(report, details):
@@ -91,7 +96,7 @@ def _generate_pdf_bytes(report, details):
             c.showPage()
             y = page_h - 16*2.83465
             try:
-                logo_path = "/mnt/data/ayana_emblem_400.png"
+                logo_path = _LOGO_PATH
                 if os.path.exists(logo_path):
                     c.saveState()
                     c.setFillAlpha(0.05)
@@ -101,7 +106,7 @@ def _generate_pdf_bytes(report, details):
                 pass
     y = page_h - 16*2.83465
     try:
-        logo_path = "/mnt/data/ayana_emblem_400.png"
+        logo_path = _LOGO_PATH
         if os.path.exists(logo_path):
             c.saveState()
             c.setFillAlpha(0.05)
@@ -110,7 +115,7 @@ def _generate_pdf_bytes(report, details):
     except Exception:
         pass
     try:
-        logo_path = "/mnt/data/ayana_emblem_400.png"
+        logo_path = _LOGO_PATH
         if os.path.exists(logo_path):
             c.drawImage(ImageReader(logo_path), margin_x, y-10*2.83465, 10*2.83465, 10*2.83465, preserveAspectRatio=True, mask='auto')
         else:
@@ -295,8 +300,8 @@ async def _mood_series(conn, parent_id, start_day: str, end_day: str, tz_name: s
 
 async def _daily_details(conn, parent_id, start_day: str, end_day: str, tz_name: str = None) -> dict:
     tz = _tz(tz_name)
-    range_start = _day_key_to_dt(start_day)
-    range_end = _day_key_to_dt(end_day) + timedelta(days=1)
+    range_start = _day_key_to_dt(start_day, tz)
+    range_end = _day_key_to_dt(end_day, tz) + timedelta(days=1)
 
     logs = await conn.fetch(
         """
@@ -461,11 +466,15 @@ async def _notify_report_ready(conn, user_id: str, parent_id, period: str, share
 
 async def generate_monthly_report(user_id: str, parent_id, plan_id: str, year: int, month: int, notify: bool = False) -> dict:
     start_day, end_day = _month_bounds(year, month)
-    range_start = _day_key_to_dt(start_day)
-    range_end = _day_key_to_dt(end_day) + timedelta(days=1)
     limits = plan_limits(plan_id)
 
     async with get_pool().acquire() as conn:
+        parent_row = await conn.fetchrow("select name, preferred_name, relationship, language, timezone from parents where id = $1", parent_id)
+        tz_name = (parent_row["timezone"] if parent_row else None) or "Asia/Kolkata"
+        tz = _tz(tz_name)
+        range_start = _day_key_to_dt(start_day, tz)
+        range_end = _day_key_to_dt(end_day, tz) + timedelta(days=1)
+
         logs = await conn.fetch(
             """
             select * from message_logs 
@@ -474,7 +483,7 @@ async def generate_monthly_report(user_id: str, parent_id, plan_id: str, year: i
               and msg_type = any($4::text[])
             """,
             parent_id, range_start, range_end,
-            ["checkin", "reminder", "reengagement"],
+            ["checkin", "reminder", "activity", "safety", "reengagement"],
         )
 
         total = len(logs)
@@ -489,8 +498,6 @@ async def generate_monthly_report(user_id: str, parent_id, plan_id: str, year: i
             parent_id, range_start, range_end,
         )
 
-        parent_row = await conn.fetchrow("select name, preferred_name, relationship, language, timezone from parents where id = $1", parent_id)
-        tz_name = (parent_row["timezone"] if parent_row else None) or "Asia/Kolkata"
         details = await _daily_details(conn, parent_id, start_day, end_day, tz_name)
         details["parent_name"] = (parent_row["name"] if parent_row else None) or "Parent"
         details["relationship"] = parent_row["relationship"] if parent_row else None

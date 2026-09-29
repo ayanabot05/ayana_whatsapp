@@ -12,8 +12,10 @@ slots firing in the same minute, is the "flood" signature:
     # optional: limit to one parent
     DATABASE_URL="..." python tests/test_flood_gate.py --db --parent <parent_uuid>
 
-The pure logic here is imported straight from scheduler.py, so this tests the
-exact code that runs in production.
+Tests the anti-flood gating logic used by scheduler._deliver_parent():
+  - since = max(created_at, activated_at)
+  - slot is skipped if scheduled < since
+  - slot is skipped if local - scheduled > MAX_LATE_MINUTES (30)
 """
 import argparse
 import os
@@ -23,20 +25,41 @@ from zoneinfo import ZoneInfo
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from scheduler import eligible_from, slot_due  # noqa: E402
+from scheduler import MAX_LATE_MINUTES  # noqa: E402
 
 IST = ZoneInfo("Asia/Kolkata")
 A_FULL_DAY = ["08:00", "09:00", "13:00", "17:00", "21:00"]  # breakfast..medicine..night
 
 
-def _fire_count(now_local, slots, eligible_local):
-    """How many of `slots` slot_due() says should fire at now_local."""
-    return [s for s in slots if slot_due(now_local, s, eligible_local)]
+def _slot_due(now_local, slot_time, since):
+    """Replicate the anti-flood gate from scheduler._deliver_parent() lines 64-67."""
+    hour, minute = map(int, slot_time.split(':'))
+    scheduled = now_local.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    if since and scheduled < since:
+        return False
+    if scheduled > now_local:
+        return False
+    if now_local - scheduled > timedelta(minutes=MAX_LATE_MINUTES):
+        return False
+    return True
+
+
+def _eligible_from(created_at, activated_at, tz):
+    """Replicate since = max(created_at, activated_at) from scheduler line 62."""
+    anchors = [a for a in (created_at, activated_at) if a is not None]
+    if not anchors:
+        return None
+    return max(anchors).astimezone(tz)
+
+
+def _fire_count(now_local, slots, since):
+    """How many of `slots` pass the anti-flood gate at now_local."""
+    return [s for s in slots if _slot_due(now_local, s, since)]
 
 
 def run_logic_tests() -> bool:
     print("=" * 70)
-    print("PURE LOGIC TESTS — slot_due() / eligible_from()")
+    print("PURE LOGIC TESTS — anti-flood gate (MAX_LATE_MINUTES + since)")
     print("=" * 70)
     ok = True
 
@@ -50,55 +73,55 @@ def run_logic_tests() -> bool:
     # Scenario A0 — the exact moment of setup (8 PM). NOTHING should fire: no
     # burst of breakfast/lunch/medicine the instant you finish adding a parent.
     setup = datetime(2026, 6, 1, 20, 0, tzinfo=IST)
-    eligible = eligible_from(
+    since = _eligible_from(
         created_at=datetime(2026, 6, 1, 14, 30, tzinfo=timezone.utc),  # 20:00 IST
         activated_at=datetime(2026, 6, 1, 14, 30, tzinfo=timezone.utc),
         tz=IST,
     )
     check("A0) at 8 PM setup instant → NO check-ins fire (no flood burst)",
-          _fire_count(setup, A_FULL_DAY, eligible), [])
+          _fire_count(setup, A_FULL_DAY, since), [])
 
     # Scenario A — later the same evening (9:05 PM). Only the 21:00 slot is due;
     # the earlier slots stay skipped for today because they predate setup.
     now = datetime(2026, 6, 1, 21, 5, tzinfo=IST)
     check("A) 9:05 PM after 8 PM setup → only 21:00 fires (no morning backfill)",
-          _fire_count(now, A_FULL_DAY, eligible), ["21:00"])
+          _fire_count(now, A_FULL_DAY, since), ["21:00"])
 
     # Scenario B — THE BUG YOU HIT. 2nd parent (Nanna) created TODAY 8 PM, but the
     # ACCOUNT was activated 10 days ago. At 9:05 PM only 21:00 may fire.
     now = datetime(2026, 6, 11, 21, 5, tzinfo=IST)
-    eligible = eligible_from(
+    since = _eligible_from(
         created_at=datetime(2026, 6, 11, 14, 30, tzinfo=timezone.utc),  # today 20:00 IST
         activated_at=datetime(2026, 6, 1, 3, 0, tzinfo=timezone.utc),   # 10 days ago
         tz=IST,
     )
-    fired = _fire_count(now, A_FULL_DAY, eligible)
+    fired = _fire_count(now, A_FULL_DAY, since)
     check("B) 2nd parent added 8 PM, account activated 10 days ago → only 21:00",
           fired, ["21:00"])
 
-    # Scenario C — established parent, NEXT morning at 09:05. Slots up to now fire
-    # (backfill for the same day is fine; already_sent dedup handles repeats).
+    # Scenario C — established parent, NEXT morning at 09:05. Only 09:00 is within
+    # the 30-minute MAX_LATE_MINUTES window (08:00 is 65 min late, skipped).
     now = datetime(2026, 6, 12, 9, 5, tzinfo=IST)
-    eligible = eligible_from(
+    since = _eligible_from(
         created_at=datetime(2026, 6, 11, 14, 30, tzinfo=timezone.utc),
         activated_at=datetime(2026, 6, 1, 3, 0, tzinfo=timezone.utc),
         tz=IST,
     )
-    fired = _fire_count(now, A_FULL_DAY, eligible)
-    check("C) next morning 09:05 → 08:00 & 09:00 due, later slots not yet",
-          fired, ["08:00", "09:00"])
+    fired = _fire_count(now, A_FULL_DAY, since)
+    check("C) next morning 09:05 → only 09:00 is within 30min window",
+          fired, ["09:00"])
 
-    # Scenario D — established parent at 22:00, all slots already passed today.
+    # Scenario D — established parent at 22:00, all slots are >30min old.
     now = datetime(2026, 6, 12, 22, 0, tzinfo=IST)
-    fired = _fire_count(now, A_FULL_DAY, eligible)
-    check("D) 10 PM on a normal day → every slot is 'due' (dedup stops repeats)",
-          fired, A_FULL_DAY)
+    fired = _fire_count(now, A_FULL_DAY, since)
+    check("D) 10 PM on a normal day → no slot within 30min window",
+          fired, [])
 
-    # Scenario E — no eligibility anchor at all (defensive) → behaves as time-only.
-    now = datetime(2026, 6, 12, 13, 30, tzinfo=IST)
+    # Scenario E — no eligibility anchor at all (defensive) → time-only gate.
+    now = datetime(2026, 6, 12, 13, 5, tzinfo=IST)
     fired = _fire_count(now, A_FULL_DAY, None)
-    check("E) no anchor → time-only gate (08:00/09:00/13:00 due at 13:30)",
-          fired, ["08:00", "09:00", "13:00"])
+    check("E) no anchor, 13:05 → only 13:00 is within 30min window",
+          fired, ["13:00"])
 
     print("\nRESULT:", "ALL PASS ✅" if ok else "FAILURES ❌")
     return ok

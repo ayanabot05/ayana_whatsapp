@@ -2,13 +2,27 @@ import { useEffect, useRef } from 'react';
 import { api } from '@/lib/api';
 import { VoiceReply } from './VoiceReply';
 
+// At the top of the file, outside the component:
+let _readBatch = new Set();
+let _readTimer = null;
+function queueRead(id) {
+  _readBatch.add(id);
+  if (_readTimer) clearTimeout(_readTimer);
+  _readTimer = setTimeout(() => {
+    const ids = [..._readBatch];
+    _readBatch = new Set();
+    _readTimer = null;
+    if (ids.length) api.post('/replies/read', { ids }).catch(() => {});
+  }, 2000);
+}
+
 export const ReplyItem = ({ reply, focused = false }) => {
   const ref = useRef(null);
   useEffect(() => { if (focused) ref.current?.scrollIntoView({ block: 'center', behavior: 'smooth' }); }, [focused]);
   useEffect(() => {
     const observer = new IntersectionObserver(entries => {
       if (entries.some(e => e.isIntersecting)) {
-        api.post('/replies/read', { ids: [reply.id] }).catch(() => {});
+        queueRead(reply.id);
         observer.disconnect();
       }
     });

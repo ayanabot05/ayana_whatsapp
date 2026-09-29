@@ -1,3 +1,8 @@
+-- ⚠️  WARNING: This file is NOT the authoritative schema.
+-- The live database is managed by migrations in backend/migrations/
+-- and startup migrations in server.py._run_startup_migrations().
+-- This file is provided as a reference for initial bootstrapping only.
+-- Always run the application to apply the latest additive migrations.
 -- ============================================================================
 -- AYANA — COMPLETE CLEAN PostgreSQL schema (Supabase)
 -- Consolidates base schema + migration 002 + email_otps + manual quiet-hours
@@ -95,6 +100,7 @@ create table parents (
     recovery_until           timestamptz,
     vacation_start           text,                          -- #9 holiday mode: paused range start (YYYY-MM-DD, parent-local)
     vacation_end             text,                          -- #9 holiday mode: paused range end   (YYYY-MM-DD, parent-local)
+    opted_out_at             timestamptz,
     created_at               timestamptz not null default now(),
     deleted_at               timestamptz,
     constraint chk_window_width  check (activity_window_start is null or activity_window_end is null or activity_window_start <> activity_window_end),
@@ -155,12 +161,17 @@ create table message_logs (
     delivery_status text,                        -- Meta callback: 'sent'|'delivered'|'read'|'failed'
     delivered_at   timestamptz,
     read_at        timestamptz,
+    failed_at      timestamptz,
+    event_key      text,
+    slot_time      text,
     created_at     timestamptz not null default now()
 );
 create index idx_msglogs_sched_idx_day on message_logs(schedule_id, message_index, day_key);
 create index idx_msglogs_parent_day on message_logs(parent_id, day_key);
 create index idx_msglogs_sid on message_logs(sid) where sid is not null;
 create unique index idx_msglogs_sid_uniq on message_logs(sid) where sid is not null;  -- idempotency on Meta wam ids
+create index idx_logs_event on message_logs(event_key);
+create index idx_msglogs_delivery_status on message_logs(delivery_status) where delivery_status is not null;
 
 -- ============================================================================
 -- WEBHOOK_DEBUG  — every raw Meta webhook payload, 2-week TTL
@@ -273,6 +284,8 @@ create table care_circle_siblings (
     phone       text not null,
     language    text not null default 'en',
     relation    text not null default 'sibling',
+    email       text,
+    email_verified_at timestamptz,
     verified    boolean not null default false,
     created_at  timestamptz not null default now()
 );
@@ -318,6 +331,11 @@ create table parent_replies (
     stt_confidence      double precision,
     raw_payload         jsonb not null default '{}'::jsonb,
     wam_id              text,                 -- Meta message id — idempotency key (Meta retries must not duplicate)
+    context_id          text,
+    media_id            text,
+    media_storage_path  text,
+    media_content_type  text,
+    message_log_id      uuid references message_logs(id) on delete set null,
     created_at          timestamptz not null default now()
 );
 create index idx_parentreplies_parent_created on parent_replies(parent_id, created_at);
@@ -399,6 +417,7 @@ create table monthly_reports (
     shared_with_care_circle boolean not null default false,
     generated_at            timestamptz not null default now(),
     details                 jsonb,
+    pdf_url                 text,
     unique (user_id, parent_id, period)
 );
 
@@ -429,11 +448,15 @@ create table payment_transactions (
 );
 
 create table payment_state (
-    user_id      uuid primary key references users(id) on delete cascade,
-    status       text,
-    plan         text,
-    billing      text,
-    updated_at   timestamptz not null default now()
+    user_id          uuid primary key references users(id) on delete cascade,
+    status           text,
+    plan             text,
+    billing          text,
+    billing_managed  boolean not null default false,
+    trial_started_at timestamptz,
+    trial_ends_at    timestamptz,
+    legacy_paid_plan text,
+    updated_at       timestamptz not null default now()
 );
 
 -- ============================================================================
@@ -496,6 +519,242 @@ create table preferences (
     email_notifications boolean not null default true,
     whatsapp_reports    boolean not null default true
 );
+-- ============================================================================
+-- VERIFICATION_CHALLENGES  (email-only OTP — no SMS/Twilio)
+-- ============================================================================
+create table verification_challenges (
+    id          uuid primary key,
+    user_id     uuid not null references users(id) on delete cascade,
+    purpose     text not null,
+    email       text not null,
+    target      text not null,
+    code_hash   text not null,
+    context     jsonb not null default '{}',
+    attempts    integer not null default 0,
+    delivered   boolean not null default false,
+    created_at  timestamptz not null default now(),
+    expires_at  timestamptz not null,
+    consumed_at timestamptz
+);
+create index idx_verification_rate on verification_challenges(email, created_at);
+
+-- ============================================================================
+-- RECIPIENT_SESSIONS  (child/sibling 24hr window tracking)
+-- ============================================================================
+create table recipient_sessions (
+    phone           text primary key,
+    last_inbound_at timestamptz not null
+);
+
+-- ============================================================================
+-- REPLY_NOTIFICATIONS  (durable delivery queue: parent → child/sibling)
+-- ============================================================================
+create table reply_notifications (
+    id              uuid primary key default gen_random_uuid(),
+    reply_id        uuid not null references parent_replies(id) on delete cascade,
+    recipient_kind  text not null check (recipient_kind in ('user','sibling')),
+    recipient_id    uuid not null,
+    to_phone        text,
+    sid             text,
+    status          text not null default 'pending',
+    detail          text,
+    error_code      integer,
+    attempts        integer not null default 0,
+    next_attempt_at timestamptz not null default now(),
+    email_status    text,
+    email_id        text,
+    audio_sid       text,
+    audio_status    text,
+    created_at      timestamptz not null default now(),
+    updated_at      timestamptz not null default now(),
+    unique(reply_id, recipient_kind, recipient_id)
+);
+create index idx_notification_pending on reply_notifications(status, next_attempt_at);
+create index idx_notification_sid on reply_notifications(sid);
+
+-- ============================================================================
+-- INBOUND_EVENTS  (durable webhook intake — process, don't retry delivery)
+-- ============================================================================
+create table inbound_events (
+    wam_id          text primary key,
+    payload         jsonb not null,
+    status          text not null default 'pending',
+    attempts        integer not null default 0,
+    detail          text,
+    received_at     timestamptz not null default now(),
+    next_attempt_at timestamptz not null default now()
+);
+
+-- ============================================================================
+-- WELCOME_DELIVERIES  (idempotent opener sends)
+-- ============================================================================
+create table welcome_deliveries (
+    event_key   text primary key,
+    phone       text not null,
+    status      text not null default 'pending',
+    sid         text,
+    detail      text,
+    updated_at  timestamptz not null default now()
+);
+
+-- ============================================================================
+-- CARE_SEND_CLAIMS  (scheduler idempotency — one send per slot per day)
+-- ============================================================================
+create table care_send_claims (
+    event_key   text primary key,
+    parent_id   uuid not null references parents(id) on delete cascade,
+    status      text not null default 'sending',
+    created_at  timestamptz not null default now(),
+    attempts    integer not null default 0,
+    sid         text,
+    detail      text
+);
+
+-- ============================================================================
+-- CARE_WATCH  (escalation state per parent per day)
+-- ============================================================================
+create table care_watch (
+    parent_id       uuid not null references parents(id) on delete cascade,
+    day_key         text not null,
+    first_warn_sent boolean not null default false,
+    main_warn_sent  boolean not null default false,
+    last_reply_at   timestamptz,
+    updated_at      timestamptz not null default now(),
+    primary key (parent_id, day_key)
+);
+
+-- ============================================================================
+-- GRANULAR SCHEDULE TABLES  (per-parent check-ins, reminders, routines)
+-- ============================================================================
+create table parent_checkins (
+    id         uuid primary key default gen_random_uuid(),
+    parent_id  uuid not null references parents(id) on delete cascade,
+    category   text not null,
+    time       text not null,
+    is_active  boolean not null default true
+);
+
+create table parent_health_reminders (
+    id         uuid primary key default gen_random_uuid(),
+    parent_id  uuid not null references parents(id) on delete cascade,
+    category   text not null,
+    time       text not null,
+    is_active  boolean not null default true
+);
+
+create table parent_routines (
+    id         uuid primary key default gen_random_uuid(),
+    parent_id  uuid not null references parents(id) on delete cascade,
+    category   text not null,
+    time       text not null,
+    is_active  boolean not null default true
+);
+
+create table medicines (
+    id              uuid primary key default gen_random_uuid(),
+    parent_id       uuid not null references parents(id) on delete cascade,
+    name            text not null,
+    dosage          text,
+    shape           text,
+    colour          text,
+    food_timing     text,
+    reminder_times  jsonb not null default '[]',
+    is_active       boolean not null default true,
+    created_at      timestamptz not null default now()
+);
+
+-- ============================================================================
+-- BILLING_COUPONS + BILLING_ORDERS + ACCESS_GRANTS
+-- ============================================================================
+create table billing_coupons (
+    id              uuid primary key default gen_random_uuid(),
+    label           text unique not null,
+    code_hash       text unique not null,
+    code_hint       text not null,
+    kind            text not null check (kind in ('lifetime','annual_discount')),
+    percent         integer not null check (percent between 1 and 100),
+    allowed_email   text,
+    active          boolean not null default false,
+    reserved_by     uuid references users(id),
+    reserved_order_id uuid,
+    redeemed_by     uuid references users(id),
+    redeemed_at     timestamptz,
+    created_at      timestamptz not null default now()
+);
+create unique index one_lifetime_gift_per_email on billing_coupons(lower(allowed_email)) where kind='lifetime' and allowed_email is not null;
+
+create table billing_orders (
+    id                uuid primary key,
+    user_id           uuid not null references users(id),
+    idempotency_key   uuid not null,
+    plan              text not null,
+    billing           text not null check (billing in ('month','year')),
+    currency          text not null,
+    subtotal          integer not null check (subtotal >= 100),
+    discount          integer not null check (discount >= 0),
+    amount            integer not null check (amount >= 0),
+    coupon_id         uuid references billing_coupons(id),
+    status            text not null default 'creating',
+    gateway_order_id  text unique,
+    gateway_payment_id text unique,
+    is_test           boolean not null,
+    detail            text,
+    created_at        timestamptz not null default now(),
+    updated_at        timestamptz not null default now(),
+    verified_at       timestamptz,
+    unique(user_id, idempotency_key),
+    check (subtotal - discount = amount)
+);
+create index billing_orders_pending on billing_orders(status, created_at);
+
+create table access_grants (
+    id          uuid primary key default gen_random_uuid(),
+    user_id     uuid not null references users(id),
+    order_id    uuid unique not null references billing_orders(id),
+    plan        text not null,
+    starts_at   timestamptz not null,
+    ends_at     timestamptz,
+    revoked_at  timestamptz,
+    created_at  timestamptz not null default now()
+);
+create index access_grants_owner on access_grants(user_id, starts_at, ends_at);
+
+-- ============================================================================
+-- BILLING_PLANS + BILLING_SUBSCRIPTIONS  (Razorpay recurring)
+-- ============================================================================
+create table billing_plans (
+    id              uuid primary key default gen_random_uuid(),
+    plan            text not null,
+    billing         text not null check (billing in ('month','year')),
+    currency        text not null,
+    amount          integer not null check (amount >= 100),
+    gateway_plan_id text unique not null,
+    created_at      timestamptz not null default now()
+);
+create unique index billing_plans_lookup on billing_plans(plan, billing, currency);
+
+create table billing_subscriptions (
+    id                      uuid primary key default gen_random_uuid(),
+    user_id                 uuid not null references users(id),
+    billing_plan_id         uuid not null references billing_plans(id),
+    gateway_subscription_id text unique not null,
+    plan                    text not null,
+    billing                 text not null check (billing in ('month','year')),
+    currency                text not null,
+    amount                  integer not null,
+    coupon_id               uuid references billing_coupons(id),
+    status                  text not null default 'created',
+    current_period_start    timestamptz,
+    current_period_end      timestamptz,
+    cancel_at_period_end    boolean not null default false,
+    cancelled_at            timestamptz,
+    latest_grant_id         uuid references access_grants(id),
+    is_test                 boolean not null default false,
+    created_at              timestamptz not null default now(),
+    updated_at              timestamptz not null default now()
+);
+create index billing_subscriptions_user on billing_subscriptions(user_id, status);
+create index billing_subscriptions_gateway on billing_subscriptions(gateway_subscription_id);
 
 -- ============================================================================
 -- SCHEDULER_LOCKS
@@ -513,12 +772,13 @@ create table scheduler_locks (
 -- ============================================================================
 create or replace function purge_expired_data() returns void as $$
 begin
-    delete from phone_otps      where expires_at < now();
+    delete from verification_challenges where expires_at < now();
     delete from email_otps      where expires_at < now();
     delete from circle_invites  where expires_at < now();
     delete from jwt_blacklist   where expires_at < now();
     delete from scheduler_locks where expires_at < now();
     delete from webhook_debug   where created_at < now() - interval '14 days';
+    delete from inbound_events  where status = 'processed' and received_at < now() - interval '7 days';
 
     delete from message_logs
     where created_at < now() - interval '6 months'

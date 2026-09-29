@@ -23,6 +23,7 @@ import { Switch } from "@/components/ui/switch";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { PhoneInput } from "@/components/PhoneInput";
+import { phoneError } from "@/lib/validation";
 import { CareTab, VacationCard } from "@/components/CareTab";
 import { PricingCards } from "@/components/PricingCards";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
@@ -84,7 +85,7 @@ export default function Dashboard() {
   const bootQuery = useQuery({
     queryKey: ["dashboard"],
     queryFn: () => api.get("/dashboard/bootstrap").then((r) => r.data),
-    refetchInterval: 30 * 1000,
+    refetchInterval: 60_000,
     refetchOnWindowFocus: true,
     retry: 1,
   });
@@ -552,280 +553,7 @@ function AccountPanel({ user, plan, payment, circle, setActiveTab, refreshUser }
 
 
 
-function CheckinsTab({ parents, data, catByKey, revealedReplies, setRevealedReplies, onAcknowledged }) {
-  // Hooks first - all before early return (fixes rules-of-hooks + mobile responsive)
-  const [acking, setAcking] = useState(null);
-  const [showCalendar, setShowCalendar] = useState(false);
-  const [currentMonth, setCurrentMonth] = useState(() => new Date());
-  const [selectedDate, setSelectedDate] = useState(() => new Date());
 
-  const parentDays = useMemo(() => data?.parents || [], [data]);
-  const alerts = useMemo(() => data?.alerts || [], [data]);
-
-  const isoFromDate = useCallback((d) => {
-    if (!d) return "";
-    const dt = new Date(d);
-    return `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,"0")}-${String(dt.getDate()).padStart(2,"0")}`;
-  }, []);
-
-  const allDayKeys = useMemo(() => {
-    const set = new Set();
-    parentDays.forEach(pd => (pd.days||[]).forEach(day => set.add(day.day_key)));
-    return set;
-  }, [parentDays]);
-
-  const weekDates = useMemo(() => {
-    const start = new Date(selectedDate);
-    start.setDate(selectedDate.getDate() - start.getDay());
-    return Array.from({length:7}, (_,i) => {
-      const d = new Date(start);
-      d.setDate(start.getDate()+i);
-      return d;
-    });
-  }, [selectedDate]);
-
-  const monthStart = useMemo(() => new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1), [currentMonth]);
-  const monthEnd = useMemo(() => new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0), [currentMonth]);
-  const startDay = monthStart.getDay();
-  const daysInMonth = monthEnd.getDate();
-  const calendarDays = useMemo(() => {
-    const arr = [];
-    for (let i=0;i<startDay;i++) arr.push(null);
-    for (let d=1; d<=daysInMonth; d++) arr.push(d);
-    return arr;
-  }, [startDay, daysInMonth]);
-
-  const getDayDataForParentByDate = useCallback((pd, date) => {
-    const iso = isoFromDate(date);
-    const todayIso = isoFromDate(new Date());
-    const days = pd.days || [];
-    if (iso === todayIso) {
-      const todayData = days.find(d => d.day_key === "today");
-      if (todayData) return todayData;
-    }
-    let found = days.find(d => d.day_key === iso);
-    if (found) return found;
-    found = days.find(d => String(d.day_key).includes(iso) || iso.includes(String(d.day_key)));
-    return found || null;
-  }, [isoFromDate]);
-
-  const totalRepliedForSelected = useMemo(() => {
-    let total = 0, replied = 0;
-    parentDays.forEach(pd => {
-      const dd = getDayDataForParentByDate(pd, selectedDate);
-      if (dd) { total += dd.total || 0; replied += dd.replied || 0; }
-    });
-    return { total, replied };
-  }, [parentDays, selectedDate, getDayDataForParentByDate]);
-
-  if (parents.length === 0) {
-    return <EmptyState text="Add a parent first — check-ins appear here once messages start going out." />;
-  }
-
-  const acknowledge = async (alert, idx) => {
-    if (alert.kind !== "emergency") return;
-    setAcking(idx);
-    try {
-      await api.put(`/emergency-events/${alert.event_id}`, { status: "reviewed" });
-      toast.success("Marked as reviewed.");
-      onAcknowledged?.();
-    } catch (e) {
-      toast.error(formatApiError(e.response?.data?.detail));
-    } finally {
-      setAcking(null);
-    }
-  };
-
-  const formatFull = (date) => {
-    return date.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric", year: "numeric" });
-  };
-
-  return (
-    <div className="space-y-4">
-      {alerts.length > 0 && (
-        <div className="space-y-2">
-          {alerts.map((a,i) => (
-            <div key={a.id || i} className="rounded-[16px] p-3 flex items-center gap-3 text-sm border bg-white border-[#efe8d8]">
-              <MessageCircle className="w-4 h-4 text-[#0f3d2e]" />
-              <span className="flex-1 truncate">{a.parent_name} may need attention — {a.body}</span>
-              {a.kind==="emergency" && (
-                <button onClick={()=>acknowledge(a,i)} disabled={acking===i} className="shrink-0 text-xs px-2.5 py-1 rounded-full border bg-white">{acking===i ? <Loader2 className="w-3.5 h-3.5 animate-spin"/> : "Mark reviewed"}</button>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-
-      <div className="bg-white rounded-[16px] border border-[#efe8d8] p-3 sm:p-4 shadow-[0_1px_0_0_rgba(0,0,0,0.02)]">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="w-10 h-10 rounded-full bg-[#faf6ec] border border-[#efe8d8] flex items-center justify-center shrink-0">
-              <Calendar className="w-4 h-4 text-[#6b5f4a]" />
-            </div>
-            <div className="min-w-0">
-              <div className="flex items-center gap-2 flex-wrap">
-                <p className="font-display text-[14px] sm:text-[15px] font-medium text-[#1a1a1a] truncate">{formatFull(selectedDate)}</p>
-                {isoFromDate(selectedDate) === isoFromDate(new Date()) && (
-                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#e6f4ea] text-[#1a7a4a] font-medium shrink-0">Today</span>
-                )}
-              </div>
-              <p className="text-[11px] text-[#9a9183] mt-0.5 hidden sm:block">Tap calendar to pick any day • {parentDays.length} parents, side-by-side • mobile responsive</p>
-              <p className="text-[11px] text-[#9a9183] mt-0.5 sm:hidden">{parentDays.length} parents • side-by-side</p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2 overflow-x-auto no-scrollbar">
-            <div className="flex items-center gap-1 bg-[#faf6ec] rounded-full p-1 border border-[#efe8d8] shrink-0">
-              {weekDates.map((d, idx) => {
-                const isSelected = isoFromDate(d) === isoFromDate(selectedDate);
-                const isToday = isoFromDate(d) === isoFromDate(new Date());
-                const hasData = allDayKeys.has(isoFromDate(d)) || (allDayKeys.has("today") && isToday);
-                return (
-                  <button
-                    key={idx}
-                    onClick={() => setSelectedDate(d)}
-                    className={`relative flex flex-col items-center justify-center min-w-[42px] sm:min-w-[44px] h-[42px] sm:h-[44px] rounded-full px-1 transition-all ${isSelected ? "bg-[#1a1a1a] text-white shadow-sm" : "text-[#6b5f4a] hover:bg-white"}`}
-                  >
-                    {hasData && !isSelected && <span className="absolute top-1 w-1 h-1 rounded-full bg-[#10b981]" />}
-                    <span className="text-[8px] sm:text-[9px] font-medium tracking-wider opacity-70">{d.toLocaleDateString("en-US", {weekday:"short"}).toUpperCase()}</span>
-                    <span className="text-[12px] sm:text-[13px] font-semibold leading-none mt-0.5">{d.getDate()}</span>
-                  </button>
-                );
-              })}
-            </div>
-            <button
-              onClick={() => setShowCalendar(v=>!v)}
-              className={`w-9 h-9 rounded-full border flex items-center justify-center transition-colors shrink-0 ${showCalendar ? "bg-[#1a1a1a] text-white border-[#1a1a1a]" : "bg-white border-[#efe8d8] text-[#6b5f4a] hover:bg-[#faf6ec]"}`}
-            >
-              <Calendar className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
-
-        {showCalendar && (
-          <div className="mt-4 border-t border-[#efe8d8] pt-4">
-            <div className="flex items-center justify-between mb-3">
-              <h4 className="font-display text-sm font-medium">{currentMonth.toLocaleDateString("en-US", {month:"long", year:"numeric"})}</h4>
-              <div className="flex gap-1">
-                <button onClick={()=>setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth()-1,1))} className="w-7 h-7 rounded-full border border-[#efe8d8] bg-white flex items-center justify-center"><ChevronLeft className="w-4 h-4"/></button>
-                <button onClick={()=>{setCurrentMonth(new Date()); setSelectedDate(new Date());}} className="px-2.5 h-7 rounded-full border border-[#efe8d8] bg-white text-xs">Today</button>
-                <button onClick={()=>setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth()+1,1))} className="w-7 h-7 rounded-full border border-[#efe8d8] bg-white flex items-center justify-center"><ChevronRight className="w-4 h-4"/></button>
-              </div>
-            </div>
-            <div className="grid grid-cols-7 gap-1 text-center">
-              {["SUN","MON","TUE","WED","THU","FRI","SAT"].map(wd => <div key={wd} className="text-[10px] font-medium text-[#9a9183] py-1">{wd}</div>)}
-              {calendarDays.map((day, idx) => {
-                if (day===null) return <div key={`e-${idx}`} />;
-                const dateObj = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), day);
-                const iso = isoFromDate(dateObj);
-                const hasData = allDayKeys.has(iso) || (allDayKeys.has("today") && iso===isoFromDate(new Date()));
-                const isSelected = iso===isoFromDate(selectedDate);
-                const isToday = iso===isoFromDate(new Date());
-                return (
-                  <button key={iso} onClick={()=>setSelectedDate(dateObj)} className={`h-9 rounded-lg text-xs font-medium flex flex-col items-center justify-center ${isSelected ? "bg-[#1a1a1a] text-white" : hasData ? "bg-[#faf6ec] text-[#1a1a1a] hover:bg-[#f0e9d8]" : "text-[#9a9183] hover:bg-[#faf6ec]"} ${isToday && !isSelected ? "ring-1 ring-[#1a1a1a] ring-offset-1" : ""}`}>
-                    <span>{day}</span>{hasData && !isSelected && <span className="w-1 h-1 rounded-full bg-[#10b981] mt-0.5" />}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        )}
-      </div>
-
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 px-1">
-        <div className="flex items-center gap-3 text-[11px] flex-wrap">
-          <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-[#10b981] inline-block" /> <span className="text-[#6b5f4a]">Replied</span></span>
-          <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-[#f59e0b] inline-block" /> <span className="text-[#9a9183]">Pending</span></span>
-          <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-[#d1c7b5] inline-block" /> <span className="text-[#9a9183]">Missed</span></span>
-        </div>
-        <div className="flex items-center gap-2 text-[11px] text-[#9a9183]">
-          <span className="hidden sm:inline">Showing</span>
-          <span className="px-2.5 py-1 rounded-full bg-white border border-[#efe8d8] text-[#1a1a1a] font-medium">{selectedDate.toLocaleDateString("en-US", {month:"short", day:"numeric"})} • {totalRepliedForSelected.replied}/{totalRepliedForSelected.total} replied</span>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4">
-        {parentDays.map((pd) => {
-          const dayData = getDayDataForParentByDate(pd, selectedDate);
-          const total = dayData?.total ?? 0;
-          const replied = dayData?.replied ?? 0;
-          const messages = dayData?.messages ?? [];
-          const firstLetter = (pd.name?.[0] || "A").toUpperCase();
-          const relLabel = pd.relationship === "mother" || pd.name?.toLowerCase().includes("amma") ? "Mother" : pd.relationship === "father" || pd.name?.toLowerCase().includes("dady") || pd.name?.toLowerCase().includes("nanna") ? "Father" : pd.relationship || "";
-          return (
-            <div key={pd.parent_id} className="bg-white rounded-[16px] border border-[#efe8d8] p-4 sm:p-5 shadow-[0_1px_0_0_rgba(0,0,0,0.02)] flex flex-col">
-              <div className="flex items-start justify-between gap-2 mb-4">
-                <div className="flex items-center gap-2.5 min-w-0">
-                  <div className="w-8 h-8 rounded-full bg-[#f5f0e6] border border-[#efe8d8] flex items-center justify-center text-[13px] font-medium text-[#1a1a1a] shrink-0">{firstLetter}</div>
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <p className="font-display text-[15px] sm:text-[16px] font-medium text-[#1a1a1a] leading-none truncate">{pd.name}</p>
-                      {relLabel && <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#faf6ec] border border-[#efe8d8] text-[#8a7f6d] font-medium shrink-0">{relLabel}</span>}
-                    </div>
-                    <div className="flex items-center gap-1 mt-1 text-[11px] text-[#9a9183]">
-                      <Clock className="w-3 h-3 shrink-0" />
-                      <span className="truncate">{selectedDate.toLocaleDateString("en-US", {month:"short", day:"numeric"})}</span>
-                    </div>
-                  </div>
-                </div>
-                {total > 0 ? (
-                  <span className="inline-flex items-center gap-1 text-[11px] px-2.5 py-1 rounded-full bg-[#e6f4ea] text-[#1a7a4a] border border-[#c8e9d4] font-medium whitespace-nowrap shrink-0">
-                    <span className="w-1.5 h-1.5 rounded-full bg-[#10b981] inline-block" /> {replied} of {total}
-                  </span>
-                ) : (
-                  <span className="text-[11px] px-2.5 py-1 rounded-full bg-[#f5f0e6] text-[#9a9183] border border-[#efe8d8] shrink-0">No msg</span>
-                )}
-              </div>
-
-              <CareStatus parentId={pd.parent_id} />
-              {!dayData || messages.length===0 ? (
-                <div className="flex-1 flex items-center justify-center py-10 bg-[#faf6ec] rounded-xl border border-dashed border-[#efe8d8] text-sm text-[#9a9183] text-center px-4">Nothing sent on this date.</div>
-              ) : (
-                <>
-                  <div className="grid grid-cols-1 xs:grid-cols-2 sm:grid-cols-2 gap-2.5">
-                    {messages.map((m) => {
-                      const repliedOk = m.replied || m.reply_status==="done";
-                      const time = m.time || "";
-                      const label = catByKey[m.category]?.label || m.category;
-                      let replyTime = "";
-                      if (m.reply?.created_at) {
-                        replyTime = new Date(m.reply.created_at).toLocaleTimeString("en-US", {hour:"2-digit", minute:"2-digit", hour12:true});
-                      } else if (m.replied) {
-                        replyTime = time;
-                      }
-                      return (
-                        <div key={m.id} className="bg-[#fbf6ec] border border-[#efe8d8] rounded-[12px] p-3 relative hover:border-[#e6ddd0] transition-colors">
-                          <div className="flex items-start justify-between">
-                            <span className="text-[11px] text-[#8a7f6d] font-medium">{time}</span>
-                            <span className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 ${repliedOk ? "bg-[#10b981] text-white" : "bg-white border border-[#efe8d8] text-[#d1c7b5]"}`}>
-                              <Check className="w-3 h-3" strokeWidth={3} />
-                            </span>
-                          </div>
-                          <p className="text-[13px] sm:text-[14px] font-medium text-[#1a1a1a] mt-1 leading-tight line-clamp-2">{label}</p>
-                          <div className={`mt-2.5 inline-flex items-center gap-1 px-2 py-1 rounded-full text-[10px] sm:text-[11px] font-medium max-w-full ${repliedOk ? "bg-[#e6f7ef] text-[#0d7a55] border border-[#c8e9d4]/60" : "bg-white text-[#9a9183] border border-[#efe8d8]"}`}>
-                            <span className={`w-1 h-1 rounded-full ${repliedOk ? "bg-[#10b981]" : "bg-[#f59e0b]"} inline-block shrink-0`} />
-                            <span className="truncate">{repliedOk ? `Replied ${replyTime}` : `Pending`}</span>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-
-                  <div className="mt-4 flex items-center justify-between gap-3 pt-1">
-                    <span className="text-[11px] text-[#9a9183] truncate">{replied}/{total} completed • compact</span>
-                    <div className="flex-1 max-w-[100px] sm:max-w-[120px] h-1 rounded-full bg-[#f0e9d8] overflow-hidden flex shrink-0">
-                      <div className="h-full bg-[#10b981] rounded-full transition-all" style={{width: `${total ? (replied/total)*100 : 0}%`}} />
-                    </div>
-                  </div>
-                </>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
 
 function ParentDialog({ parent, config, limits, plan, schedules = [], onSaved, trigger }) {
   const [open, setOpen] = useState(false);
@@ -950,6 +678,9 @@ function ParentDialog({ parent, config, limits, plan, schedules = [], onSaved, t
               plan={plan}
               idPrefix="pd"
             />
+            {form.phone && phoneError(form.phone) && (
+              <p className="text-xs text-red-500 mt-1">{phoneError(form.phone)}</p>
+            )}
           </div>
 
           {existingSchedule && (
@@ -961,7 +692,7 @@ function ParentDialog({ parent, config, limits, plan, schedules = [], onSaved, t
         </div>
 
         <DialogFooter className="p-6 pt-4 sticky bottom-0 bg-ayana-bg border-t border-ayana-line mt-2">
-          <button onClick={save} disabled={busy || !form.name || form.phone.length < 8} data-testid="pd-save" className="inline-flex items-center gap-2 px-6 py-2.5 rounded-full bg-ayana-primary text-white text-sm font-medium hover:bg-ayana-primary-hover disabled:opacity-50">{busy && <Loader2 className="w-4 h-4 animate-spin" />} Save</button>
+          <button onClick={save} disabled={busy || !form.name || !form.phone || phoneError(form.phone)} data-testid="pd-save" className="inline-flex items-center gap-2 px-6 py-2.5 rounded-full bg-ayana-primary text-white text-sm font-medium hover:bg-ayana-primary-hover disabled:opacity-50">{busy && <Loader2 className="w-4 h-4 animate-spin" />} Save</button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -1254,15 +985,39 @@ function ReportsTab({ parents, plan, user, checkinsData }) {
     return out;
   }, [filteredParents, selectedMonth]);
 
+  const reportQuery = useQuery({
+    queryKey: ['monthly-report', selectedParentId, selectedMonth],
+    queryFn: () => api.get('/reports/monthly', {
+      params: { parent_id: selectedParentId, period: selectedMonth }
+    }).then(r => r.data),
+    enabled: !!selectedParentId && selectedParentId !== 'all',
+    staleTime: 60_000,
+    retry: 1,
+  });
+
+  const reportData = reportQuery.data;
+
   const allMessages = useMemo(() => filteredDays.flatMap((d) => d.messages || []), [filteredDays]);
 
   const stats = useMemo(() => {
+    if (reportData?.found) {
+      return {
+        total: reportData.total_touches || 0,
+        replied: reportData.total_replied || 0,
+        skipped: reportData.skipped || 0,
+        voice: reportData.voice_replies || 0,
+        completion: reportData.total_touches
+          ? Math.round(((reportData.total_replied || 0) / reportData.total_touches) * 100)
+          : 0,
+      };
+    }
+    // Fallback for 'all' parents view — use bootstrap data (last 7 days)
     const total = allMessages.length;
     const replied = allMessages.filter((m) => m.replied || m.reply_status === "done").length;
     const skipped = allMessages.filter((m) => m.reply_status === "skipped").length;
     const voice = allMessages.filter((m) => m.reply?.is_voice).length;
     return { total, replied, skipped, voice, completion: total ? Math.round((replied / total) * 100) : 0 };
-  }, [allMessages]);
+  }, [reportData, allMessages]);
 
   const feelingStats = useMemo(() => {
     const counts = {};
@@ -1273,6 +1028,12 @@ function ReportsTab({ parents, plan, user, checkinsData }) {
   }, [allMessages]);
 
   const medicineStats = useMemo(() => {
+    if (reportData?.found) {
+      return {
+        taken: reportData.medicine_taken || 0,
+        skipped: reportData.medicine_skipped || 0,
+      };
+    }
     let taken = 0, skipped = 0;
     allMessages.forEach((m) => {
       if (m.category?.includes("medicine")) {
@@ -1281,7 +1042,7 @@ function ReportsTab({ parents, plan, user, checkinsData }) {
       }
     });
     return { taken, skipped };
-  }, [allMessages]);
+  }, [reportData, allMessages]);
 
   const handleDownloadPDF = async () => {
     if (!filteredParents.length) {
@@ -1542,7 +1303,8 @@ function ReportsTab({ parents, plan, user, checkinsData }) {
       doc.setFont("helvetica", "normal");
       y += 8;
 
-      filteredDays.slice(0, 20).forEach((d) => {
+      const daysSource = (reportData?.found && reportData?.details) ? reportData.details : filteredDays;
+      daysSource.slice(0, 20).forEach((d) => {
         ensureSpace(12);
         doc.setFontSize(8.5);
         doc.setTextColor(...muted);
@@ -1591,6 +1353,10 @@ function ReportsTab({ parents, plan, user, checkinsData }) {
 
   if (parents.length === 0) {
     return <div className="p-8 text-center text-sm text-ayana-muted">Add a parent first</div>;
+  }
+
+  if (reportQuery.isLoading) {
+    return <div className="p-8 text-center text-sm text-[#9a9183] flex justify-center items-center gap-2"><Loader2 className="w-5 h-5 animate-spin" /> Loading report...</div>;
   }
 
   return (

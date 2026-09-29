@@ -18,6 +18,12 @@ def parent_zone(name):
     return ZoneInfo(name or 'Asia/Kolkata')
 
 
+# Categories where replies must be evidence-based only (button tap or quoted message).
+# Free-text replies to these are never auto-linked because confirming medication
+# intake requires explicit user action.
+_STRICT_CATEGORIES = frozenset(('medicine', 'bp_check', 'sugar_check', 'health_check', 'water'))
+
+
 def linked_replies(logs, replies):
     by_sid = {(str(l['parent_id']), l.get('sid')): str(l['id']) for l in logs if l.get('sid')}
     by_id = {str(l['id']): str(l['parent_id']) for l in logs}
@@ -35,7 +41,35 @@ def linked_replies(logs, replies):
             linked[log_id].append(reply)
         else:
             general.append(reply)
-    return dict(linked), general
+
+    # Phase 2: Proximity-based fallback for non-medicine, unlinked replies.
+    # If a parent types a free-text reply without quoting a specific message,
+    # link it to the most recent unanswered non-medicine check-in within 2 hours.
+    unlinked_logs = {}
+    for l in logs:
+        lid = str(l['id'])
+        if lid not in linked and l.get('category') not in _STRICT_CATEGORIES:
+            unlinked_logs[lid] = l
+
+    remaining_general = []
+    for reply in general:
+        parent = str(reply['parent_id'])
+        reply_time = utc(reply['created_at'])
+        best, best_time = None, None
+        for lid, log in list(unlinked_logs.items()):
+            if str(log['parent_id']) != parent:
+                continue
+            log_time = utc(log['created_at'])
+            if log_time <= reply_time and (reply_time - log_time).total_seconds() <= 7200:
+                if best_time is None or log_time > best_time:
+                    best, best_time = lid, log_time
+        if best:
+            linked.setdefault(best, []).append(reply)
+            del unlinked_logs[best]
+        else:
+            remaining_general.append(reply)
+
+    return dict(linked), remaining_general
 
 
 def response_state(replies):

@@ -102,7 +102,7 @@ from pricing import PLANS, CURRENCIES, plan_limits
 from scheduler import start_scheduler, shutdown_scheduler
 from email_sender import send_invite_email
 from monthly_report import generate_monthly_report
-from whatsapp import is_session_open, send_dynamic_checkin, send_meal_template, send_medicine_template, send_mood_template, send_whatsapp, send_whatsapp_opener, whatsapp_enabled, send_member_removed_notice, send_sibling_welcome, send_sibling_added_notice
+from whatsapp import is_session_open, send_dynamic_checkin, send_meal_template, send_medicine_template, send_mood_template, send_whatsapp, send_whatsapp_opener, whatsapp_enabled, send_member_removed_notice, send_sibling_welcome, send_sibling_added_notice, send_opener_welcome
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger("ayana")
@@ -171,6 +171,7 @@ async def _run_startup_migrations():
             )
         """)
         await conn.execute("alter table monthly_reports add column if not exists details jsonb")
+        await conn.execute("alter table monthly_reports add column if not exists pdf_url text")
         await conn.execute("alter table users add column if not exists password_changed_at timestamptz")
         await conn.execute("alter table users add column if not exists pending_email text")
         # Sprint Phase 1: raw webhook archive (2-week TTL) + wam_id idempotency
@@ -635,8 +636,8 @@ async def say_hi(parent_id: str, user: dict = Depends(get_current_user), _csrf: 
         raise HTTPException(status_code=404, detail="Parent not found")
     language = parent["language"] or "en"
     preferred = parent["preferred_name"] or parent["name"] or "Amma"
-    copy = SAY_HI_COPY.get(language, SAY_HI_COPY["en"]).format(parent_name=preferred)
-    result = send_whatsapp(parent["phone"] or "", copy)
+    child_name = user.get("name", "your child").split()[0]
+    result = await send_opener_welcome(parent["phone"] or "", preferred, child_name, language)
     await audit(user["id"], "say_hi", {"parent_id": str(parent["id"])})
     return {"ok": True, "status": result.get("status"), "detail": result.get("detail")}
 
