@@ -7,44 +7,16 @@ import { useAuth } from '@/context/AuthContext';
 import { api, formatAxiosError } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
-import { loadCheckout } from './razorpayCheckout';
+import { loadCheckout, openSubscriptionModal } from './razorpayCheckout';
 
-const money = (amount, currency) =>
-  new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(amount / 100);
-
-const openSubscriptionModal = (sub, user, config) =>
-  new Promise((resolve, reject) => {
-    let settled = false;
-    const finish = (fn, val) => { if (!settled) { settled = true; fn(val); } };
-    const modal = new window.Razorpay({
-      key: sub.key_id,
-      subscription_id: sub.subscription_id,
-      name: 'AYANA',
-      description: `${sub.plan} — ${sub.billing === 'year' ? 'annual subscription, renews each year' : 'monthly subscription, renews each month'}`,
-      prefill: { name: user?.name, email: user?.email, contact: user?.phone },
-      theme: { color: '#0f3d2e' },
-      retry: { enabled: false },
-      handler: async (result) => {
-        if (settled) return;
-        settled = true;
-        try {
-          const { data } = await api.post('/verify-subscription', result);
-          resolve(data);
-        } catch (err) {
-          reject(err);
-        }
-      },
-      modal: {
-        confirm_close: true,
-        ondismiss: () => finish(resolve, { status: 'dismissed' }),
-      },
-    });
-    modal.on('payment.failed', (ev) => {
-      finish(reject, new Error(ev.error?.description || 'The subscription authorisation failed.'));
-      modal.close();
-    });
-    modal.open();
-  });
+const money = (amount, currency) => {
+  const code = (currency || 'INR').toUpperCase();
+  try {
+    return new Intl.NumberFormat(undefined, { style: 'currency', currency: code }).format((amount || 0) / 100);
+  } catch {
+    return `₹${((amount || 0) / 100).toFixed(2)}`;
+  }
+};
 
 export const SubscribeDialog = ({ selection, onClose, onComplete }) => {
   const { user } = useAuth();
@@ -112,12 +84,6 @@ export const SubscribeDialog = ({ selection, onClose, onComplete }) => {
             {billingLabel} Cancel anytime; no penalties.
           </DialogDescription>
         </DialogHeader>
-
-        {config?.test_mode && (
-          <p className="rounded-xl bg-amber-50 border border-amber-200 p-3 text-sm text-amber-900" data-testid="subscribe-test-mode">
-            Razorpay test mode. No real money will be charged.
-          </p>
-        )}
 
         {preview && (
           <div className="space-y-2 text-sm" data-testid="subscribe-preview">

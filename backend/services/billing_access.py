@@ -24,21 +24,25 @@ async def access(conn,user_id):
     active_sub = await conn.fetchrow(
         """SELECT * FROM billing_subscriptions
            WHERE user_id=$1
-             AND status IN ('active','cancelled','halted','completed')
-             AND current_period_start <= $2 AND current_period_end > $2
+             AND (
+               (status IN ('active','cancelled','halted','completed') AND current_period_start <= $2 AND current_period_end > $2)
+               OR (status = 'authenticated' AND current_period_end IS NOT NULL AND current_period_end > $2)
+             )
            ORDER BY CASE plan WHEN 'raksha' THEN 2 WHEN 'bandham' THEN 1 ELSE 0 END DESC, created_at DESC
            LIMIT 1""",
         user_id, now,
     )
     if active_sub:
+        is_trial = active_sub['status'] == 'authenticated'
         return {
             'allowed': True,
             'plan': active_sub['plan'],
-            'status': 'subscribed',
+            'status': 'trial' if is_trial else 'subscribed',
             'lifetime': False,
             'expires_at': active_sub['current_period_end'],
-            'auto_renews': active_sub['status'] == 'active' and not active_sub['cancel_at_period_end'],
+            'auto_renews': active_sub['status'] in ('active', 'authenticated') and not active_sub['cancel_at_period_end'],
             'subscription_id': str(active_sub['id']),
+            'trial_ends_at': active_sub['current_period_end'] if is_trial else None,
         }
 
     grants = await conn.fetch('SELECT * FROM access_grants WHERE user_id=$1 AND revoked_at IS NULL AND starts_at<=$2 AND (ends_at IS NULL OR ends_at>$2)',user_id,now)

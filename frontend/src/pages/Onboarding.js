@@ -9,7 +9,6 @@ import { useAuth } from "@/context/AuthContext";
 import { TIMEZONES, getBrowserTimezone } from "@/lib/constants";
 import { PhoneInput } from "@/components/PhoneInput";
 import { EmailVerificationCard } from "@/components/EmailVerificationCard";
-import { PhoneChangeDialog } from "@/components/PhoneChangeDialog";
 import { PricingCards } from "@/components/PricingCards";
 import { ParentCareForm, blankParentForm, blankMedicine } from "@/components/ParentCareForm";
 import { toast } from "sonner";
@@ -26,7 +25,7 @@ export default function Onboarding() {
   const { user, config, refreshUser } = useAuth();
   const navigate = useNavigate();
   const [step, setStep] = useState(() => {
-    const s = user?.onboarding_step?? 0;
+    const s = user?.onboarding_step ?? 0;
     return Math.min(Math.max(s, 0), 3);
   });
   const [loading, setLoading] = useState(false);
@@ -43,8 +42,8 @@ export default function Onboarding() {
   const [planId, setPlanId] = useState("nitya");
 
 
-  const plans = useMemo(() => config?.plans?.length? config.plans : FALLBACK_PLANS, [config]);
-  const currencies = config?.currencies?.length? config.currencies : FALLBACK_CURRENCIES;
+  const plans = useMemo(() => config?.plans?.length ? config.plans : FALLBACK_PLANS, [config]);
+  const currencies = config?.currencies?.length ? config.currencies : FALLBACK_CURRENCIES;
   const plan = useMemo(() => plans.find((p) => p.id === planId), [plans, planId]);
   const limits = useMemo(() => plan?.limits || { checkins: 2, reminders: 2, parents: 1, templates_per_day: 4 }, [plan]);
   const parentLimit = limits.parents || 1;
@@ -57,7 +56,7 @@ export default function Onboarding() {
   ].slice(0, maxCheckins).concat({ time: '11:00', category: 'water', type: 'activity' }), [maxCheckins]);
 
   const newBlankParent = useCallback(
-    () => ({...blankParentForm(), messages: defaultMessages() }),
+    () => ({ ...blankParentForm(), messages: defaultMessages() }),
     [defaultMessages]
   );
 
@@ -73,11 +72,11 @@ export default function Onboarding() {
   useEffect(() => { if (!skipRedirect.current && (user?.onboarding_complete || user?.household_owner_id)) navigate("/dashboard"); }, [user?.onboarding_complete, user?.household_owner_id, navigate]);
 
   useEffect(() => {
-    if (user &&!user.onboarding_complete) {
-      const serverStep = Math.min(Math.max(user.onboarding_step?? 0, 0), 3);
+    if (user && !user.onboarding_complete) {
+      const serverStep = Math.min(Math.max(user.onboarding_step ?? 0, 0), 3);
       setStep(serverStep);
       setChild((prev) => ({
-       ...prev,
+        ...prev,
         name: user.name || prev.name,
         phone: user.phone || prev.phone,
         city: user.city || prev.city,
@@ -89,7 +88,7 @@ export default function Onboarding() {
   useEffect(() => {
     api.get("/payment/state").then(({ data }) => {
       const currentPlan = data?.state?.plan || "nitya";
-      setPlanId(["nitya", "bandham", "raksha"].includes(currentPlan)? currentPlan : "nitya");
+      setPlanId(["nitya", "bandham", "raksha"].includes(currentPlan) ? currentPlan : "nitya");
     }).catch(() => {});
 
     api.get("/parents").then(({ data }) => {
@@ -105,7 +104,7 @@ export default function Onboarding() {
   }, []);
 
   useEffect(() => {
-    if (parentsLoaded && parentsList.length === 0 &&!parentForm) {
+    if (parentsLoaded && parentsList.length === 0 && !parentForm) {
       setParentForm(newBlankParent());
       setEditingParentId(null);
     }
@@ -155,7 +154,7 @@ export default function Onboarding() {
       if (mySched) {
         messages = normalizeMessages(mySched.messages);
         if (messages.length === 0) messages = defaultMessages();
-        setScheduleIds(prev => ({...prev, [p.id]: mySched.id }));
+        setScheduleIds(prev => ({ ...prev, [p.id]: mySched.id }));
       }
       setEditingParentId(p.id);
       setParentConsent(true);
@@ -203,14 +202,14 @@ export default function Onboarding() {
     if (checkinCount > maxCheckins) { toast.error(`Your plan allows up to ${maxCheckins} check-ins. Remove some or upgrade.`); return; }
     setLoading(true);
     try {
-      const { messages, reengagement_hours,...parentData } = parentForm;
+      const { messages, reengagement_hours, ...parentData } = parentForm;
       parentData.habits = cleanHabits(parentData.habits);
       let savedParent;
       if (editingParentId) {
         const response = await api.put(`/care-plans/${editingParentId}`, carePlanPayload(parentForm, planId, parentForm.schedule_state));
         const data = response.data.parent;
         savedParent = data;
-        setParentsList((list) => list.map((p) => (p.id === editingParentId? data : p)));
+        setParentsList((list) => list.map((p) => (p.id === editingParentId ? data : p)));
       } else {
         const response = await api.post('/care-plans', carePlanPayload(parentForm, planId));
         const data = response.data.parent;
@@ -231,7 +230,7 @@ export default function Onboarding() {
     setDeletingId(p.id);
     try {
       await api.delete(`/parents/${p.id}`);
-      setParentsList((list) => list.filter((x) => x.id!== p.id));
+      setParentsList((list) => list.filter((x) => x.id !== p.id));
       toast.success(`Removed ${p.name}.`);
     } catch (e) { toast.error(formatAxiosError(e)); } finally { setDeletingId(null); }
   };
@@ -241,12 +240,12 @@ export default function Onboarding() {
     try {
       const { data } = await api.post("/activation/activate", null, { timeout: 60000 });
       if (data?.activated) {
-        toast.success(data.message || "Care is configured. Check welcome delivery status in your dashboard.");
+        toast.success(data.message || "Care is configured! Redirecting to your dashboard.");
         skipRedirect.current = true;
-        navigate("/activation");
+        navigate("/dashboard?tab=parents");
       } else {
         toast.warning("We couldn't reach WhatsApp just now — nothing was sent. You can retry activation from your dashboard.");
-        navigate("/dashboard");
+        navigate("/dashboard?tab=parents");
       }
       refreshUser();
     } catch (e) { toast.error(formatAxiosError(e)); } finally { setLoading(false); }
@@ -266,8 +265,8 @@ export default function Onboarding() {
           <div className="flex gap-1.5">
             {STEPS.map((s, i) => (
               <div key={s} className="flex-1">
-                <div className={`h-1.5 rounded-full transition-colors duration-300 ${i <= step? "bg-ayana-bright" : "bg-ayana-line"}`} />
-                <p className={`mt-1.5 text- ${i === step? "text-ayana-bright font-semibold" : "text-ayana-muted"} hidden sm:block`}>{s}</p>
+                <div className={`h-1.5 rounded-full transition-colors duration-300 ${i <= step ? "bg-ayana-bright" : "bg-ayana-line"}`} />
+                <p className={`mt-1.5 text- ${i === step ? "text-ayana-bright font-semibold" : "text-ayana-muted"} hidden sm:block`}>{s}</p>
               </div>
             ))}
           </div>
@@ -288,21 +287,24 @@ export default function Onboarding() {
                   <h3 className="font-display text-lg font-medium text-ayana-text">A little about you</h3>
                   <div>
                     <label className="text-sm font-medium text-ayana-text">Your name</label>
-                    <input value={child.name} onChange={(e) => setChild({...child, name: e.target.value })} data-testid="child-name" className={`mt-1.5 ${inputCls}`} />
+                    <input value={child.name} onChange={(e) => setChild({ ...child, name: e.target.value })} data-testid="child-name" className={`mt-1.5 ${inputCls}`} />
                   </div>
                   <div className="grid sm:grid-cols-2 gap-4">
                     <div>
                       <label className="text-sm font-medium text-ayana-text">Your phone</label>
-                      <div className="mt-1.5 space-y-2"><input value={child.phone} readOnly data-testid="child-phone" className={inputCls} aria-label="Your WhatsApp number" /><PhoneChangeDialog user={user} onChanged={refreshUser} testid="onboarding-phone-change" /></div>
+                      <div className="mt-1.5 space-y-1.5">
+                        <input value={child.phone} readOnly data-testid="child-phone" className={inputCls} aria-label="Your WhatsApp number" />
+                        <p className="text-xs text-ayana-muted">Need to change it? You can do that later from Account in your dashboard.</p>
+                      </div>
                     </div>
                     <div>
                       <label className="text-sm font-medium text-ayana-text">Your city *</label>
-                      <input required value={child.city} onChange={(e) => setChild({...child, city: e.target.value })} data-testid="child-city" placeholder="London" className={`mt-1.5 ${inputCls}`} />
+                      <input required value={child.city} onChange={(e) => setChild({ ...child, city: e.target.value })} data-testid="child-city" placeholder="London" className={`mt-1.5 ${inputCls}`} />
                     </div>
                   </div>
                   <div>
                     <label className="text-sm font-medium text-ayana-text">Your timezone</label>
-                    <select value={child.timezone} onChange={(e) => setChild({...child, timezone: e.target.value })} data-testid="child-timezone" className={`mt-1.5 ${inputCls}`}>
+                    <select value={child.timezone} onChange={(e) => setChild({ ...child, timezone: e.target.value })} data-testid="child-timezone" className={`mt-1.5 ${inputCls}`}>
                       {TIMEZONES.map((tz) => <option key={tz.value} value={tz.value}>{tz.label}</option>)}
                     </select>
                   </div>
@@ -315,9 +317,9 @@ export default function Onboarding() {
                 </div>
                 <div className="mt-6 flex justify-between">
                   <button onClick={() => navigate("/dashboard")} className="inline-flex items-center gap-2 px-6 py-3.5 rounded-full border border-ayana-line text-ayana-text hover:bg-ayana-alt transition-colors"><ArrowLeft className="w-4 h-4" /> Back</button>
-                  <button onClick={saveChild} disabled={loading ||!child.name || child.phone.length < 8 ||!childEmailVerified ||!childConsent} data-testid="step0-next"
+                  <button onClick={saveChild} disabled={loading || !child.name || child.phone.length < 8 || !childEmailVerified || !childConsent} data-testid="step0-next"
                     className="inline-flex items-center gap-2 px-7 py-3.5 rounded-full bg-ayana-primary text-white font-medium hover:bg-ayana-primary-hover transition-colors disabled:opacity-50">
-                    {loading? <Loader2 className="w-4 h-4 animate-spin" /> : <>Continue <ArrowRight className="w-4 h-4" /></>}
+                    {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <>Continue <ArrowRight className="w-4 h-4" /></>}
                   </button>
                 </div>
               </div>
@@ -339,7 +341,7 @@ export default function Onboarding() {
                 <div className="mb-6">
                   <h1 className="font-display text-3xl font-semibold text-ayana-text">Who are we caring for?</h1>
                   <p className="mt-3 text-ayana-secondary">
-                    Your <span className="font-medium text-ayana-text">{plan?.name || "plan"}</span> covers up to {parentLimit} parent{parentLimit === 1? "" : "s"}, {maxCheckins} daily check-ins, and {limits.reminders || 2} medicine reminders per parent.
+                    Your <span className="font-medium text-ayana-text">{plan?.name || "plan"}</span> covers up to {parentLimit} parent{parentLimit === 1 ? "" : "s"}, {maxCheckins} daily check-ins, and {limits.reminders || 2} medicine reminders per parent.
                     {" "}{parentsList.length}/{parentLimit} added.
                   </p>
                 </div>
@@ -351,13 +353,13 @@ export default function Onboarding() {
                           <p className="font-medium text-ayana-text">{p.name} <span className="text-ayana-muted font-normal capitalize">· {p.relationship}</span></p>
                           <p className="text-sm text-ayana-secondary">{p.phone}</p>
                           {(p.medicine_list || []).length > 0 && (
-                            <p className="text-xs text-ayana-muted mt-1">💊 {p.medicine_list.length} medicine{p.medicine_list.length!== 1? "s" : ""}</p>
+                            <p className="text-xs text-ayana-muted mt-1">💊 {p.medicine_list.length} medicine{p.medicine_list.length !== 1 ? "s" : ""}</p>
                           )}
                         </div>
                         <div className="flex items-center gap-1">
                           <button onClick={() => openEditParent(p)} className="p-2.5 rounded-full text-ayana-secondary hover:bg-ayana-alt hover:text-ayana-text transition-colors"><Pencil className="w-4 h-4" /></button>
                           <button onClick={() => deleteParent(p)} disabled={deletingId === p.id} className="p-2.5 rounded-full text-ayana-secondary hover:bg-red-50 hover:text-red-500 transition-colors disabled:opacity-50">
-                            {deletingId === p.id? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                            {deletingId === p.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
                           </button>
                         </div>
                       </div>
@@ -366,13 +368,13 @@ export default function Onboarding() {
                 )}
                 {!parentForm && parentsList.length < parentLimit && (
                   <button onClick={openAddParent} data-testid="add-parent" className="mb-5 inline-flex items-center gap-2 px-5 py-3 rounded-full border border-dashed border-ayana-line text-ayana-text hover:bg-ayana-alt transition-colors">
-                    <Plus className="w-4 h-4" /> Add {parentsList.length === 0? "a parent" : "another parent"}
+                    <Plus className="w-4 h-4" /> Add {parentsList.length === 0 ? "a parent" : "another parent"}
                   </button>
                 )}
                 {parentForm && (
                   <div className="bg-white rounded-2xl border border-ayana-line overflow-hidden shadow-sm" data-testid="parent-form">
                     <div className="bg-ayana-alt/50 border-b border-ayana-line px-7 py-4 flex items-center justify-between">
-                      <h3 className="font-display font-medium text-ayana-text">{editingParentId? "Edit parent" : "Add a parent"}</h3>
+                      <h3 className="font-display font-medium text-ayana-text">{editingParentId ? "Edit parent" : "Add a parent"}</h3>
                       <button onClick={closeParentForm} className="text-sm text-ayana-muted hover:text-ayana-text">Cancel</button>
                     </div>
                     <div className="p-7 space-y-10">
@@ -384,9 +386,9 @@ export default function Onboarding() {
                         </label>
                       </div>
                       <div className="flex flex-col items-end gap-2 pt-2">
-                        <button onClick={saveParentForm} disabled={loading ||!parentForm.name || parentForm.phone.length < 8 ||!parentConsent} data-testid="save-parent"
+                        <button onClick={saveParentForm} disabled={loading || !parentForm.name || parentForm.phone.length < 8 || !parentConsent} data-testid="save-parent"
                           className="inline-flex items-center gap-2 px-8 py-4 rounded-full bg-ayana-primary text-white font-semibold hover:bg-ayana-primary-hover transition-colors shadow-md disabled:opacity-50">
-                          {loading? <Loader2 className="w-4 h-4 animate-spin" /> : <>{editingParentId? "Save changes" : "Confirm parent"} <Check className="w-4 h-4" /></>}
+                          {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <>{editingParentId ? "Save changes" : "Confirm parent"} <Check className="w-4 h-4" /></>}
                         </button>
                         {loading && (
                           <p className="text-xs text-ayana-secondary italic" data-testid="save-parent-pending-copy">
@@ -406,20 +408,20 @@ export default function Onboarding() {
                 </div>
               </div>
             )}
-              {step === 3 && (
-                <div className="text-center">
-                  <span className="inline-flex w-16 h-16 rounded-2xl bg-ayana-whatsapp/15 items-center justify-center mb-5"><MessageCircle className="w-8 h-8 text-ayana-whatsapp" strokeWidth={1.5} /></span>
-                  <h1 className="font-display text-3xl font-semibold text-ayana-text">Ready to activate their care circle</h1>
-                  <p className="mt-3 text-ayana-secondary max-w-lg mx-auto">We'll send a warm welcome + a short how-to-reply guide to {parentNames || "your parent"} on WhatsApp, then begin daily check-ins.</p>
-                  <div className="mt-6 max-w-md mx-auto text-left">
-                    <WhatsAppActivatePrompt recipientLabel="you" />
-                  </div>
-                  <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-3">
+            {step === 3 && (
+              <div className="text-center">
+                <span className="inline-flex w-16 h-16 rounded-2xl bg-ayana-whatsapp/15 items-center justify-center mb-5"><MessageCircle className="w-8 h-8 text-ayana-whatsapp" strokeWidth={1.5} /></span>
+                <h1 className="font-display text-3xl font-semibold text-ayana-text">Ready to activate their care circle</h1>
+                <p className="mt-3 text-ayana-secondary max-w-lg mx-auto">We'll send a warm welcome + a short how-to-reply guide to {parentNames || "your parent"} on WhatsApp, then begin daily check-ins.</p>
+                <div className="mt-6 max-w-md mx-auto text-left">
+                  <WhatsAppActivatePrompt recipientLabel="you" />
+                </div>
+                <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-3">
                   <button onClick={() => setStep(2)} className="inline-flex items-center gap-2 px-6 py-3.5 rounded-full border border-ayana-line text-ayana-text hover:bg-ayana-alt transition-colors"><ArrowLeft className="w-4 h-4" /> Edit parents</button>
                   <button onClick={activate} disabled={loading} data-testid="activate-care-circle"
                     className="inline-flex items-center gap-2 px-8 py-4 rounded-full text-white font-semibold transition-shadow shadow-lg hover:shadow-xl disabled:opacity-50"
                     style={{ background: "linear-gradient(135deg, #FF6B35, #FF8555)" }}>
-                    {loading? <Loader2 className="w-4 h-4 animate-spin" /> : <>Activate Care Circle <ArrowRight className="w-4 h-4" /></>}
+                    {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <>Activate Care Circle <ArrowRight className="w-4 h-4" /></>}
                   </button>
                 </div>
                 {loading && (
