@@ -40,6 +40,40 @@ export const openCheckout = (order, user, config) => new Promise((resolve, rejec
   modal.open();
 });
 
+export const openSubscriptionModal = (sub, user, config) =>
+  new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (fn, val) => { if (!settled) { settled = true; fn(val); } };
+    const modal = new window.Razorpay({
+      key: sub.key_id,
+      subscription_id: sub.subscription_id,
+      name: 'AYANA',
+      description: `${sub.plan} — ${sub.trial ? '7-day free trial, then auto-renews' : (sub.billing === 'year' ? 'annual subscription' : 'monthly subscription')}`,
+      prefill: { name: user?.name, email: user?.email, contact: user?.phone },
+      theme: { color: '#0f3d2e' },
+      retry: { enabled: false },
+      handler: async (result) => {
+        if (settled) return;
+        settled = true;
+        try {
+          const { data } = await api.post('/verify-subscription', result);
+          resolve(data);
+        } catch (err) {
+          reject(err);
+        }
+      },
+      modal: {
+        confirm_close: true,
+        ondismiss: () => finish(resolve, { status: 'dismissed' }),
+      },
+    });
+    modal.on('payment.failed', (ev) => {
+      finish(reject, new Error(ev.error?.description || 'The subscription authorization failed.'));
+      modal.close();
+    });
+    modal.open();
+  });
+
 export const checkoutKey = (userId, details) => {
   const storageKey = `ayana-checkout-${userId}`;
   let saved;

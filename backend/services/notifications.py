@@ -63,9 +63,11 @@ async def window_open(conn, phone, changed_at=None):
 
 async def recover_contact(conn, kind, recipient_id, phone):
     # Old submitted/uncertain deliveries are immutable, never replayed to a new number.
+    # Never reset notifications already accepted/delivered/read — they were already sent.
     await conn.execute("""UPDATE reply_notifications n SET status='pending',to_phone=$3,sid=NULL,attempts=0,next_attempt_at=now(),detail=NULL
         FROM parent_replies r WHERE r.id=n.reply_id AND n.recipient_kind=$1 AND n.recipient_id=$2
         AND n.status IN ('pending','retry','awaiting_template','disabled','failed','blocked_policy')
+        AND n.status NOT IN ('accepted','delivered','read','sending','cancelled','expired')
         AND r.created_at>now()-interval '24 hours'""", kind, recipient_id, phone)
 
 
@@ -85,8 +87,15 @@ async def send_audio(phone, reply):
 
 def outcome(result, attempts):
     code = result.get('error_code')
-    if result.get('status') == 'sent':
+    status = result.get('status')
+    # 'sent' comes from our own send call; 'delivered'/'read' come from Meta
+    # webhook receipts — all are success states that must NOT be downgraded.
+    if status == 'sent':
         return 'accepted'
+    if status == 'delivered':
+        return 'delivered'
+    if status == 'read':
+        return 'read'
     if code == 131047 and attempts < 8:
         return 'awaiting_template'
     if code in RETRYABLE_CODES and attempts < 8:
@@ -95,7 +104,7 @@ def outcome(result, attempts):
         return 'blocked_policy'
     if attempts < 8:
         return 'retry'
-    return result.get('status', 'failed')
+    return status or 'failed'
 
 
 async def deliver(notification_id):
@@ -234,8 +243,9 @@ async def persist_receipt(status):
         n = await conn.fetchrow('SELECT * FROM reply_notifications WHERE sid=$1 FOR UPDATE', sid)
         if n:
             new = outcome({'status': state, 'error_code': error.get('code')}, n['attempts'])
-            ranks = {'accepted': 1, 'delivered': 2, 'read': 3}
-            if n['status'] not in ('delivered', 'read') or ranks.get(new, 0) > ranks.get(n['status'], 0):
+            ranks = {'pending': 0, 'retry': 0, 'awaiting_template': 0, 'disabled': 0, 'failed': 0, 'blocked_policy': 0, 'sending': 0, 'uncertain': 0, 'accepted': 1, 'delivered': 2, 'read': 3}
+            # Only update if the new status is a rank upgrade (never downgrade from accepted/delivered/read)
+            if ranks.get(new, 0) > ranks.get(n['status'], 0):
                 await conn.execute("UPDATE reply_notifications SET status=$2,error_code=$3,detail=$4,next_attempt_at=now()+interval '5 minutes',updated_at=now() WHERE id=$1", n['id'], new, error.get('code'), error.get('title'))
                 if error.get('code') == 131047:
                     await conn.execute('DELETE FROM recipient_sessions WHERE phone=$1 AND last_inbound_at<=$2', n['to_phone'], n['updated_at'])

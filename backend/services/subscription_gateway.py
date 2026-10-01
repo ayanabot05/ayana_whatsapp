@@ -88,19 +88,22 @@ async def get_or_create_plan(conn, plan: str, billing: str, currency: str, amoun
 
 # ── Subscription creation ─────────────────────────────────────────────────────
 
-async def create_subscription(gateway_plan_id: str, user_id, notes: dict | None = None) -> dict:
+async def create_subscription(gateway_plan_id: str, user_id, notes: dict | None = None, start_at: int | None = None) -> dict:
     """Create a Razorpay Subscription. Returns the full Razorpay subscription object."""
     try:
+        payload = {
+            'plan_id': gateway_plan_id,
+            # Finite billing mandate: Razorpay rejects total_count=0.
+            'total_count': 10 if (notes or {}).get('billing') in ('yearly', 'year') else 120,
+            'quantity': 1,
+            'customer_notify': True,
+            'notes': notes or {},
+        }
+        if start_at:
+            payload['start_at'] = start_at
         return await asyncio.to_thread(
             client().subscription.create,
-            {
-                'plan_id': gateway_plan_id,
-                # Finite billing mandate: Razorpay rejects total_count=0.
-                'total_count': 10 if (notes or {}).get('billing') == 'yearly' else 120,
-                'quantity': 1,
-                'customer_notify': True,
-                'notes': notes or {},
-            },
+            payload,
         )
     except Exception as exc:
         raise HTTPException(500, f'Could not create subscription: {exc}') from exc

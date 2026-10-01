@@ -4,7 +4,7 @@ import hmac
 import json
 import os
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -37,6 +37,7 @@ class SubscribeInput(BaseModel):
     billing: Literal['month', 'year']
     currency: str
     coupon_code: str = Field('', max_length=80)
+    trial: bool = True
 
 
 class VerifyInput(BaseModel):
@@ -67,7 +68,7 @@ async def payment_config():
         'key_id': os.environ.get('RAZORPAY_KEY_ID'),
         'test_mode': gateway.test_mode(),
         'currencies': checkout.currencies(),
-        'auto_renews': False,
+        'auto_renews': True,
         'checkout_script': 'https://checkout.razorpay.com/v1/checkout.js',
     }
 
@@ -144,7 +145,12 @@ async def create_subscription(payload: SubscribeInput, user=Depends(get_current_
         raise HTTPException(400, 'The subscription amount is below the minimum supported.')
 
     # Prevent creating a new subscription if one is already active for this plan+billing
+    now = datetime.now(timezone.utc)
     async with get_pool().acquire() as conn:
+        state = await conn.fetchrow('SELECT * FROM payment_state WHERE user_id=$1', user['id'])
+        has_used_trial = bool(state and state.get('trial_started_at'))
+        trial_eligible = bool(payload.trial and not has_used_trial)
+
         existing = await conn.fetchrow(
             """SELECT id FROM billing_subscriptions
                WHERE user_id=$1 AND plan=$2 AND billing=$3 AND currency=$4
@@ -157,11 +163,18 @@ async def create_subscription(payload: SubscribeInput, user=Depends(get_current_
         # Get or create the Razorpay Plan
         billing_plan = await sub_gateway.get_or_create_plan(conn, payload.plan, payload.billing, payload.currency, amount)
 
+    start_at = None
+    trial_ends_at = None
+    if trial_eligible:
+        trial_ends_at = now + timedelta(days=7)
+        start_at = int(trial_ends_at.timestamp())
+
     # Create the Razorpay Subscription (outside transaction — remote call)
     remote_sub = await sub_gateway.create_subscription(
         billing_plan['gateway_plan_id'],
         user['id'],
         notes={'ayana_user_id': str(user['id']), 'plan': payload.plan, 'billing': payload.billing},
+        start_at=start_at,
     )
 
     # Store in local DB
@@ -169,12 +182,14 @@ async def create_subscription(payload: SubscribeInput, user=Depends(get_current_
         local_sub = await conn.fetchrow(
             """INSERT INTO billing_subscriptions
                    (user_id, billing_plan_id, gateway_subscription_id, plan, billing,
-                    currency, amount, status, is_test)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                    currency, amount, status, is_test, current_period_start, current_period_end)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
                RETURNING id""",
             user['id'], billing_plan['id'], remote_sub['id'],
             payload.plan, payload.billing, payload.currency, amount,
             remote_sub.get('status', 'created'), sub_gateway.test_mode(),
+            now if trial_eligible else None,
+            trial_ends_at if trial_eligible else None,
         )
 
     return {
@@ -186,6 +201,9 @@ async def create_subscription(payload: SubscribeInput, user=Depends(get_current_
         'currency': payload.currency,
         'amount': amount,
         'status': remote_sub.get('status', 'created'),
+        'trial': trial_eligible,
+        'trial_ends_at': trial_ends_at.isoformat() if trial_ends_at else None,
+        'start_at': start_at,
     }
 
 
@@ -216,27 +234,58 @@ async def verify_subscription(payload: VerifySubscriptionInput, user=Depends(get
     new_status = remote.get('status', sub['status'])
     now = datetime.now(timezone.utc)
 
+    # Determine trial end
+    is_trial = new_status == 'authenticated' or sub.get('current_period_end') is not None
+    remote_start_at = remote.get('start_at') or remote.get('charge_at')
+    trial_ends = (
+        datetime.fromtimestamp(int(remote_start_at), timezone.utc)
+        if remote_start_at
+        else (sub['current_period_end'] or (now + timedelta(days=7)))
+    )
+
+    period_start = now
+    period_end = trial_ends if is_trial else sub['current_period_end']
+
     async with get_pool().acquire() as conn, conn.transaction():
         await conn.execute(
-            "UPDATE billing_subscriptions SET status=$2, updated_at=now() WHERE id=$1",
-            sub['id'], new_status,
+            """UPDATE billing_subscriptions 
+               SET status=$2, 
+                   current_period_start=COALESCE(current_period_start, $3),
+                   current_period_end=COALESCE(current_period_end, $4),
+                   updated_at=now() 
+               WHERE id=$1""",
+            sub['id'], new_status, period_start, period_end,
         )
         # Update payment_state so dashboard plan reflects subscription
+        ps_status = 'trial' if new_status == 'authenticated' else 'active'
         await conn.execute(
-            """INSERT INTO payment_state (user_id, status, plan, billing, billing_managed)
-               VALUES ($1, 'active', $2, $3, true)
+            """INSERT INTO payment_state (user_id, status, plan, billing, billing_managed, trial_started_at, trial_ends_at)
+               VALUES ($1, $2, $3, $4, true, $5, $6)
                ON CONFLICT (user_id) DO UPDATE
-                   SET status='active', plan=EXCLUDED.plan, billing=EXCLUDED.billing,
-                       billing_managed=true, updated_at=now()""",
-            user['id'], sub['plan'], sub['billing'],
+                   SET status=EXCLUDED.status, plan=EXCLUDED.plan, billing=EXCLUDED.billing,
+                       billing_managed=true,
+                       trial_started_at=COALESCE(payment_state.trial_started_at, EXCLUDED.trial_started_at),
+                       trial_ends_at=COALESCE(EXCLUDED.trial_ends_at, payment_state.trial_ends_at),
+                       updated_at=now()""",
+            user['id'], ps_status, sub['plan'], sub['billing'], now, (trial_ends if is_trial else None),
         )
         await conn.execute('UPDATE users SET onboarding_step=greatest(onboarding_step,2) WHERE id=$1', user['id'])
+
+    message = (
+        '7-day free trial activated! Your card is authorized; billing starts automatically after 7 days.'
+        if new_status == 'authenticated'
+        else 'Subscription activated. Care access auto-renews each period.'
+        if new_status == 'active'
+        else f'Subscription status: {new_status}.'
+    )
 
     return {
         'status': new_status,
         'plan': sub['plan'],
         'billing': sub['billing'],
-        'message': 'Subscription activated. Care access auto-renews each period.' if new_status in ('authenticated', 'active') else f'Subscription status: {new_status}.',
+        'trial': is_trial,
+        'trial_ends_at': trial_ends.isoformat() if is_trial else None,
+        'message': message,
     }
 
 
