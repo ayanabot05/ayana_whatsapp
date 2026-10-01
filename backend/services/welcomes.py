@@ -29,7 +29,25 @@ async def enqueue(conn, key, phone, payload, recipient_id=None, kind=None, versi
                event_key, phone, payload, recipient_id, recipient_kind, contact_version
            )
            VALUES($1,$2,$3::jsonb,$4,$5,$6)
-           ON CONFLICT(event_key) DO NOTHING""",
+           ON CONFLICT(event_key) DO UPDATE
+           SET phone = EXCLUDED.phone,
+               payload = EXCLUDED.payload,
+               status = CASE
+                   WHEN welcome_deliveries.status IN ('failed', 'configuration_error', 'awaiting_consent', 'awaiting_verification', 'awaiting_inbound', 'disabled')
+                   THEN 'pending'
+                   ELSE welcome_deliveries.status
+               END,
+               attempts = CASE
+                   WHEN welcome_deliveries.status IN ('failed', 'configuration_error', 'awaiting_consent', 'awaiting_verification', 'awaiting_inbound', 'disabled')
+                   THEN 0
+                   ELSE welcome_deliveries.attempts
+               END,
+               next_attempt_at = CASE
+                   WHEN welcome_deliveries.status IN ('failed', 'configuration_error', 'awaiting_consent', 'awaiting_verification', 'awaiting_inbound', 'disabled')
+                   THEN now()
+                   ELSE welcome_deliveries.next_attempt_at
+               END,
+               updated_at = now()""",
         key,
         phone,
         json.dumps(payload),
@@ -47,6 +65,10 @@ async def queue_child(owner, checking_for=None, *, conn=None):
     Existing consent, verification and once-per-contact gates still apply.
     """
     if not owner.get("email_verified_at"):
+        logger.warning(
+            "[welcome] queue_child skipped for user %s — email_verified_at is missing",
+            owner.get("id"),
+        )
         return
 
     conn = conn or get_pool()
@@ -141,9 +163,9 @@ async def deliver(key):
                attempts=attempts+1,
                updated_at=now()
            WHERE event_key=$1
-             AND status IN ('pending','retry','disabled','awaiting_consent')
+             AND status IN ('pending','retry','disabled','awaiting_consent','awaiting_verification','configuration_error')
              AND next_attempt_at<=now()
-             AND attempts<4
+             AND attempts<8
            RETURNING *""",
         key,
     )
@@ -221,26 +243,16 @@ async def deliver(key):
                         return {"status": "cancelled"}
 
                 if payload["purpose"] == "child":
-                    consent = await conn.fetchval(
-                        """SELECT agreed
-                           FROM consent_logs
-                           WHERE user_id=$1
-                             AND consent_type='child'
-                           ORDER BY created_at DESC
-                           LIMIT 1""",
-                        recipient["id"],
-                    )
-
-                    if not recipient["email_verified_at"] or not consent:
+                    if not recipient.get("email_verified_at"):
                         await conn.execute(
                             """UPDATE welcome_deliveries
-                               SET status='awaiting_consent',
+                               SET status='awaiting_verification',
                                    attempts=greatest(attempts-1,0),
                                    next_attempt_at=now()+interval '5 minutes'
                                WHERE event_key=$1""",
                             key,
                         )
-                        return {"status": "awaiting_consent"}
+                        return {"status": "awaiting_verification"}
 
             language = _safe_lang(payload["language"])
             if job["recipient_kind"] in ("user", "sibling"):
@@ -262,8 +274,6 @@ async def deliver(key):
             template_name = None
 
             if payload["purpose"] == "child":
-                # The account welcome has one name parameter and its own
-                # approved template; never substitute a parent check-in opener.
                 template_name = f"ayana_child_welcome_{language}"
                 result = await _send_content_template_with_retry(
                     phone,
@@ -272,6 +282,38 @@ async def deliver(key):
                     {"1": payload["name"]},
                     "child_welcome",
                 )
+                # If ayana_child_welcome is pending approval on Meta:
+                # For Indian numbers (+91), fallback to opener works.
+                # For international numbers (+1, etc.), Meta blocks cold MARKETING templates with 131049.
+                # So keep international numbers in retry status until the approved UTILITY template is active.
+                if result.get("status") in ("failed", "configuration_error") and (
+                    result.get("error_code") in (132000, 132001)
+                    or "not exist" in str(result.get("detail", "")).lower()
+                ):
+                    is_india = phone.startswith("+91") or phone.startswith("91")
+                    if is_india:
+                        logger.info("[welcome] child_welcome_%s not approved on Meta yet, falling back to opener template for domestic number", language)
+                        template_name = f"ayana_opener_{language}"
+                        result = await _send_content_template_with_retry(
+                            phone,
+                            template_name,
+                            language,
+                            {
+                                "1": payload["name"],
+                                "2": payload.get("checking_for") or "your parents",
+                            },
+                            "child_welcome",
+                        )
+                    else:
+                        logger.info(
+                            "[welcome] child_welcome_%s pending Meta review. Awaiting UTILITY approval for international number %s to prevent 131049 ecosystem drop.",
+                            language, phone
+                        )
+                        result = {
+                            "status": "retry",
+                            "error_code": 132001,
+                            "detail": f"Awaiting Meta approval for UTILITY template {template_name}. Automatic retry scheduled.",
+                        }
 
             elif payload["purpose"] == "sibling" and opened:
                 body = (
@@ -325,11 +367,16 @@ async def deliver(key):
             elif (
                 state == "failed"
                 and (not error_code or error_code in RETRYABLE)
-                and job["attempts"] < 4
+                and job["attempts"] < 8
             ):
                 state = "retry"
             elif error_code in (131049, 131047):
-                state = "awaiting_inbound"
+                if job.get("recipient_kind") in ("user", "sibling") or payload.get("purpose") == "child":
+                    state = "retry"
+                else:
+                    state = "awaiting_inbound"
+            elif job["attempts"] < 8:
+                state = "retry"
 
             await conn.execute(
                 """UPDATE welcome_deliveries
@@ -337,7 +384,7 @@ async def deliver(key):
                        status=$3,
                        sid=$4,
                        detail=$5,
-                       next_attempt_at=now()+interval '15 minutes',
+                       next_attempt_at=now()+interval '5 minutes',
                        updated_at=now()
                    WHERE event_key=$1""",
                 key,
@@ -381,9 +428,9 @@ async def drain():
     rows = await get_pool().fetch(
         """SELECT event_key
            FROM welcome_deliveries
-           WHERE status IN ('pending','retry','disabled','awaiting_consent')
+           WHERE status IN ('pending','retry','disabled','awaiting_consent','awaiting_verification','configuration_error','failed')
              AND next_attempt_at<=now()
-             AND attempts<4
+             AND attempts<8
            ORDER BY next_attempt_at
            LIMIT 20"""
     )
@@ -451,6 +498,20 @@ async def inbound_recovery(phone, stamp):
 
     await get_pool().execute(
         "UPDATE users SET needs_inbound_click=false WHERE phone=$1", phone
+    )
+
+    # Issue #0 fix: also recover reply notifications blocked by Meta ecosystem
+    # policy (131049) or session-window issues (131047 → 'awaiting_template').
+    # Without this, the son's reply notifications stay stuck even after they
+    # message the bot and open the 24h window.
+    await get_pool().execute(
+        """UPDATE reply_notifications
+           SET status='pending', attempts=0, next_attempt_at=now(),
+               detail=NULL, sid=NULL
+           WHERE to_phone=$1
+             AND status IN ('blocked_policy', 'awaiting_template', 'failed', 'disabled')
+             AND created_at > now() - interval '24 hours'""",
+        phone,
     )
 
 
@@ -552,5 +613,20 @@ async def welcome_parent_and_child(parent, owner, require_activation=False):
 
     # Child receives the dedicated verified-account welcome template.
     await queue_child(owner, parent_display)
+
+    # Issue #0 fix: unblock child welcomes stuck in 'awaiting_consent'.
+    # This happens when the welcome was queued at email-verification time
+    # (before consent was given) and the INSERT ON CONFLICT DO NOTHING in
+    # queue_child skipped re-inserting.  By the time activation runs,
+    # consent has been given via POST /api/consent, so we can safely retry.
+    await get_pool().execute(
+        """UPDATE welcome_deliveries
+           SET status='pending', attempts=0, next_attempt_at=now()
+           WHERE recipient_id=$1
+             AND recipient_kind='user'
+             AND status IN ('awaiting_consent', 'awaiting_inbound',
+                            'configuration_error', 'failed', 'disabled')""",
+        owner["id"],
+    )
 
     await drain()

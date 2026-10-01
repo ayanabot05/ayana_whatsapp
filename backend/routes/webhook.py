@@ -302,7 +302,63 @@ async def _record_reply(from_number: str, body_text: str, num_media: int = 0, pa
     stt_confidence = None
     intent = None
     if parent is None:
-        logger.warning("[webhook] Inbound from unknown number %s — no matching parent, ignoring", from_number)
+        # ── Issue #0 fix: handle inbound from child/owner/sibling ──────────
+        # The webhook previously only matched `parents`. When the son (user)
+        # or a care-circle sibling sent a message (e.g. "Hi" to unblock Meta
+        # 131049), it was silently dropped.  Now we:
+        #   1. Record the inbound in recipient_sessions (opens 24h window).
+        #   2. Trigger welcome & notification recovery.
+        #   3. Send a friendly acknowledgement.
+        async with get_pool().acquire() as conn:
+            child_user = await conn.fetchrow(
+                """SELECT * FROM users
+                   WHERE deleted_at IS NULL
+                     AND regexp_replace(phone, '\\D', '', 'g') = regexp_replace($1, '\\D', '', 'g')
+                   ORDER BY created_at DESC LIMIT 1""",
+                from_number,
+            )
+            if not child_user:
+                child_user = await conn.fetchrow(
+                    """SELECT s.*, s.owner_id AS user_id FROM care_circle_siblings s
+                       WHERE regexp_replace(s.phone, '\\D', '', 'g') = regexp_replace($1, '\\D', '', 'g')
+                         AND s.verified
+                       ORDER BY s.created_at DESC LIMIT 1""",
+                    from_number,
+                )
+
+        if child_user:
+            raw_stamp = (raw_payload or {}).get('timestamp')
+            stamp = datetime.fromtimestamp(int(raw_stamp), timezone.utc) if raw_stamp and str(raw_stamp).isdigit() else datetime.now(timezone.utc)
+            # Record inbound → opens 24h window + triggers welcome recovery
+            await notifications.record_recipient_inbound(
+                from_number, stamp, context_id,
+                (raw_payload or {}).get('type') in ('button', 'interactive'),
+                wam_id,
+            )
+            # Clear the ecosystem-engagement block so future sends succeed
+            async with get_pool().acquire() as conn:
+                await conn.execute(
+                    "UPDATE users SET needs_inbound_click=false WHERE regexp_replace(phone,'\\D','','g')=regexp_replace($1,'\\D','','g')",
+                    from_number,
+                )
+            logger.info(
+                "[webhook] Inbound from child/owner %s — recorded session & triggered recovery",
+                from_number,
+            )
+            # Send a warm acknowledgement so the bot doesn't appear dead
+            try:
+                child_lang = child_user.get("language") or "en"
+                ack = {
+                    "en": "Hi! 💛 AYANA is here. Your parents' daily check-in replies will come to you on WhatsApp. You can also see everything in your dashboard.",
+                    "te": "హాయ్! 💛 AYANA ఇక్కడ ఉంది. మీ తల్లిదండ్రుల రోజువారీ చెక్-ఇన్ సమాధానాలు WhatsAppలో మీకు వస్తాయి. మీ డ్యాష్‌బోర్డ్‌లో కూడా చూడవచ్చు.",
+                    "hi": "नमस्ते! 💛 AYANA यहाँ है। आपके माता-पिता के दैनिक चेक-इन जवाब WhatsApp पर आपको मिलेंगे। आप अपने डैशबोर्ड में भी सब कुछ देख सकते हैं।",
+                }
+                send_whatsapp(from_number, ack.get(child_lang, ack["en"]))
+            except Exception:
+                pass  # Acknowledgement is best-effort
+            return {"from_phone": from_number, "parent_id": None, "intent": None, "child_inbound": True}
+
+        logger.warning("[webhook] Inbound from unknown number %s — no matching parent or user, ignoring", from_number)
         return {"from_phone": from_number, "parent_id": None, "intent": None, "ignored": True}
     lang = parent["language"] if parent and parent["language"] else "en"
     ml_flagged = False

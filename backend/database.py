@@ -26,6 +26,7 @@ def _jsonb_dumps(value):
 
 
 async def _init_connection(conn: asyncpg.Connection) -> None:
+    await conn.execute("SET search_path TO public, pg_catalog")
     for typename in ("jsonb", "json"):
         await conn.set_type_codec(
             typename,
@@ -46,8 +47,8 @@ pool: asyncpg.Pool | None = None
 
 
 async def _noop_reset(conn: asyncpg.Connection) -> None:
-    # Skip asyncpg's per-release reset round-trip; Supavisor resets session
-    # state in transaction mode.
+    # Ensure search_path is always public in transaction pooling mode
+    await conn.execute("SET search_path TO public, pg_catalog")
     return None
 
 

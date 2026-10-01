@@ -85,13 +85,17 @@ async def send_audio(phone, reply):
 
 def outcome(result, attempts):
     code = result.get('error_code')
+    if result.get('status') == 'sent':
+        return 'accepted'
     if code == 131047 and attempts < 8:
         return 'awaiting_template'
     if code in RETRYABLE_CODES and attempts < 8:
         return 'retry'
     if code == 131049:
         return 'blocked_policy'
-    return 'accepted' if result.get('status') == 'sent' else result.get('status', 'failed')
+    if attempts < 8:
+        return 'retry'
+    return result.get('status', 'failed')
 
 
 async def deliver(notification_id):
@@ -169,7 +173,7 @@ async def drain_notifications():
     pool = get_pool()
     await pool.execute("UPDATE reply_notifications SET status='uncertain',detail='Interrupted submission.',updated_at=now() WHERE status='sending' AND updated_at<now()-interval '5 minutes'")
     await pool.execute("UPDATE reply_notifications SET audio_status='uncertain' WHERE audio_status='sending' AND audio_next_attempt_at<now()-interval '5 minutes'")
-    for n in await pool.fetch("SELECT id FROM reply_notifications WHERE status IN ('pending','retry','awaiting_template','disabled') AND next_attempt_at<=now() AND attempts<8 ORDER BY created_at LIMIT 30"):
+    for n in await pool.fetch("SELECT id FROM reply_notifications WHERE status IN ('pending','retry','awaiting_template','disabled','failed') AND next_attempt_at<=now() AND attempts<8 ORDER BY created_at LIMIT 30"):
         await deliver(n['id'])
     for n in await pool.fetch("SELECT * FROM reply_notifications WHERE audio_status IN ('pending','retry') AND audio_attempts<4 AND audio_next_attempt_at<=now() ORDER BY created_at LIMIT 20"):
         await deliver_audio(n)

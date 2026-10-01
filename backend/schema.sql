@@ -1,16 +1,79 @@
--- AYANA complete fresh-install schema: 52 tables.
--- Generated from the base schema + startup DDL + applied versioned migrations.
--- No user data, credentials, DROP TABLE, or automatic retention/deletion jobs.
--- FOR A NEW EMPTY DATABASE ONLY. Existing databases must use app migrations.
--- All work is transactional; existing app tables cause an error before creation.
+-- DESTRUCTIVE: permanently deletes ALL AYANA account, parent, billing,
+-- message, reply, report and delivery data, then recreates the latest schema.
+-- Export a backup first. Stop the backend/scheduler before running this file.
+-- Run the ENTIRE file in the target database's SQL editor as its owner.
+-- No passwords are embedded. Restart the backend afterwards to seed staff
+-- accounts from ADMIN_EMAIL/ADMIN_PASSWORD and EMPLOYEE_EMAIL/EMPLOYEE_PASSWORD.
+-- Only known AYANA public tables are targeted; Supabase auth/storage are untouched.
+-- No CASCADE: unexpected external dependencies cause a rollback, not their deletion.
 BEGIN;
+SET LOCAL lock_timeout = '15s';
+
+-- Retire the obsolete AYANA retention job if this database installed pg_cron.
 DO $$ BEGIN
-  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public'
-             AND table_name IN ('access_grants','activation_state','analytics_events','app_migrations','audit_logs','billing_coupons','billing_events','billing_orders','billing_plans','billing_subscriptions','care_circle_siblings','care_send_claims','care_watch','child_content_requests','circle_invites','consent_logs','distress_logs','email_otps','emergency_events','escalation_daily','escalation_state','family_notifications','inbound_events','jwt_blacklist','medicines','message_logs','moment_images','moments','monthly_report_jobs','monthly_reports','notification_attempts','parent_checkins','parent_delivery_alerts','parent_health_reminders','parent_replies','parent_routines','parents','payment_state','payment_transactions','phone_otps','preferences','provider_receipts','recipient_sessions','reply_notifications','scheduler_locks','schedules','template_variants_cache','users','verification_challenges','wa_sessions','webhook_debug','welcome_deliveries')) THEN
-    RAISE EXCEPTION 'Existing AYANA tables found. Use additive migrations; do not recreate tables.';
+  IF to_regclass('cron.job') IS NOT NULL THEN
+    EXECUTE 'SELECT cron.unschedule(jobid) FROM cron.job WHERE jobname = ''ayana-nightly-purge''';
   END IF;
 END $$;
---
+DROP FUNCTION IF EXISTS public.purge_expired_data();
+
+DROP TABLE IF EXISTS
+    public.access_grants,
+    public.activation_state,
+    public.analytics_events,
+    public.app_migrations,
+    public.audit_logs,
+    public.billing_coupons,
+    public.billing_events,
+    public.billing_orders,
+    public.billing_plans,
+    public.billing_subscriptions,
+    public.care_circle_siblings,
+    public.care_send_claims,
+    public.care_watch,
+    public.child_content_requests,
+    public.circle_invites,
+    public.consent_logs,
+    public.distress_logs,
+    public.email_otps,
+    public.emergency_events,
+    public.escalation_daily,
+    public.escalation_state,
+    public.family_notifications,
+    public.inbound_events,
+    public.jwt_blacklist,
+    public.medicines,
+    public.message_logs,
+    public.moment_images,
+    public.moments,
+    public.monthly_report_jobs,
+    public.monthly_reports,
+    public.notification_attempts,
+    public.parent_checkins,
+    public.parent_delivery_alerts,
+    public.parent_health_reminders,
+    public.parent_replies,
+    public.parent_routines,
+    public.parents,
+    public.payment_state,
+    public.payment_transactions,
+    public.phone_otps,
+    public.preferences,
+    public.provider_receipts,
+    public.recipient_sessions,
+    public.reply_notifications,
+    public.scheduler_locks,
+    public.schedules,
+    public.template_variants_cache,
+    public.users,
+    public.verification_challenges,
+    public.voice_summaries,
+    public.wa_sessions,
+    public.webhook_debug,
+    public.welcome_deliveries CASCADE;
+
+DROP FUNCTION IF EXISTS public.care_schedule_effective_from();
+
 -- PostgreSQL database dump
 --
 
@@ -23,7 +86,7 @@ SET lock_timeout = 0;
 SET idle_in_transaction_session_timeout = 0;
 SET client_encoding = 'UTF8';
 SET standard_conforming_strings = on;
-SELECT pg_catalog.set_config('search_path', '', false);
+SELECT pg_catalog.set_config('search_path', 'public', false);
 SET check_function_bodies = false;
 SET xmloption = content;
 SET client_min_messages = warning;
@@ -2391,4 +2454,5 @@ INSERT INTO public.app_migrations(name) VALUES ('009_care_consistency');
 INSERT INTO public.app_migrations(name) VALUES ('010_delivery_recovery');
 INSERT INTO public.app_migrations(name) VALUES ('011_child_welcome_recovery');
 INSERT INTO public.app_migrations(name) VALUES ('012_family_delivery');
+SET search_path TO public;
 COMMIT;

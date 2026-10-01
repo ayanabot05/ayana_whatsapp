@@ -99,24 +99,24 @@ async def confirm_phone_change(payload: CodeInput, background_tasks: BackgroundT
         for sibling in siblings:
             await conn.execute('SELECT pg_advisory_xact_lock(hashtextextended($1,0))', 'recipient:' + str(sibling['id']))
         await conn.execute('UPDATE care_circle_siblings SET phone=$2,phone_changed_at=now(),contact_version=contact_version+1 WHERE lower(email)=lower($1) AND email_verified_at IS NOT NULL', current['email'], proof['target'])
+        # Free the old phone number completely from sessions and OTP tables
+        if context.get('old_phone'):
+            await conn.execute("DELETE FROM recipient_sessions WHERE phone=$1", context['old_phone'])
+            await conn.execute("DELETE FROM phone_otps WHERE phone=$1", context['old_phone'])
         from services.notifications import recover_contact
         await recover_contact(conn, 'user', user['id'], proof['target'])
         for sibling in siblings:
             await recover_contact(conn, 'sibling', sibling['id'], proof['target'])
-        from services.welcomes import cancel_recipient, queue_child
+        from services.welcomes import cancel_recipient, queue_child, deliver
         await cancel_recipient(conn, 'user', user['id'])
-        await queue_child(dict(updated), conn=conn)
+        welcome_key = await queue_child(dict(updated), conn=conn)
         await conn.execute("INSERT INTO audit_logs(user_id,action,meta) VALUES($1,'phone_changed',$2::jsonb)", user['id'], json.dumps({'old_last4':current['phone'][-4:], 'new_last4':proof['target'][-4:]}))
-        # Templates deliver to the new contact without requiring an inbound.
-        active_parents = await conn.fetch(
-            "SELECT p.* FROM parents p JOIN activation_state a ON a.user_id=p.user_id "
-            "WHERE p.user_id=$1 AND p.deleted_at IS NULL AND a.whatsapp_activated=true",
-            user['id'],
-        )
-    updated_dict = dict(updated)
-    for parent in active_parents:
-        background_tasks.add_task(welcome_parent_and_child, dict(parent), updated_dict, True)
-    return {'ok': True, 'user': serialize(updated), 'message': 'Future notifications will use your new WhatsApp number. Messages already submitted cannot be recalled.'}
+
+    if welcome_key:
+        background_tasks.add_task(deliver, welcome_key)
+    from services.notifications import drain_notifications
+    background_tasks.add_task(drain_notifications)
+    return {'ok': True, 'user': serialize(updated), 'message': 'Future notifications will use your new WhatsApp number. Welcome message sent.'}
 
 
 @router.post('/auth/forgot-password', dependencies=[Depends(api_rate_limit_dependency)])
