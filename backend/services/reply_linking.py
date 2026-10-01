@@ -42,34 +42,7 @@ def linked_replies(logs, replies):
         else:
             general.append(reply)
 
-    # Phase 2: Proximity-based fallback for non-medicine, unlinked replies.
-    # If a parent types a free-text reply without quoting a specific message,
-    # link it to the most recent unanswered non-medicine check-in within 2 hours.
-    unlinked_logs = {}
-    for l in logs:
-        lid = str(l['id'])
-        if lid not in linked and l.get('category') not in _STRICT_CATEGORIES:
-            unlinked_logs[lid] = l
-
-    remaining_general = []
-    for reply in general:
-        parent = str(reply['parent_id'])
-        reply_time = utc(reply['created_at'])
-        best, best_time = None, None
-        for lid, log in list(unlinked_logs.items()):
-            if str(log['parent_id']) != parent:
-                continue
-            log_time = utc(log['created_at'])
-            if log_time <= reply_time and (reply_time - log_time).total_seconds() <= 7200:
-                if best_time is None or log_time > best_time:
-                    best, best_time = lid, log_time
-        if best:
-            linked.setdefault(best, []).append(reply)
-            del unlinked_logs[best]
-        else:
-            remaining_general.append(reply)
-
-    return dict(linked), remaining_general
+    return dict(linked), general
 
 
 def response_state(replies):
@@ -84,7 +57,7 @@ def response_state(replies):
 
 
 def public_reply(reply, zone):
-    fields = ('id', 'parent_id', 'body', 'transcription', 'is_voice', 'intent', 'read_at', 'created_at')
+    fields = ('id', 'parent_id', 'body', 'transcription', 'is_voice', 'intent', 'feeling', 'read_at', 'created_at')
     result = {k: reply.get(k) for k in fields}
     result['id'], result['parent_id'] = str(reply['id']), str(reply['parent_id'])
     result['created_at'] = utc(reply['created_at']).isoformat()
@@ -127,3 +100,21 @@ def build_parent_days(parent, logs, replies):
     for reply in general:
         day_for(reply['created_at'])['general_replies'].append(public_reply(reply, zone))
     return [days[k] for k in sorted(days, reverse=True)]
+
+
+def summarize_days(days):
+    """The same counters for dashboard reports, API responses and PDF exports."""
+    messages = [m for day in days for m in day['messages']]
+    total = len(messages)
+    replied = sum(bool(m['replied']) for m in messages)
+    return {
+        'total': total, 'replied': replied,
+        'accepted': sum(m['status'] == 'sent' for m in messages),
+        'delivered': sum(m.get('delivery_status') in ('delivered', 'read') for m in messages),
+        'failed': sum(m['status'] in ('failed', 'configuration_error') for m in messages),
+        'skipped': sum(m['reply_status'] == 'skip' for m in messages),
+        'voice': sum(bool(r.get('is_voice')) for m in messages for r in m['replies']),
+        'medicine_taken': sum(m['category'] == 'medicine' and m['reply_status'] == 'done' for m in messages),
+        'medicine_skipped': sum(m['category'] == 'medicine' and m['reply_status'] == 'skip' for m in messages),
+        'completion': round(replied / total * 100) if total else 0,
+    }

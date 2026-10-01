@@ -1,184 +1,556 @@
 """Durable welcomes. A unique row is atomically claimed before submission."""
+
 import json
+import logging
 from datetime import datetime, timezone, timedelta
+
 from database import get_pool
 from whatsapp import _send_content_template_with_retry, whatsapp_enabled
 from services.notification_transport import post_meta
 
+logger = logging.getLogger("ayana")
+
 RETRYABLE = {130429, 131000, 131016, 131056}
+
+# Meta rejected the TEMPLATE itself (missing / wrong language / param mismatch /
+# paused / disabled). Nothing was sent, so these are safe to retry once the
+# template is fixed on Meta's side. They go to 'configuration_error', which
+# recover_template_configuration() re-queues every ~15 minutes automatically.
+TEMPLATE_CONFIG_ERRORS = {132000, 132001, 132012, 132015, 132016}
 
 
 def _safe_lang(value):
-    return value if value in ('en', 'te', 'hi') else 'en'
+    return value if value in ("en", "te", "hi") else "en"
 
 
 async def enqueue(conn, key, phone, payload, recipient_id=None, kind=None, version=0):
-    await conn.execute('''INSERT INTO welcome_deliveries(event_key,phone,payload,recipient_id,recipient_kind,contact_version)
-        VALUES($1,$2,$3::jsonb,$4,$5,$6) ON CONFLICT(event_key) DO NOTHING''',
-        key, phone, json.dumps(payload), recipient_id, kind, version)
+    await conn.execute(
+        """INSERT INTO welcome_deliveries(
+               event_key, phone, payload, recipient_id, recipient_kind, contact_version
+           )
+           VALUES($1,$2,$3::jsonb,$4,$5,$6)
+           ON CONFLICT(event_key) DO NOTHING""",
+        key,
+        phone,
+        json.dumps(payload),
+        recipient_id,
+        kind,
+        version,
+    )
 
 
-async def queue_child(owner, conn=None):
-    if not owner.get('email_verified_at'):
+async def queue_child(owner, checking_for=None, *, conn=None):
+    """
+    Queue the child/owner welcome.
+
+    Uses ayana_child_welcome_<lang>, with {{1}} = child first name.
+    Existing consent, verification and once-per-contact gates still apply.
+    """
+    if not owner.get("email_verified_at"):
         return
+
     conn = conn or get_pool()
-    await enqueue(conn, f"child:{owner['id']}:email-verified", owner['phone'],
-                  {'name': owner['name'].split()[0], 'language': _safe_lang(owner.get('language')), 'purpose': 'child'},
-                  owner['id'], 'user', owner.get('contact_version', 0))
+    version = owner.get("contact_version", 0)
+    key = (
+        f"child:{owner['id']}:email-verified"
+        + (f":contact:{version}" if version else "")
+    )
+
+    await enqueue(
+        conn,
+        key,
+        owner["phone"],
+        {
+            "name": (owner.get("name") or "there").split()[0],
+            "checking_for": checking_for or "your parent",
+            "language": _safe_lang(owner.get("language")),
+            "purpose": "child",
+        },
+        owner["id"],
+        "user",
+        version,
+    )
+    return key
 
 
 async def queue_sibling(sibling, checking_for, conn=None):
-    """Durable counterpart to the old best-effort send_sibling_welcome().
-    checking_for is the parent-name display string (already truncated/joined
-    by the caller, same as the legacy function expected)."""
+    """Durable counterpart to the old best-effort send_sibling_welcome()."""
     conn = conn or get_pool()
-    key = f"sibling:{sibling['id']}"
-    await enqueue(conn, key, sibling['phone'],
-                  {'name': (sibling.get('name') or 'there').split()[0],
-                   'checking_for': checking_for,
-                   'language': _safe_lang(sibling.get('language')),
-                   'purpose': 'sibling'},
-                  sibling['id'], 'sibling', sibling.get('contact_version', 0))
+    version = sibling.get("contact_version", 0)
+    key = f"sibling:{sibling['id']}" + (
+        f":contact:{version}" if version else ""
+    )
+    await enqueue(
+        conn,
+        key,
+        sibling["phone"],
+        {
+            "name": (sibling.get("name") or "there").split()[0],
+            "checking_for": checking_for,
+            "language": _safe_lang(sibling.get("language")),
+            "purpose": "sibling",
+        },
+        sibling["id"],
+        "sibling",
+        sibling.get("contact_version", 0),
+    )
     return key
 
 
 async def welcome_sibling(sibling, checking_for):
-    """Enqueue + immediately attempt delivery — call this from a
-    BackgroundTasks task the same way send_sibling_welcome used to be
-    called. Unlike the old function, a failure here is retried by drain()
-    instead of being lost."""
+    """Enqueue + immediately attempt delivery."""
     key = await queue_sibling(sibling, checking_for)
     return await deliver(key)
 
 
 async def cancel_recipient(conn, kind, recipient_id):
-    """Cancel any not-yet-delivered welcome for a recipient being removed
-    (e.g. a sibling taken out of the care circle). Leaves already-sent rows
-    alone — this only stops future delivery attempts."""
+    """Cancel any not-yet-delivered welcome for a removed recipient."""
     await conn.execute(
-        """UPDATE welcome_deliveries SET status='cancelled',updated_at=now()
-           WHERE recipient_kind=$1 AND recipient_id=$2
+        """UPDATE welcome_deliveries
+           SET status='cancelled', updated_at=now()
+           WHERE recipient_kind=$1
+             AND recipient_id=$2
              AND status IN ('pending','retry','disabled','awaiting_consent')""",
-        kind, recipient_id,
+        kind,
+        recipient_id,
     )
 
 
 async def send_once(key, phone, name, checking_for, language):
-    await enqueue(get_pool(), key, phone, {'name': name, 'checking_for': checking_for, 'language': _safe_lang(language), 'purpose': 'parent'})
+    await enqueue(
+        get_pool(),
+        key,
+        phone,
+        {
+            "name": name,
+            "checking_for": checking_for,
+            "language": _safe_lang(language),
+            "purpose": "parent",
+        },
+    )
     return await deliver(key)
 
 
 async def deliver(key):
     if not whatsapp_enabled():
-        return {'status': 'disabled'}
-    job = await get_pool().fetchrow('''UPDATE welcome_deliveries SET status='sending',attempts=attempts+1,updated_at=now()
-        WHERE event_key=$1 AND status IN ('pending','retry','disabled','awaiting_consent') AND next_attempt_at<=now() AND attempts<4 RETURNING *''', key)
+        return {"status": "disabled"}
+
+    job = await get_pool().fetchrow(
+        """UPDATE welcome_deliveries
+           SET status='sending',
+               attempts=attempts+1,
+               updated_at=now()
+           WHERE event_key=$1
+             AND status IN ('pending','retry','disabled','awaiting_consent')
+             AND next_attempt_at<=now()
+             AND attempts<4
+           RETURNING *""",
+        key,
+    )
+
     if not job:
-        existing = await get_pool().fetchrow('SELECT * FROM welcome_deliveries WHERE event_key=$1', key)
-        return dict(existing) if existing else {'status': 'missing'}
+        existing = await get_pool().fetchrow(
+            "SELECT * FROM welcome_deliveries WHERE event_key=$1", key
+        )
+        return dict(existing) if existing else {"status": "missing"}
+
     try:
-        payload = json.loads(job['payload']) if isinstance(job['payload'], str) else job['payload']
+        payload = (
+            json.loads(job["payload"])
+            if isinstance(job["payload"], str)
+            else job["payload"]
+        )
+
         if not payload:
-            await get_pool().execute("UPDATE welcome_deliveries SET status='needs_review',detail='Legacy welcome has no recoverable payload.' WHERE event_key=$1", key)
-            return {'status': 'needs_review'}
+            await get_pool().execute(
+                """UPDATE welcome_deliveries
+                   SET status='needs_review',
+                       detail='Legacy welcome has no recoverable payload.'
+                   WHERE event_key=$1""",
+                key,
+            )
+            return {"status": "needs_review"}
+
         async with get_pool().acquire() as conn, conn.transaction():
-            phone = job['phone']
-            if job['recipient_id']:
-                await conn.execute('SELECT pg_advisory_xact_lock(hashtextextended($1,0))', 'recipient:' + str(job['recipient_id']))
-                table = {'user': 'users', 'sibling': 'care_circle_siblings', 'parent': 'parents'}[job['recipient_kind']]
-                recipient = await conn.fetchrow(f'SELECT * FROM {table} WHERE id=$1', job['recipient_id'])
-                if not recipient or dict(recipient).get('deleted_at') or dict(recipient).get('opted_out_at'):
-                    await conn.execute("UPDATE welcome_deliveries SET status='cancelled' WHERE event_key=$1", key)
-                    return {'status': 'cancelled'}
-                phone = recipient['phone']
-                if payload['purpose'] == 'child':
-                    consent = await conn.fetchval("SELECT agreed FROM consent_logs WHERE user_id=$1 AND consent_type='child' ORDER BY created_at DESC LIMIT 1", recipient['id'])
-                    if not recipient['email_verified_at'] or not consent:
-                        await conn.execute("UPDATE welcome_deliveries SET status='awaiting_consent',attempts=greatest(attempts-1,0),next_attempt_at=now()+interval '5 minutes' WHERE event_key=$1", key)
-                        return {'status': 'awaiting_consent'}
-            language = _safe_lang(payload['language'])
+            phone = job["phone"]
+            recipient = None
+
+            if job["recipient_id"]:
+                await conn.execute(
+                    "SELECT pg_advisory_xact_lock(hashtextextended($1,0))",
+                    "recipient:" + str(job["recipient_id"]),
+                )
+
+                table = {
+                    "user": "users",
+                    "sibling": "care_circle_siblings",
+                    "parent": "parents",
+                }[job["recipient_kind"]]
+
+                recipient = await conn.fetchrow(
+                    f"SELECT * FROM {table} WHERE id=$1", job["recipient_id"]
+                )
+
+                if (
+                    not recipient
+                    or dict(recipient).get("deleted_at")
+                    or dict(recipient).get("opted_out_at")
+                ):
+                    await conn.execute(
+                        "UPDATE welcome_deliveries SET status='cancelled' WHERE event_key=$1",
+                        key,
+                    )
+                    return {"status": "cancelled"}
+
+                phone = recipient["phone"]
+
+                if job["recipient_kind"] in ("user", "sibling"):
+                    from services.family_access import recipient as eligible_recipient
+                    owner_id = (
+                        (dict(recipient).get("household_owner_id") or recipient["id"])
+                        if job["recipient_kind"] == "user"
+                        else recipient["owner_id"]
+                    )
+                    if not await eligible_recipient(
+                        conn, owner_id, job["recipient_kind"], recipient["id"]
+                    ):
+                        await conn.execute(
+                            "UPDATE welcome_deliveries SET status='cancelled' WHERE event_key=$1",
+                            key,
+                        )
+                        return {"status": "cancelled"}
+
+                if payload["purpose"] == "child":
+                    consent = await conn.fetchval(
+                        """SELECT agreed
+                           FROM consent_logs
+                           WHERE user_id=$1
+                             AND consent_type='child'
+                           ORDER BY created_at DESC
+                           LIMIT 1""",
+                        recipient["id"],
+                    )
+
+                    if not recipient["email_verified_at"] or not consent:
+                        await conn.execute(
+                            """UPDATE welcome_deliveries
+                               SET status='awaiting_consent',
+                                   attempts=greatest(attempts-1,0),
+                                   next_attempt_at=now()+interval '5 minutes'
+                               WHERE event_key=$1""",
+                            key,
+                        )
+                        return {"status": "awaiting_consent"}
+
+            language = _safe_lang(payload["language"])
+            if job["recipient_kind"] in ("user", "sibling"):
+                from services.family_access import recipient_language
+                language = recipient_language(dict(recipient))
+
             from services.notifications import window_open
-            opened = await window_open(conn, phone, dict(recipient).get('phone_changed_at')) if job['recipient_id'] else False
-            if payload['purpose'] == 'child':
-                if opened:
-                    body = f"Hi {payload['name']}! Your verified AYANA account is ready. Your selected WhatsApp number will receive your family's care updates."
-                    result = await post_meta({'messaging_product': 'whatsapp', 'to': phone, 'type': 'text', 'text': {'body': body}})
-                else:
-                    result = await _send_content_template_with_retry(phone, f'ayana_child_welcome_{language}', language, {'1': payload['name']}, 'child_welcome')
-            elif payload['purpose'] == 'sibling' and opened:
-                body = f"Hi {payload['name']}! You are connected to {payload['checking_for']}'s AYANA care updates."
-                result = await post_meta({'messaging_product': 'whatsapp', 'to': phone, 'type': 'text', 'text': {'body': body}})
+
+            opened = (
+                await window_open(
+                    conn,
+                    phone,
+                    dict(recipient).get("phone_changed_at"),
+                )
+                if job["recipient_id"] and recipient
+                else False
+            )
+
+            template_name = None
+
+            if payload["purpose"] == "child":
+                # The account welcome has one name parameter and its own
+                # approved template; never substitute a parent check-in opener.
+                template_name = f"ayana_child_welcome_{language}"
+                result = await _send_content_template_with_retry(
+                    phone,
+                    template_name,
+                    language,
+                    {"1": payload["name"]},
+                    "child_welcome",
+                )
+
+            elif payload["purpose"] == "sibling" and opened:
+                body = (
+                    f"Hi {payload['name']}! You are connected to "
+                    f"{payload['checking_for']}'s AYANA care updates."
+                )
+                result = await post_meta(
+                    {
+                        "messaging_product": "whatsapp",
+                        "to": phone,
+                        "type": "text",
+                        "text": {"body": body},
+                    }
+                )
+
             else:
-                result = await _send_content_template_with_retry(phone, f'ayana_opener_{language}', language, {'1': payload['name'], '2': payload['checking_for']}, 'opener')
-            state = 'accepted' if result.get('status') == 'sent' else result.get('status', 'failed')
-            if state == 'failed' and (not result.get('error_code') or result['error_code'] in RETRYABLE) and job['attempts'] < 4:
-                state = 'retry'
-            elif result.get('error_code') in (131049, 131047):
-                state = 'awaiting_inbound'
-            await conn.execute('UPDATE welcome_deliveries SET phone=$2,status=$3,sid=$4,detail=$5,next_attempt_at=now()+interval \'15 minutes\',updated_at=now() WHERE event_key=$1', key, phone, state, result.get('sid'), result.get('detail'))
-            return {'status': state, 'detail': result.get('detail')}
+                # Parent and sibling-outside-window use the same opener template.
+                template_name = f"ayana_opener_{language}"
+                result = await _send_content_template_with_retry(
+                    phone,
+                    template_name,
+                    language,
+                    {
+                        "1": payload["name"],
+                        "2": payload["checking_for"],
+                    },
+                    "opener",
+                )
+
+            error_code = result.get("error_code")
+            detail = result.get("detail")
+
+            state = (
+                "accepted"
+                if result.get("status") == "sent"
+                else result.get("status", "failed")
+            )
+
+            if state == "failed" and error_code in TEMPLATE_CONFIG_ERRORS:
+                # Template missing/unapproved/mismatched on Meta. Nothing was
+                # delivered; surface a clear reason and let the 15-minute
+                # configuration recovery retry once it is fixed.
+                state = "configuration_error"
+                detail = (
+                    f"Meta rejected template '{template_name}' "
+                    f"(lang '{language}', code {error_code}). "
+                    "Create/approve it in WhatsApp Manager under the same "
+                    "WABA as this phone number; delivery retries automatically."
+                )
+                logger.error("[welcome] %s key=%s", detail, key)
+            elif (
+                state == "failed"
+                and (not error_code or error_code in RETRYABLE)
+                and job["attempts"] < 4
+            ):
+                state = "retry"
+            elif error_code in (131049, 131047):
+                state = "awaiting_inbound"
+
+            await conn.execute(
+                """UPDATE welcome_deliveries
+                   SET phone=$2,
+                       status=$3,
+                       sid=$4,
+                       detail=$5,
+                       next_attempt_at=now()+interval '15 minutes',
+                       updated_at=now()
+                   WHERE event_key=$1""",
+                key,
+                phone,
+                state,
+                result.get("sid"),
+                detail,
+            )
+            return {"status": state, "detail": detail}
+
     except Exception:
-        await get_pool().execute("UPDATE welcome_deliveries SET status='uncertain',detail='Submission interrupted; reconcile before retrying.',updated_at=now() WHERE event_key=$1", key)
-        return {'status': 'uncertain'}
+        # Previously silent: any failure here became 'uncertain' with no trace.
+        logger.exception("[welcome] deliver failed for %s", key)
+        await get_pool().execute(
+            """UPDATE welcome_deliveries
+               SET status='uncertain',
+                   detail='Submission interrupted; reconcile before retrying.',
+                   updated_at=now()
+               WHERE event_key=$1""",
+            key,
+        )
+        return {"status": "uncertain"}
 
 
 async def drain():
+    if not whatsapp_enabled():
+        return
+    await recover_missing_child_welcomes()
     await recover_stuck_deliveries()
-    await get_pool().execute("UPDATE welcome_deliveries SET status='uncertain',detail='Interrupted welcome submission.',updated_at=now() WHERE status='sending' AND updated_at<now()-interval '5 minutes'")
-    rows = await get_pool().fetch("SELECT event_key FROM welcome_deliveries WHERE status IN ('pending','retry','disabled','awaiting_consent') AND next_attempt_at<=now() AND attempts<4 ORDER BY next_attempt_at LIMIT 20")
+    await recover_template_configuration()
+
+    await get_pool().execute(
+        """UPDATE welcome_deliveries
+           SET status='uncertain',
+               detail='Interrupted welcome submission.',
+               updated_at=now()
+           WHERE status='sending'
+             AND updated_at<now()-interval '5 minutes'"""
+    )
+
+    rows = await get_pool().fetch(
+        """SELECT event_key
+           FROM welcome_deliveries
+           WHERE status IN ('pending','retry','disabled','awaiting_consent')
+             AND next_attempt_at<=now()
+             AND attempts<4
+           ORDER BY next_attempt_at
+           LIMIT 20"""
+    )
+
     for row in rows:
-        await deliver(row['event_key'])
+        await deliver(row["event_key"])
+
+
+async def recover_missing_child_welcomes():
+    """Repair missing jobs after a failed onboarding transaction, once per contact.
+
+    Accepted and uncertain jobs are deliberately retained, never replayed.
+    Verification and the latest explicit child consent are both required.
+    """
+    pool = get_pool()
+    owners = await pool.fetch("""SELECT u.* FROM users u
+        WHERE u.deleted_at IS NULL AND u.email_verified_at IS NOT NULL
+          AND (SELECT c.agreed FROM consent_logs c WHERE c.user_id=u.id
+               AND c.consent_type='child' ORDER BY c.created_at DESC LIMIT 1)=true
+          AND NOT EXISTS(SELECT 1 FROM welcome_deliveries w
+              WHERE w.recipient_id=u.id AND w.recipient_kind='user'
+                AND w.contact_version=u.contact_version)
+        ORDER BY u.created_at LIMIT 20""")
+    for raw in owners:
+        owner = dict(raw)
+        parent_name = await pool.fetchval("""SELECT coalesce(nullif(preferred_name,''),name)
+            FROM parents WHERE user_id=$1 AND deleted_at IS NULL ORDER BY created_at LIMIT 1""", owner['id'])
+        await queue_child(owner, parent_name)
+
+
+async def recover_template_configuration():
+    """Retry only definitely unsubmitted welcomes after the required approval exists."""
+    from services.template_registry import build
+    pool = get_pool()
+    for job in await pool.fetch("SELECT * FROM welcome_deliveries WHERE status='configuration_error' AND next_attempt_at<=now() ORDER BY next_attempt_at LIMIT 100"):
+        payload = json.loads(job['payload']) if isinstance(job['payload'], str) else job['payload']
+        if not payload:
+            continue
+        language = _safe_lang(payload.get('language'))
+        kind = 'child_welcome' if payload.get('purpose') == 'child' else 'opener'
+        values = [payload.get('name') or 'there']
+        if kind == 'opener':
+            values.append(payload.get('checking_for') or 'your family')
+        try:
+            build(f'ayana_{kind}_{language}', language, values)
+        except ValueError:
+            await pool.execute("UPDATE welcome_deliveries SET next_attempt_at=now()+interval '5 minutes' WHERE event_key=$1 AND status='configuration_error'", job['event_key'])
+            continue
+        await pool.execute("UPDATE welcome_deliveries SET status='retry',attempts=0,next_attempt_at=now(),detail=NULL WHERE event_key=$1 AND status='configuration_error'", job['event_key'])
 
 
 async def inbound_recovery(phone, stamp):
-    if stamp < datetime.now(timezone.utc)-timedelta(hours=24):
+    if stamp < datetime.now(timezone.utc) - timedelta(hours=24):
         return
+
     # A genuine inbound permits free-form welcome recovery, not Marketing bypass.
-    await get_pool().execute("UPDATE welcome_deliveries SET status='retry',attempts=0,next_attempt_at=now() WHERE phone=$1 AND recipient_kind IN ('user','sibling') AND status IN ('awaiting_inbound','failed','disabled')", phone)
-    await get_pool().execute("UPDATE users SET needs_inbound_click=false WHERE phone=$1", phone)
+    await get_pool().execute(
+        """UPDATE welcome_deliveries
+           SET status='retry', attempts=0, next_attempt_at=now()
+           WHERE phone=$1
+             AND recipient_kind IN ('user','sibling')
+             AND status IN ('awaiting_inbound','failed','disabled')""",
+        phone,
+    )
+
+    await get_pool().execute(
+        "UPDATE users SET needs_inbound_click=false WHERE phone=$1", phone
+    )
 
 
 async def recover_stuck_deliveries():
-    """Recover welcome/notification deliveries where the recipient's phone has changed."""
+    """Recover welcome/notification deliveries where the recipient's phone changed."""
     pool = get_pool()
-    # Fix welcome deliveries with stale phone numbers for users
-    await pool.execute("""
-        UPDATE welcome_deliveries w SET phone=r.phone, status='retry', attempts=0, next_attempt_at=now()
-        FROM users r WHERE w.recipient_kind='user' AND w.recipient_id=r.id
-        AND w.phone <> r.phone AND r.deleted_at IS NULL
-        AND w.status IN ('failed','disabled','awaiting_inbound')
-    """)
-    # Fix welcome deliveries with stale phone numbers for siblings
-    await pool.execute("""
-        UPDATE welcome_deliveries w SET phone=r.phone, status='retry', attempts=0, next_attempt_at=now()
-        FROM care_circle_siblings r WHERE w.recipient_kind='sibling' AND w.recipient_id=r.id
-        AND w.phone <> r.phone AND r.verified
-        AND w.status IN ('failed','disabled','awaiting_inbound')
-    """)
-    # Fix welcome deliveries with stale phone numbers for parents
-    await pool.execute("""
-        UPDATE welcome_deliveries w SET phone=r.phone, status='retry', attempts=0, next_attempt_at=now()
-        FROM parents r WHERE w.recipient_kind='parent' AND w.recipient_id=r.id
-        AND w.phone <> r.phone AND r.deleted_at IS NULL
-        AND w.status IN ('failed','disabled','awaiting_inbound')
-    """)
-    # Also recover reply_notifications with stale phones
-    from services.notifications import recover_contact
-    # Reset stuck reply notifications for users whose phone changed
-    await pool.execute("""
-        UPDATE reply_notifications n SET status='pending', to_phone=u.phone, sid=NULL, attempts=0, next_attempt_at=now(), detail=NULL
+
+    await pool.execute(
+        """
+        UPDATE welcome_deliveries w
+        SET phone=r.phone, status='retry', attempts=0, next_attempt_at=now()
+        FROM users r
+        WHERE w.recipient_kind='user'
+          AND w.recipient_id=r.id
+          AND w.phone <> r.phone
+          AND r.deleted_at IS NULL
+          AND w.status IN ('failed','disabled','awaiting_inbound')
+        """
+    )
+
+    await pool.execute(
+        """
+        UPDATE welcome_deliveries w
+        SET phone=r.phone, status='retry', attempts=0, next_attempt_at=now()
+        FROM care_circle_siblings r
+        WHERE w.recipient_kind='sibling'
+          AND w.recipient_id=r.id
+          AND w.phone <> r.phone
+          AND r.verified
+          AND w.status IN ('failed','disabled','awaiting_inbound')
+        """
+    )
+
+    await pool.execute(
+        """
+        UPDATE welcome_deliveries w
+        SET phone=r.phone, status='retry', attempts=0, next_attempt_at=now()
+        FROM parents r
+        WHERE w.recipient_kind='parent'
+          AND w.recipient_id=r.id
+          AND w.phone <> r.phone
+          AND r.deleted_at IS NULL
+          AND w.status IN ('failed','disabled','awaiting_inbound')
+        """
+    )
+
+    # Keep the existing reply-notification recovery behavior.
+    from services.notifications import recover_contact  # noqa: F401
+
+    await pool.execute(
+        """
+        UPDATE reply_notifications n
+        SET status='pending',
+            to_phone=u.phone,
+            sid=NULL,
+            attempts=0,
+            next_attempt_at=now(),
+            detail=NULL
         FROM users u, parent_replies r
-        WHERE r.id=n.reply_id AND n.recipient_kind='user' AND n.recipient_id=u.id
-        AND n.to_phone <> u.phone AND u.deleted_at IS NULL
-        AND n.status IN ('failed','disabled','blocked_policy','awaiting_template')
-        AND r.created_at > now() - interval '48 hours'
-    """)
+        WHERE r.id=n.reply_id
+          AND n.recipient_kind='user'
+          AND n.recipient_id=u.id
+          AND n.to_phone <> u.phone
+          AND u.deleted_at IS NULL
+          AND n.status IN ('failed','disabled','blocked_policy','awaiting_template')
+          AND r.created_at > now() - interval '48 hours'
+        """
+    )
+
 
 async def welcome_parent_and_child(parent, owner, require_activation=False):
-    if require_activation and not await get_pool().fetchval('SELECT whatsapp_activated FROM activation_state WHERE user_id=$1', parent['user_id']):
+    if require_activation and not await get_pool().fetchval(
+        "SELECT whatsapp_activated FROM activation_state WHERE user_id=$1",
+        parent["user_id"],
+    ):
         return
-    if parent.get('opted_out_at') or parent.get('deleted_at'):
+
+    if parent.get("opted_out_at") or parent.get("deleted_at"):
         return
-    await enqueue(get_pool(), f"parent:{parent['id']}", parent['phone'], {'name': parent.get('preferred_name') or parent['name'], 'checking_for': owner['name'].split()[0], 'language': _safe_lang(parent.get('language')), 'purpose': 'parent'}, parent['id'], 'parent')
-    await queue_child(owner)
+
+    parent_display = parent.get("preferred_name") or parent["name"]
+    child_display = (owner.get("name") or "there").split()[0]
+
+    # Parent receives:
+    # Hi <parent>! This is AYANA checking in for <child>.
+    await enqueue(
+        get_pool(),
+        f"parent:{parent['id']}",
+        parent["phone"],
+        {
+            "name": parent_display,
+            "checking_for": child_display,
+            "language": _safe_lang(parent.get("language")),
+            "purpose": "parent",
+        },
+        parent["id"],
+        "parent",
+    )
+
+    # Child receives the dedicated verified-account welcome template.
+    await queue_child(owner, parent_display)
+
     await drain()

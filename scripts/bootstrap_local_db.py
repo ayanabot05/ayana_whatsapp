@@ -1,7 +1,6 @@
 """Bootstrap ONLY an empty, explicitly local test database. Never production.
 
-The Supabase bootstrap includes destructive drops and cron jobs. This local-only
-adapter requires an empty *_local database and excludes the cloud purge job.
+This local-only adapter requires an empty *_local database.
 Run after creating the local PostgreSQL role/database and backend/.env.
 """
 import asyncio
@@ -39,10 +38,8 @@ async def main():
         if count:
             print('Existing local database preserved; bootstrap skipped.')
             return
-        source = (ROOT/'backend/schema.sql').read_text().split('-- PURGE JOB')[0]
-        source = '\n'.join(line for line in source.splitlines() if 'create extension if not exists pg_cron' not in line)
-        async with conn.transaction():
-            await conn.execute(source)
+        source = (ROOT/'backend/schema_complete.sql').read_text(encoding='utf-8')
+        await conn.execute(source)
         print('Empty local database initialized without cron or external jobs.')
     finally:
         await conn.close()

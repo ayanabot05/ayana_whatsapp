@@ -1,0 +1,146 @@
+[
+  {
+    "name": "ayana_first_warn_child_en",
+    "language": "en",
+    "status": "USER_CONFIRMED",
+    "approval_source": "User reports approved; not found in configured Meta account on 2026-10-01",
+    "components": [
+      {
+        "type": "BODY",
+        "text": "💛 {{1}} didn't reply this morning (6am-2pm). We just sent another check-in. We'll update you at 10pm if still no reply."
+      }
+    ]
+  },
+  {
+    "name": "ayana_first_warn_child_te",
+    "language": "te",
+    "status": "USER_CONFIRMED",
+    "approval_source": "User reports approved; not found in configured Meta account on 2026-10-01",
+    "components": [
+      {
+        "type": "BODY",
+        "text": "💛 {{1}} ఈ ఉదయం (6am-2pm) స్పందించలేదు. మేము మళ్ళీ చెక్-ఇన్ పంపాము. 10pm వరకు స్పందన లేకపోతే మీకు తెలియజేస్తాము."
+      }
+    ]
+  },
+  {
+    "name": "ayana_first_warn_child_hi",
+    "language": "hi",
+    "status": "USER_CONFIRMED",
+    "approval_source": "User reports approved; not found in configured Meta account on 2026-10-01",
+    "components": [
+      {
+        "type": "BODY",
+        "text": "💛 {{1}} ने आज सुबह (6am-2pm) जवाब नहीं दिया। हमने दोबारा चेक-इन भेजा है। रात 10 बजे तक जवाब नहीं आया तो आपको बताएंगे।"
+      }
+    ]
+  },
+  {
+    "name": "ayana_main_warn_child_en",
+    "language": "en",
+    "status": "USER_CONFIRMED",
+    "approval_source": "User reports approved; not found in configured Meta account on 2026-10-01",
+    "components": [
+      {
+        "type": "BODY",
+        "text": "⚠️ {{1}} didn't reply at all today (since morning 6am). Please consider calling. Missed {{2}} check-ins."
+      }
+    ]
+  },
+  {
+    "name": "ayana_main_warn_child_te",
+    "language": "te",
+    "status": "USER_CONFIRMED",
+    "approval_source": "User reports approved; not found in configured Meta account on 2026-10-01",
+    "components": [
+      {
+        "type": "BODY",
+        "text": "⚠️ {{1}} ఈరోజు ఉదయం 6గంటల నుండి అస్సలు స్పందించలేదు. దయచేసి కాల్ చేయండి. {{2}} చెక్-ఇన్లు మిస్ అయ్యాయి."
+      }
+    ]
+  },
+  {
+    "name": "ayana_main_warn_child_hi",
+    "language": "hi",
+    "status": "USER_CONFIRMED",
+    "approval_source": "User reports approved; not found in configured Meta account on 2026-10-01",
+    "components": [
+      {
+        "type": "BODY",
+        "text": "⚠️ {{1}} ने आज सुबह 6 बजे से बिल्कुल जवाब नहीं दिया। कृपया कॉल करें। {{2}} चेक-इन मिस हुए।"
+      }
+    ]
+  },
+  {
+    "name": "ayana_first_warn_parent_en",
+    "language": "en",
+    "status": "USER_CONFIRMED",
+    "approval_source": "User reports approved; not found in configured Meta account on 2026-10-01",
+    "components": [
+      {
+        "type": "BODY",
+        "text": "{{1}}, we missed you this morning. Just checking in again 💛 Are you okay?"
+      }
+    ]
+  },
+  {
+    "name": "ayana_first_warn_parent_te",
+    "language": "te",
+    "status": "USER_CONFIRMED",
+    "approval_source": "User reports approved; not found in configured Meta account on 2026-10-01",
+    "components": [
+      {
+        "type": "BODY",
+        "text": "{{1}}, ఈ ఉదయం మీ నుండి వార్త లేదు. మళ్ళీ చెక్ చేస్తున్నాం 💛 బాగున్నారా?"
+      }
+    ]
+  },
+  {
+    "name": "ayana_first_warn_parent_hi",
+    "language": "hi",
+    "status": "USER_CONFIRMED",
+    "approval_source": "User reports approved; not found in configured Meta account on 2026-10-01",
+    "components": [
+      {
+        "type": "BODY",
+        "text": "{{1}}, आज सुबह आपसे बात नहीं हुई। फिर से चेक कर रहे हैं 💛 आप ठीक हैं?"
+      }
+    ]
+  },
+  {
+    "name": "ayana_child_welcome_en",
+    "language": "en",
+    "status": "USER_CONFIRMED",
+    "approval_source": "User reports approved; not found in configured Meta account on 2026-10-01",
+    "components": [
+      {
+        "type": "BODY",
+        "text": "Hi {{1}}, your email is verified and your AYANA account is ready.\n\nAdd your parent's details and choose their check-in times in your dashboard. AYANA will use your selected WhatsApp number for care updates."
+      }
+    ]
+  },
+  {
+    "name": "ayana_child_welcome_te",
+    "language": "te",
+    "status": "USER_CONFIRMED",
+    "approval_source": "User reports approved; not found in configured Meta account on 2026-10-01",
+    "components": [
+      {
+        "type": "BODY",
+        "text": "నమస్తే {{1}}, మీ ఇమెయిల్ ధృవీకరణ పూర్తయింది. మీ AYANA ఖాతా సిద్ధంగా ఉంది.\n\nడ్యాష్‌బోర్డ్‌లో మీ తల్లిదండ్రుల వివరాలు, చెక్-ఇన్ సమయాలను నమోదు చేయండి. మీరు ఎంచుకున్న WhatsApp నంబర్‌కు AYANA సంరక్షణ సమాచారాన్ని పంపుతుంది."
+      }
+    ]
+  },
+  {
+    "name": "ayana_child_welcome_hi",
+    "language": "hi",
+    "status": "USER_CONFIRMED",
+    "approval_source": "User reports approved; not found in configured Meta account on 2026-10-01",
+    "components": [
+      {
+        "type": "BODY",
+        "text": "नमस्ते {{1}}, आपका ईमेल सत्यापित हो गया है और आपका AYANA खाता तैयार है।\n\nडैशबोर्ड में अपने माता-पिता की जानकारी और चेक-इन का समय जोड़ें। AYANA आपके चुने हुए WhatsApp नंबर पर देखभाल से जुड़े अपडेट भेजेगा।"
+      }
+    ]
+  }
+]

@@ -1,4 +1,5 @@
 import React from "react";
+import '@testing-library/jest-dom';
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import Dashboard from "./Dashboard";
@@ -11,6 +12,13 @@ import { toast } from "sonner";
 jest.mock("../lib/api");
 jest.mock("../context/AuthContext");
 jest.mock("sonner", () => ({ toast: { error: jest.fn(), success: jest.fn() } }));
+jest.mock('react-router-dom', () => ({
+  MemoryRouter: ({children}) => <>{children}</>,
+  Link: ({to, children, ...props}) => <a href={to} {...props}>{children}</a>,
+  useNavigate: () => jest.fn(),
+  useSearchParams: () => [new URLSearchParams(), jest.fn()],
+  useLocation: () => ({pathname:'/dashboard',search:''}),
+}));
 
 // Mock rechart components to avoid SVG rendering issues in JSDOM
 jest.mock("recharts", () => {
@@ -24,10 +32,8 @@ jest.mock("recharts", () => {
 
 // Mock some sub-tabs to keep tests focused on the main Dashboard routing logic
 jest.mock("../components/CareTab", () => ({
-  CareTab: () => <div data-testid="mock-care-tab">Care Tab Content</div>
-}));
-jest.mock("../components/ReportsTab", () => ({
-  ReportsTab: () => <div data-testid="mock-reports-tab">Reports Tab Content</div>
+  CareTab: () => <div data-testid="mock-care-tab">Care Tab Content</div>,
+  VacationCard: () => <div data-testid="mock-vacation-card" />,
 }));
 
 describe("Dashboard Component", () => {
@@ -53,7 +59,7 @@ describe("Dashboard Component", () => {
 
     api.get.mockImplementation((url) => {
       if (url === "/dashboard/bootstrap") return Promise.resolve({ data: {
-        parents: [{ id: "p1", name: "Amma", relationship: "mother", language: "en", phone: "+91" }],
+        parents: [{ id: "p1", name: "Amma", relationship: "mother", language: "en", language_suggestion: "te", phone: "+91" }],
         schedules: [{ id: "s1", parent_id: "p1", active: true, messages: [] }],
         checkins: { parents: [], alerts: [] },
         activation: { whatsapp_activated: true },
@@ -79,7 +85,7 @@ describe("Dashboard Component", () => {
   describe("Main Layout & Stats", () => {
     test("renders header with user name", async () => {
       renderDashboard();
-      expect(await screen.findByText(/Hello, Test/i)).toBeInTheDocument();
+      expect(await screen.findByRole('heading', {name: /Hello, Test/i})).toBeInTheDocument();
     });
 
     test("renders 4 stat cards", async () => {
@@ -88,14 +94,49 @@ describe("Dashboard Component", () => {
         expect(screen.getByTestId("dashboard-stats")).toBeInTheDocument();
       });
       // Parents, Schedules, Messages, Care Circle
-      expect(screen.getByText("Parents")).toBeInTheDocument();
-      expect(screen.getByText("Active schedules")).toBeInTheDocument();
-      expect(screen.getByText("Messages sent (7d)")).toBeInTheDocument();
-      expect(screen.getByText("Care circle")).toBeInTheDocument();
+      const stats = screen.getByTestId('dashboard-stats');
+      for (const label of ['Parents', 'Active schedules', 'Messages sent (7d)', 'Care circle']) {
+        expect(stats).toHaveTextContent(label);
+      }
     });
   });
 
   describe("Parents Tab", () => {
+    test('initial request failure shows an error instead of an empty parent list', async () => {
+      api.get.mockRejectedValue(new Error('Network unavailable'));
+      renderDashboard();
+      expect(await screen.findByRole('alert', {}, {timeout: 5000})).toHaveTextContent('could not be loaded');
+      expect(screen.queryByText('No parents added yet.')).not.toBeInTheDocument();
+      expect(api.delete).not.toHaveBeenCalled();
+    });
+
+    test('failed refresh retains the previously loaded parent', async () => {
+      renderDashboard();
+      expect(await screen.findByText('Amma')).toBeInTheDocument();
+      api.get.mockRejectedValue(new Error('Network unavailable'));
+      await queryClient.invalidateQueries({queryKey:['dashboard']});
+      expect(await screen.findByRole('alert')).toHaveTextContent('Showing your last loaded data');
+      expect(screen.getByText('Amma')).toBeInTheDocument();
+      expect(api.delete).not.toHaveBeenCalled();
+    });
+
+    test("cancelling removal leaves the parent intact", async () => {
+      renderDashboard();
+      await userEvent.click(await screen.findByTestId('delete-parent-p1'));
+      expect(await screen.findByRole('alertdialog')).toHaveTextContent('Remove Amma?');
+      expect(api.delete).not.toHaveBeenCalled();
+      await userEvent.click(screen.getByTestId('confirm-cancel'));
+      expect(screen.getByText('Amma')).toBeInTheDocument();
+      expect(api.delete).not.toHaveBeenCalled();
+    });
+
+    test("refetch preserves the parent without deletion requests", async () => {
+      renderDashboard();
+      expect(await screen.findByText('Amma')).toBeInTheDocument();
+      await queryClient.invalidateQueries({queryKey:['dashboard']});
+      expect(await screen.findByText('Amma')).toBeInTheDocument();
+      expect(api.delete).not.toHaveBeenCalled();
+    });
     test("renders parents list", async () => {
       renderDashboard();
       await waitFor(() => {
@@ -104,12 +145,10 @@ describe("Dashboard Component", () => {
       });
     });
 
-    test("shows language suggestions if available", async () => {
+    test("shows the saved parent language without replacing it with a suggestion", async () => {
       renderDashboard();
-      await waitFor(() => {
-        expect(screen.getByText(/Detected Telugu/i)).toBeInTheDocument();
-        expect(screen.getByTestId("apply-lang-p1")).toBeInTheDocument();
-      });
+      expect(await screen.findByTestId('parents-list')).toHaveTextContent('English');
+      expect(api.patch).not.toHaveBeenCalled();
     });
   });
 
@@ -120,7 +159,7 @@ describe("Dashboard Component", () => {
         expect(screen.getByTestId("tab-checkins")).toBeInTheDocument();
       });
       await userEvent.click(screen.getByTestId("tab-checkins"));
-      expect(await screen.findByTestId("checkins-empty")).toBeInTheDocument();
+      expect(await screen.findByTestId("unified-checkins")).toBeInTheDocument();
     });
   });
 
@@ -129,7 +168,7 @@ describe("Dashboard Component", () => {
       renderDashboard();
       await waitFor(() => screen.getByTestId("tab-circle"));
       await userEvent.click(screen.getByTestId("tab-circle"));
-      expect(await screen.findByText(/Family co-care/i)).toBeInTheDocument();
+      expect(await screen.findByRole('heading', {name: /Family co-care/i})).toBeInTheDocument();
     });
   });
 

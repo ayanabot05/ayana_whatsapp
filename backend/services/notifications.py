@@ -16,10 +16,10 @@ RETRYABLE_CODES = {130429, 131000, 131016, 131056}
 async def enqueue_reply(conn, reply):
     if reply['created_at'] < datetime.now(timezone.utc)-timedelta(hours=24):
         return
-    users = await conn.fetch('SELECT id,phone FROM users WHERE (id=$1 OR household_owner_id=$1) AND deleted_at IS NULL ORDER BY created_at', reply['user_id'])
-    siblings = await conn.fetch('SELECT id,phone FROM care_circle_siblings WHERE owner_id=$1 AND verified', reply['user_id'])
+    from services.family_access import recipients
+    eligible = await recipients(conn, reply['user_id'])
     seen = set()
-    for kind, people in [('user', users), ('sibling', siblings)]:
+    for kind, people in [('user', [p for k,p in eligible if k=='user']), ('sibling', [p for k,p in eligible if k=='sibling'])]:
         for person in people:
             try:
                 phone = validate_phone(person['phone'])
@@ -29,12 +29,17 @@ async def enqueue_reply(conn, reply):
             if phone not in seen:
                 seen.add(phone)
                 await conn.execute('INSERT INTO reply_notifications(reply_id,recipient_kind,recipient_id) VALUES($1,$2,$3) ON CONFLICT DO NOTHING', reply['id'], kind, person['id'])
+    if reply['is_voice']:
+        from services.family_delivery import enqueue
+        detail = await reply_details(conn, reply['id'])
+        await enqueue(conn, {'id':reply['parent_id'],'user_id':reply['user_id']}, 'voice_summary', str(reply['id']),
+                      {'reply_id':str(reply['id']),'name':detail['parent_name'],'prompt':detail['prompt'],
+                       'stamp':detail['display_time'],'day':detail['local_date']})
 
 
 async def recipient_for(conn, n, owner_id):
-    if n['recipient_kind'] == 'user':
-        return await conn.fetchrow('SELECT * FROM users WHERE id=$1 AND (id=$2 OR household_owner_id=$2) AND deleted_at IS NULL', n['recipient_id'], owner_id)
-    return await conn.fetchrow('SELECT * FROM care_circle_siblings WHERE id=$1 AND owner_id=$2 AND verified', n['recipient_id'], owner_id)
+    from services.family_access import recipient
+    return await recipient(conn, owner_id, n['recipient_kind'], n['recipient_id'])
 
 
 async def reply_details(conn, reply_id):
@@ -109,8 +114,9 @@ async def deliver(notification_id):
             opened = await window_open(conn, phone, recipient.get('phone_changed_at'))
             result = await send_update(phone, reply, opened, recipient.get('language') or 'en')
             state = outcome(result, n['attempts'])
-            if result.get('error_code') == 131047:
+            if result.get('error_code') == 131047 or result.get('session_rejected'):
                 await conn.execute('DELETE FROM recipient_sessions WHERE phone=$1', phone)
+                opened = False
             if result.get('sid'):
                 await conn.execute('INSERT INTO notification_attempts(sid,notification_id,phone,status) VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING', result['sid'], n['id'], phone, state)
             await conn.execute("UPDATE reply_notifications SET to_phone=$2,status=$3,sid=$4,detail=$5,error_code=$6,next_attempt_at=now()+interval '5 minutes',updated_at=now(),audio_status=CASE WHEN $7 THEN 'pending' ELSE audio_status END WHERE id=$1", n['id'], phone, state, result.get('sid'), result.get('detail'), result.get('error_code'), bool(opened and reply['is_voice'] and state == 'accepted'))
@@ -155,7 +161,7 @@ async def fallback_email(n):
                 if prefs.get('email_notifications') is False:
                     await conn.execute("UPDATE reply_notifications SET email_status='disabled_by_user',updated_at=now() WHERE id=$1", n['id'])
                     return
-        result = await send_update_email(dict(recipient), reply, n['id'])
+        result = await send_update_email(dict(recipient), {**reply, 'delivery_failure': n.get('detail') or 'WhatsApp could not deliver this update.'}, n['id'])
         await conn.execute("UPDATE reply_notifications SET email_status=$2,email_id=$3,email_attempts=email_attempts+1,email_next_attempt_at=now()+interval '15 minutes' WHERE id=$1", n['id'], result['status'], result.get('id'))
 
 
@@ -173,7 +179,7 @@ async def drain_notifications():
     # still hasn't been accepted. Set REPLY_EMAIL_FALLBACK_ENABLED=false to make
     # replies WhatsApp-only with no email at all.
     if os.environ.get('REPLY_EMAIL_FALLBACK_ENABLED', 'true').lower() == 'true':
-        for n in await pool.fetch("SELECT * FROM reply_notifications WHERE status IN ('failed','retry','blocked_policy','uncertain','disabled') AND attempts>=3 AND (status<>'uncertain' OR updated_at<now()-interval '5 minutes') AND coalesce(email_status,'')<>'sent' AND email_attempts<4 AND email_next_attempt_at<=now() AND created_at>now()-interval '24 hours' AND recipient_kind<>'user' ORDER BY created_at LIMIT 20"):
+        for n in await pool.fetch("SELECT * FROM reply_notifications WHERE ((status IN ('failed','blocked_policy') AND error_code IN (131026,131049,131050,131042)) OR (status IN ('failed','retry') AND error_code IN (130429,131000,131016,131056) AND attempts>=3)) AND coalesce(email_status,'')<>'sent' AND email_attempts<4 AND email_next_attempt_at<=now() AND created_at>now()-interval '24 hours' ORDER BY created_at LIMIT 20"):
             await fallback_email(n)
     await drain_requests()
 

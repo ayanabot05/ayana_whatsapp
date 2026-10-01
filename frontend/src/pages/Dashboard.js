@@ -18,6 +18,7 @@ import { ParentCareForm, blankParentForm, blankMedicine, SHAPE_ICON, COLOR_HEX }
 import { cleanHabits, cleanOptionalString } from "@/lib/formHelpers";
 import { toast } from "sonner";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { NotificationLanguage } from '@/components/checkins/NotificationLanguage';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogTrigger } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
@@ -203,11 +204,23 @@ export default function Dashboard() {
     </div>
   );
 
+  if (anyError && !boot) return (
+    <div className="min-h-screen bg-ayana-bg">
+      <Navbar />
+      <main className="max-w-6xl mx-auto px-5 py-10" role="alert">
+        <h1 className="text-xl font-semibold">Your dashboard could not be loaded</h1>
+        <p className="mt-2">We could not retrieve your parents and check-ins. Please retry.</p>
+        <button className="mt-4 underline" onClick={() => bootQuery.refetch()}>Retry loading</button>
+      </main>
+    </div>
+  );
+
   return (
     <div className="min-h-screen bg-ayana-bg relative">
       <div className="absolute inset-0 pointer-events-none h-80" style={{ background: "radial-gradient(1000px 320px at 100% 0%, rgba(217,108,74,0.07), transparent), radial-gradient(800px 300px at 0% 0%, rgba(44,76,59,0.06), transparent)" }} aria-hidden="true" />
       <Navbar />
       <main className="relative max-w-6xl mx-auto px-5 sm:px-8 py-10">
+        {anyError && <p role="alert" className="mb-4 text-sm text-ayana-secondary">Refresh failed. Showing your last loaded data. <button className="underline" onClick={() => bootQuery.refetch()}>Retry loading</button></p>}
         <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-8">
           <div>
             <h1 className="font-display text-3xl font-semibold text-ayana-text">Hello, {user?.name?.split(" ")[0]} 👋</h1>
@@ -305,7 +318,7 @@ export default function Dashboard() {
                               trigger={<button data-testid={`send-test-${p.id}`} title="Send now" className="w-8 h-8 rounded-full bg-[#faf6ec] border border-[#efe8d8] flex items-center justify-center text-[#6b5f4a] hover:bg-white"><Send className="w-3.5 h-3.5" /></button>} />
                             <ParentDialog parent={p} relationships={relationships} languages={languages} config={config} limits={limits} plan={plan} schedules={schedules} onSaved={load}
                               trigger={<button data-testid={`edit-parent-${p.id}`} title="Edit" className="w-8 h-8 rounded-full bg-white border border-[#efe8d8] flex items-center justify-center text-[#6b5f4a] hover:bg-[#faf6ec]"><Pencil className="w-3.5 h-3.5" /></button>} />
-                            <ConfirmDialog onConfirm={async () => { await api.delete(`/parents/${p.id}`); toast.success("Parent removed."); load(); }}
+                            <ConfirmDialog title={`Remove ${p.name}?`} description={`This stops check-ins for ${p.name} and removes this parent from your dashboard.`} confirmLabel="Remove parent" onConfirm={async () => { await api.delete(`/parents/${p.id}`); toast.success("Parent removed."); load(); }}
                               trigger={<button data-testid={`delete-parent-${p.id}`} className="w-8 h-8 rounded-full bg-white border border-[#efe8d8] flex items-center justify-center text-[#9a9183] hover:text-red-500"><Trash2 className="w-3.5 h-3.5" /></button>} />
                           </div>
                         </div>
@@ -406,6 +419,7 @@ export default function Dashboard() {
           <TabsContent value="account" className="mt-6 max-w-2xl"><TabBoundary tab="account" onRetry={load}>
             <div className="space-y-4">
               <AccountPanel user={user} plan={plan} payment={payment} circle={circle} setActiveTab={setActiveTab} refreshUser={refreshUser} />
+              <NotificationLanguage user={user} onSaved={refreshUser} />
 
               <div className="grid gap-4">
                 <ChangeEmailCard user={user} refreshUser={refreshUser} />
@@ -965,7 +979,14 @@ function ReportsTab({ parents, plan, user, checkinsData }) {
     return new Date(y, mo - 1, 1).toLocaleDateString("en-US", { month: "long", year: "numeric" });
   }, [selectedMonth]);
 
-  const parentOptions = useMemo(() => checkinsData?.parents || [], [checkinsData]);
+  const reportQuery = useQuery({
+    queryKey: ['checkins', 'month', selectedMonth],
+    queryFn: () => api.get('/checkins', { params: { period: selectedMonth } }).then(r => r.data),
+    staleTime: 12_000,
+    refetchInterval: 15_000,
+    retry: 1,
+  });
+  const parentOptions = useMemo(() => reportQuery.data?.parents || [], [reportQuery.data]);
 
   const filteredParents = useMemo(() => {
     return selectedParentId === "all"
@@ -985,39 +1006,15 @@ function ReportsTab({ parents, plan, user, checkinsData }) {
     return out;
   }, [filteredParents, selectedMonth]);
 
-  const reportQuery = useQuery({
-    queryKey: ['monthly-report', selectedParentId, selectedMonth],
-    queryFn: () => api.get('/reports/monthly', {
-      params: { parent_id: selectedParentId, period: selectedMonth }
-    }).then(r => r.data),
-    enabled: !!selectedParentId && selectedParentId !== 'all',
-    staleTime: 60_000,
-    retry: 1,
-  });
-
-  const reportData = reportQuery.data;
-
   const allMessages = useMemo(() => filteredDays.flatMap((d) => d.messages || []), [filteredDays]);
 
   const stats = useMemo(() => {
-    if (reportData?.found) {
-      return {
-        total: reportData.total_touches || 0,
-        replied: reportData.total_replied || 0,
-        skipped: reportData.skipped || 0,
-        voice: reportData.voice_replies || 0,
-        completion: reportData.total_touches
-          ? Math.round(((reportData.total_replied || 0) / reportData.total_touches) * 100)
-          : 0,
-      };
-    }
-    // Fallback for 'all' parents view — use bootstrap data (last 7 days)
-    const total = allMessages.length;
-    const replied = allMessages.filter((m) => m.replied || m.reply_status === "done").length;
-    const skipped = allMessages.filter((m) => m.reply_status === "skipped").length;
-    const voice = allMessages.filter((m) => m.reply?.is_voice).length;
-    return { total, replied, skipped, voice, completion: total ? Math.round((replied / total) * 100) : 0 };
-  }, [reportData, allMessages]);
+    const totals = filteredParents.reduce((out, p) => {
+      for (const key of ['total', 'replied', 'skipped', 'voice']) out[key] += p.summary?.[key] || 0;
+      return out;
+    }, { total: 0, replied: 0, skipped: 0, voice: 0 });
+    return { ...totals, completion: totals.total ? Math.round(totals.replied / totals.total * 100) : 0 };
+  }, [filteredParents]);
 
   const feelingStats = useMemo(() => {
     const counts = {};
@@ -1028,21 +1025,9 @@ function ReportsTab({ parents, plan, user, checkinsData }) {
   }, [allMessages]);
 
   const medicineStats = useMemo(() => {
-    if (reportData?.found) {
-      return {
-        taken: reportData.medicine_taken || 0,
-        skipped: reportData.medicine_skipped || 0,
-      };
-    }
-    let taken = 0, skipped = 0;
-    allMessages.forEach((m) => {
-      if (m.category?.includes("medicine")) {
-        if (m.reply_status === "done" || m.replied) taken++;
-        if (m.reply_status === "skipped") skipped++;
-      }
-    });
-    return { taken, skipped };
-  }, [reportData, allMessages]);
+    return filteredParents.reduce((out, p) => ({ taken: out.taken + (p.summary?.medicine_taken || 0),
+      skipped: out.skipped + (p.summary?.medicine_skipped || 0) }), { taken: 0, skipped: 0 });
+  }, [filteredParents]);
 
   const handleDownloadPDF = async () => {
     if (!filteredParents.length) {
@@ -1303,7 +1288,7 @@ function ReportsTab({ parents, plan, user, checkinsData }) {
       doc.setFont("helvetica", "normal");
       y += 8;
 
-      const daysSource = (reportData?.found && reportData?.details) ? reportData.details : filteredDays;
+      const daysSource = filteredDays;
       daysSource.slice(0, 20).forEach((d) => {
         ensureSpace(12);
         doc.setFontSize(8.5);
@@ -1357,6 +1342,10 @@ function ReportsTab({ parents, plan, user, checkinsData }) {
 
   if (reportQuery.isLoading) {
     return <div className="p-8 text-center text-sm text-[#9a9183] flex justify-center items-center gap-2"><Loader2 className="w-5 h-5 animate-spin" /> Loading report...</div>;
+  }
+
+  if (reportQuery.isError) {
+    return <div role="alert" className="p-8 text-center text-sm">Could not load this month’s report. <button className="underline" onClick={() => reportQuery.refetch()}>Try again</button></div>;
   }
 
   return (

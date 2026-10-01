@@ -1,0 +1,38 @@
+[
+  {
+    "name": "ayana_parent_voice_summary_en",
+    "language": "en",
+    "status": "DRAFT",
+    "category": "UTILITY",
+    "components": [
+      {
+        "type": "BODY",
+        "text": "AYANA care update: {{1}} sent a voice note about {{2}}.\n\nReceived at: {{3}}\n\nAI-generated summary in English:\n{{4}}\n\nThis summary may miss details. Listen to the original recording using the accompanying voice-note notification."
+      }
+    ]
+  },
+  {
+    "name": "ayana_parent_voice_summary_te",
+    "language": "te",
+    "status": "DRAFT",
+    "category": "UTILITY",
+    "components": [
+      {
+        "type": "BODY",
+        "text": "AYANA సమాచారం: {{1}} {{2}} గురించి వాయిస్ మెసేజ్ పంపారు.\n\nఅందిన సమయం: {{3}}\n\nAI రూపొందించిన తెలుగు సారాంశం:\n{{4}}\n\nఈ సారాంశంలో కొన్ని వివరాలు తప్పిపోవచ్చు. అసలు రికార్డింగ్ వినడానికి వాయిస్ మెసేజ్ నోటిఫికేషన్‌ను ఉపయోగించండి."
+      }
+    ]
+  },
+  {
+    "name": "ayana_parent_voice_summary_hi",
+    "language": "hi",
+    "status": "DRAFT",
+    "category": "UTILITY",
+    "components": [
+      {
+        "type": "BODY",
+        "text": "AYANA अपडेट: {{1}} ने {{2}} के बारे में एक वॉइस मैसेज भेजा है।\n\nमिलने का समय: {{3}}\n\nAI द्वारा तैयार हिंदी सारांश:\n{{4}}\n\nइस सारांश में कुछ विवरण छूट सकते हैं। मूल रिकॉर्डिंग सुनने के लिए साथ भेजी गई वॉइस मैसेज सूचना का उपयोग करें।"
+      }
+    ]
+  }
+]

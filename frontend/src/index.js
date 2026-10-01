@@ -4,18 +4,8 @@ import "./instrument";
 import React from "react";
 import ReactDOM from "react-dom/client";
 import * as Sentry from "@sentry/react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import "@/index.css";
 import App from "@/App";
-
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      staleTime: 60_000,
-      refetchOnWindowFocus: false,
-    },
-  },
-});
 
 // React 19 root-level error hooks: report even when no boundary catches.
 const root = ReactDOM.createRoot(document.getElementById("root"), {
@@ -46,9 +36,7 @@ root.render(
         </main>
       }
     >
-      <QueryClientProvider client={queryClient}>
-        <App />
-      </QueryClientProvider>
+      <App />
     </Sentry.ErrorBoundary>
   </React.StrictMode>,
 );

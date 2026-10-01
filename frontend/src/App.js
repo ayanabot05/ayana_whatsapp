@@ -34,6 +34,7 @@ const Dashboard = lazy(() => import("@/pages/Dashboard"));
 const Replies = lazy(() => import("@/pages/Replies"));
 const Activation = lazy(() => import("@/pages/Activation"));
 const Admin = lazy(() => import("@/pages/Admin"));
+const Worker = lazy(() => import("@/pages/Worker"));
 const InviteClaim = lazy(() => import("@/pages/InviteClaim"));
 const PaymentSuccess = lazy(() => import("@/pages/PaymentReturn").then((m) => ({ default: m.PaymentSuccess })));
 const PaymentCancel = lazy(() => import("@/pages/PaymentReturn").then((m) => ({ default: m.PaymentCancel })));
@@ -78,6 +79,7 @@ function App() {
                   <Route path="/replies" element={<ProtectedRoute><Replies /></ProtectedRoute>} />
                   <Route path="/replies/:replyId" element={<ProtectedRoute><Replies /></ProtectedRoute>} />
                   <Route path="/admin" element={<ProtectedRoute adminOnly><Admin /></ProtectedRoute>} />
+                  <Route path="/worker" element={<ProtectedRoute deliveryOnly><Worker /></ProtectedRoute>} />
 
                   {/* Public invite claim — works for both logged-in and new users */}
                   <Route path="/invite/:token" element={<InviteClaim />} />

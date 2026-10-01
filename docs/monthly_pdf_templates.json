@@ -1,0 +1,50 @@
+[
+  {
+    "name": "ayana_monthly_report_pdf_en",
+    "language": "en",
+    "status": "DRAFT",
+    "category": "UTILITY",
+    "components": [
+      {
+        "type": "HEADER",
+        "format": "DOCUMENT"
+      },
+      {
+        "type": "BODY",
+        "text": "{{1}}'s AYANA monthly report for {{2}} is attached."
+      }
+    ]
+  },
+  {
+    "name": "ayana_monthly_report_pdf_te",
+    "language": "te",
+    "status": "DRAFT",
+    "category": "UTILITY",
+    "components": [
+      {
+        "type": "HEADER",
+        "format": "DOCUMENT"
+      },
+      {
+        "type": "BODY",
+        "text": "{{1}} కోసం {{2}} నెల AYANA నివేదిక జతచేయబడింది."
+      }
+    ]
+  },
+  {
+    "name": "ayana_monthly_report_pdf_hi",
+    "language": "hi",
+    "status": "DRAFT",
+    "category": "UTILITY",
+    "components": [
+      {
+        "type": "HEADER",
+        "format": "DOCUMENT"
+      },
+      {
+        "type": "BODY",
+        "text": "{{1}} की {{2}} की AYANA मासिक रिपोर्ट संलग्न है।"
+      }
+    ]
+  }
+]

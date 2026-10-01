@@ -14,28 +14,29 @@ async def send_update(phone, reply, session_open, language='en'):
     body = reply.get('body') or '[voice note]'
     preview = body if len(body) <= 3300 else body[:3300] + '\n[Full reply in Check-ins]'
     text = f"AYANA: {name} replied · {prompt}\n\n{preview}\n\n{stamp}\n{url}"
-    if session_open:
-        return await post_meta({'messaging_product':'whatsapp','to':phone,'type':'text','text':{'body':text}})
-    # ayana_parent_reply_{en,te,hi} and ayana_parent_voice_{en,te,hi} are
-    # approved with a static Website button and a Quick-reply button, so we
-    # always try the template when the recipient's window is closed. Opt out
-    # only when Meta has explicitly disabled the templates upstream.
+    # Child/sibling recipients are passive viewers — they almost never have an
+    # open 24h session.  Always send the approved UTILITY template which Meta
+    # delivers regardless of session state.  This avoids wasting an API call
+    # on free-text that will be rejected for most recipients.
+    # Use the actual approved components: text templates may have no buttons,
+    # and voice quick replies do not necessarily have index 1.
     if os.environ.get('WA_CHILD_REPLY_TEMPLATES_ENABLED', 'true').lower() == 'false':
         return {'status': 'awaiting_template', 'detail': 'Child reply templates are disabled by configuration.'}
     lang = language if language in ('en', 'te', 'hi') else 'en'
     kind = 'voice' if reply['is_voice'] else 'reply'
-    params = [name, prompt, stamp] if kind == 'voice' else [name, prompt, body[:600], stamp]
-    components = [{'type':'body','parameters':[{'type':'text','text':' '.join(str(v).split())} for v in params]}]
-    components.append({'type':'button','sub_type':'quick_reply','index':'1','parameters':[{'type':'payload','payload':f"ayana:{kind}:{reply['id']}"}]})
-    # Enable only if Meta's approved URL button uses /replies/{{1}}.
-    if os.environ.get('WA_REPLY_DYNAMIC_URLS', '').lower() == 'true':
-        components.append({'type':'button','sub_type':'url','index':'0','parameters':[{'type':'text','text':str(reply['id'])}]})
+    template_body = body if len(body) <= 600 else body[:560] + '… [Full reply in your AYANA dashboard]'
+    params = [name, prompt, stamp] if kind == 'voice' else [name, prompt, template_body, stamp]
+    from services.template_registry import build
+    try:
+        template, _ = build(f'ayana_parent_{kind}_{lang}', lang, params, f"ayana:{kind}:{reply['id']}")
+    except ValueError as exc:
+        return {'status':'configuration_error','detail':str(exc)}
     token, phone_id = _creds()
-    payload = {'messaging_product':'whatsapp','to':phone,'type':'template','template':{'name':f'ayana_parent_{kind}_{lang}','language':{'code':lang},'components':components}}
+    payload = {'messaging_product':'whatsapp','to':phone,'type':'template','template':template}
     result = await post_meta(payload, token, phone_id)
     import logging
     logging.getLogger('ayana.notify').info('[notify-child] phone=%s template=%s status=%s error=%s sid=%s',
-        phone, f'ayana_parent_{kind}_{lang}', result.get('status'), result.get('error_code'), result.get('sid'))
+        phone[-4:], template['name'], result.get('status'), result.get('error_code'), result.get('sid'))
     return result
 
 
@@ -63,7 +64,8 @@ async def send_update_email(recipient, reply, notification_id):
     if not email_enabled() or not os.environ.get('RESEND_API_KEY') or not os.environ.get('EMAIL_FROM'):
         return {'status':'disabled'}
     link = reply_url(reply)
-    html = f"<p>{_esc(reply['parent_name'])} sent a care reply.</p><p><a href=\"{_esc(link)}\">Open the reply in your AYANA account</a></p>"
+    reason = reply.get('delivery_failure') or 'WhatsApp could not deliver this update.'
+    html = f"<p>{_esc(reply['parent_name'])} sent a care reply.</p><p>WhatsApp delivery failed: {_esc(reason)}</p><p>{_esc(reply.get('body') or '[Voice note available in your dashboard]')}</p><p><a href=\"{_esc(link)}\">Open the reply in your AYANA account</a></p><p>If updates are not arriving, send Hi to AYANA on WhatsApp so we can retry eligible pending updates.</p>"
     try:
         async with httpx.AsyncClient(timeout=10) as client:
             response = await client.post('https://api.resend.com/emails', headers={'Authorization':f"Bearer {os.environ['RESEND_API_KEY']}",'Idempotency-Key':f'notification-{notification_id}'}, json={'from':os.environ['EMAIL_FROM'],'to':[recipient['email']],'subject':'Your parent replied on AYANA','html':html})

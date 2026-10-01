@@ -2,12 +2,15 @@
 from datetime import date, datetime, time, timedelta, timezone
 from fastapi import HTTPException
 from database import get_pool
-from services.reply_linking import build_parent_days, parent_zone
+from services.reply_linking import build_parent_days, parent_zone, summarize_days
 
 
-async def timeline(owner, days=7, selected_date=None, parent_id=None, page=1, page_size=None):
+async def timeline(owner, days=7, selected_date=None, parent_id=None, page=1, page_size=None, period=None):
     try:
         chosen = date.fromisoformat(selected_date) if selected_date else None
+        month = date.fromisoformat(period + '-01') if period else None
+        if chosen and month:
+            raise ValueError('Choose a day or a month, not both.')
     except ValueError:
         raise HTTPException(422, 'Choose a valid date (YYYY-MM-DD).')
     pool = get_pool()
@@ -22,6 +25,9 @@ async def timeline(owner, days=7, selected_date=None, parent_id=None, page=1, pa
         zone = parent_zone(parent.get('timezone'))
         end_day = (chosen or datetime.now(zone).date()) + timedelta(days=1)
         start_day = chosen or end_day - timedelta(days=days)
+        if month:
+            start_day = month
+            end_day = (month.replace(day=28) + timedelta(days=4)).replace(day=1)
         start = datetime.combine(start_day, time.min, zone).astimezone(timezone.utc)
         end = datetime.combine(end_day, time.min, zone).astimezone(timezone.utc)
         async with pool.acquire() as conn:
@@ -42,16 +48,20 @@ async def timeline(owner, days=7, selected_date=None, parent_id=None, page=1, pa
         parent_days = build_parent_days(parent, logs, replies)
         parent_days = [d for d in parent_days if start_day.isoformat() <= d['day_key'] < end_day.isoformat()]
         total_days = len(parent_days)
+        summary = summarize_days(parent_days)
         if page_size:
             # Newest day first, then slice. Only applied when the caller asks for
             # pagination, so the default response shape/order is unchanged.
             paged = sorted(parent_days, key=lambda d: d['day_key'], reverse=True)
             parent_days = paged[(page - 1) * page_size: page * page_size]
         entry = {'parent_id': str(parent['id']), 'name': parent.get('preferred_name') or parent['name'],
-                 'relationship': parent['relationship'], 'timezone': str(zone), 'days': parent_days}
+                 'relationship': parent['relationship'], 'timezone': str(zone), 'days': parent_days, 'summary': summary}
         if page_size:
             entry.update({'page': page, 'page_size': page_size, 'total_days': total_days,
                           'has_more': page * page_size < total_days})
         result.append(entry)
     events = await pool.fetch("SELECT id,parent_id,body,created_at FROM emergency_events WHERE user_id=$1 AND status='open' ORDER BY created_at DESC LIMIT 20", owner)
-    return {'parents': result, 'alerts': [{'kind': 'emergency', 'event_id': str(e['id']), 'parent_id': str(e['parent_id']), 'body': e['body'], 'created_at': e['created_at'].isoformat()} for e in events]}
+    delivery_alerts = await pool.fetch('''SELECT a.* FROM parent_delivery_alerts a JOIN parents p ON p.id=a.parent_id
+        WHERE p.user_id=$1 AND p.deleted_at IS NULL ORDER BY a.created_at DESC LIMIT 20''',owner)
+    return {'parents': result, 'alerts': [{'kind': 'emergency', 'event_id': str(e['id']), 'parent_id': str(e['parent_id']), 'body': e['body'], 'created_at': e['created_at'].isoformat()} for e in events],
+            'delivery_alerts':[{'parent_id':str(a['parent_id']),'day':a['day_key'],'body':a['detail']} for a in delivery_alerts]}

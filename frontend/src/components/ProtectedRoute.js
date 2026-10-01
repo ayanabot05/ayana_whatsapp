@@ -2,7 +2,7 @@ import { Navigate, useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { Loader2 } from "lucide-react";
 
-export function ProtectedRoute({ children, adminOnly = false }) {
+export function ProtectedRoute({ children, adminOnly = false, deliveryOnly = false }) {
   const { user } = useAuth();
   const location = useLocation();
 
@@ -14,6 +14,8 @@ export function ProtectedRoute({ children, adminOnly = false }) {
     );
   }
   if (!user) return <Navigate to={`/login?redirect=${encodeURIComponent(location.pathname + location.search)}`} replace />;
+  if (user.role === 'support' && !deliveryOnly) return <Navigate to="/worker" replace />;
+  if (deliveryOnly && !['admin', 'support'].includes(user.role)) return <Navigate to="/dashboard" replace />;
   if (adminOnly && user.role !== "admin") return <Navigate to="/dashboard" replace />;
   return children;
 }

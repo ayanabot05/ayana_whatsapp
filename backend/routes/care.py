@@ -21,7 +21,8 @@ async def care_status(parent_id: UUID,user=Depends(get_current_user)):
         activation = await conn.fetchrow('SELECT * FROM activation_state WHERE user_id=$1',owner)
         welcome = await conn.fetchrow('SELECT status,detail FROM welcome_deliveries WHERE event_key=$1',f'parent:{parent_id}')
         last = await conn.fetchrow('SELECT created_at,delivery_status,category FROM message_logs WHERE parent_id=$1 ORDER BY created_at DESC LIMIT 1',parent_id)
-        child_welcome = await conn.fetchrow('SELECT status,detail FROM welcome_deliveries WHERE recipient_id=$1 ORDER BY created_at DESC LIMIT 1',user['id'])
+        # welcome_deliveries has no created_at column; updated_at is the latest-activity stamp.
+        child_welcome = await conn.fetchrow("SELECT status,detail FROM welcome_deliveries WHERE recipient_id=$1 AND recipient_kind='user' ORDER BY updated_at DESC LIMIT 1",user['id'])
         from services.billing_access import access
         entitlement = await access(conn,owner)
     result = {'timezone':parent['timezone'],'next_at':None,'next_label':None,'welcome':dict(welcome) if welcome else None,'child_welcome':dict(child_welcome) if child_welcome else None,'last_delivery':last['delivery_status'] if last else None}

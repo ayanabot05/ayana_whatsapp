@@ -1,0 +1,23 @@
+[
+  {
+    "name": "ayana_delivery_issue_en",
+    "language": "en",
+    "status": "DRAFT",
+    "category": "UTILITY",
+    "components": [{"type": "BODY", "text": "AYANA delivery update for {{1}}: delivery of {{2}} scheduled messages on {{3}} could not be confirmed. Please check their phone or contact them directly. This does not confirm that they missed a reply."}]
+  },
+  {
+    "name": "ayana_delivery_issue_te",
+    "language": "te",
+    "status": "DRAFT",
+    "category": "UTILITY",
+    "components": [{"type": "BODY", "text": "{{1}} కోసం AYANA డెలివరీ సమాచారం: {{2}} షెడ్యూల్ సందేశాలు చేరినట్లు నిర్ధారించలేకపోయాము. తేదీ: {{3}}. దయచేసి వారి ఫోన్‌ను తనిఖీ చేయండి లేదా నేరుగా సంప్రదించండి. వారు సమాధానం ఇవ్వలేదని దీని అర్థం కాదు."}]
+  },
+  {
+    "name": "ayana_delivery_issue_hi",
+    "language": "hi",
+    "status": "DRAFT",
+    "category": "UTILITY",
+    "components": [{"type": "BODY", "text": "{{1}} के लिए AYANA डिलीवरी सूचना: {{2}} निर्धारित संदेशों की डिलीवरी की पुष्टि नहीं हो सकी। तारीख: {{3}}। कृपया उनका फ़ोन जाँचें या उनसे सीधे संपर्क करें। इसका अर्थ यह नहीं है कि उन्होंने जवाब नहीं दिया।"}]
+  }
+]

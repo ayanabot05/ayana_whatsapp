@@ -20,7 +20,7 @@ router = APIRouter()
 
 # ---------------- Consent & Preferences ----------------
 @router.post("/consent")
-async def log_consent(payload: ConsentInput, request: Request, user: dict = Depends(get_current_user), _csrf: None = Depends(validate_csrf_token)):
+async def log_consent(payload: ConsentInput, request: Request, background_tasks: BackgroundTasks, user: dict = Depends(get_current_user), _csrf: None = Depends(validate_csrf_token)):
     async with get_pool().acquire() as conn:
         await conn.execute(
             """
@@ -31,9 +31,11 @@ async def log_consent(payload: ConsentInput, request: Request, user: dict = Depe
             request.client.host if request.client else None,
         )
         if payload.consent_type == 'child' and payload.agreed:
-            from services.welcomes import queue_child
-            await queue_child(user, conn)
+            from services.welcomes import queue_child, deliver
+            welcome_key = await queue_child(user, conn=conn)
             await conn.execute("UPDATE welcome_deliveries SET status='pending',next_attempt_at=now() WHERE recipient_id=$1 AND status='awaiting_consent'", user['id'])
+            if welcome_key:
+                background_tasks.add_task(deliver, welcome_key)
     await audit(user["id"], "consent", {"type": payload.consent_type, "agreed": payload.agreed})
     return {"ok": True}
 

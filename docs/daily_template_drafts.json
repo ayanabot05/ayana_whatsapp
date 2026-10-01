@@ -1,0 +1,824 @@
+[
+  {
+    "name": "ayana_morning_wish_en",
+    "language": "en",
+    "status": "PENDING",
+    "category": "UTILITY",
+    "components": [
+      {
+        "type": "BODY",
+        "text": "Good morning, {{1}}! ☀️ Wishing you a healthy and peaceful day. AYANA is here for you. 💛"
+      },
+      {
+        "type": "BUTTONS",
+        "buttons": [
+          {
+            "type": "QUICK_REPLY",
+            "text": "Good morning 🌞"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "Not feeling well 😟"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "ayana_morning_wish_te",
+    "language": "te",
+    "status": "PENDING",
+    "category": "UTILITY",
+    "components": [
+      {
+        "type": "BODY",
+        "text": "శుభోదయం {{1}}! ☀️ మీకు ఆరోగ్యకరమైన, ప్రశాంతమైన రోజు కావాలని కోరుకుంటున్నాం. AYANA మీ కోసం ఉంది. 💛"
+      },
+      {
+        "type": "BUTTONS",
+        "buttons": [
+          {
+            "type": "QUICK_REPLY",
+            "text": "శుభోదయం 🌞"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "బాగోలేదు 😟"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "ayana_morning_wish_hi",
+    "language": "hi",
+    "status": "PENDING",
+    "category": "UTILITY",
+    "components": [
+      {
+        "type": "BODY",
+        "text": "सुप्रभात {{1}}! ☀️ आपका दिन स्वस्थ और शांत रहे। AYANA आपके साथ है। 💛"
+      },
+      {
+        "type": "BUTTONS",
+        "buttons": [
+          {
+            "type": "QUICK_REPLY",
+            "text": "सुप्रभात 🌞"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "ठीक नहीं 😟"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "ayana_afternoon_checkin_en",
+    "language": "en",
+    "status": "PENDING",
+    "category": "UTILITY",
+    "components": [
+      {
+        "type": "BODY",
+        "text": "Good afternoon, {{1}}! 🌤️ How is your day going so far? Reply whenever you can. 💛"
+      },
+      {
+        "type": "BUTTONS",
+        "buttons": [
+          {
+            "type": "QUICK_REPLY",
+            "text": "All good 👍"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "Resting 😴"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "Not well 😟"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "ayana_afternoon_checkin_te",
+    "language": "te",
+    "status": "PENDING",
+    "category": "UTILITY",
+    "components": [
+      {
+        "type": "BODY",
+        "text": "శుభ మధ్యాహ్నం {{1}}! 🌤️ ఈరోజు ఎలా గడుస్తోంది? వీలున్నప్పుడు రిప్లై ఇవ్వండి. 💛"
+      },
+      {
+        "type": "BUTTONS",
+        "buttons": [
+          {
+            "type": "QUICK_REPLY",
+            "text": "బాగుంది 👍"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "విశ్రాంతి 😴"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "బాగోలేదు 😟"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "ayana_afternoon_checkin_hi",
+    "language": "hi",
+    "status": "PENDING",
+    "category": "UTILITY",
+    "components": [
+      {
+        "type": "BODY",
+        "text": "नमस्ते {{1}}! 🌤️ आज का दिन कैसा चल रहा है? जब समय हो जवाब दें। 💛"
+      },
+      {
+        "type": "BUTTONS",
+        "buttons": [
+          {
+            "type": "QUICK_REPLY",
+            "text": "सब ठीक 👍"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "आराम कर रहा 😴"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "ठीक नहीं 😟"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "ayana_walk_check_en",
+    "language": "en",
+    "status": "PENDING",
+    "category": "UTILITY",
+    "components": [
+      {
+        "type": "BODY",
+        "text": "Hi {{1}}, have you gone for your walk today? 🚶 A short walk keeps the body active and the mind fresh. 💛"
+      },
+      {
+        "type": "BUTTONS",
+        "buttons": [
+          {
+            "type": "QUICK_REPLY",
+            "text": "Walked 🚶"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "Will go later"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "Not today"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "ayana_walk_check_te",
+    "language": "te",
+    "status": "PENDING",
+    "category": "UTILITY",
+    "components": [
+      {
+        "type": "BODY",
+        "text": "హాయ్ {{1}}, ఈరోజు నడకకు వెళ్లారా? 🚶 కొద్దిసేపు నడిస్తే శరీరం చురుగ్గా, మనసు ప్రశాంతంగా ఉంటుంది. 💛"
+      },
+      {
+        "type": "BUTTONS",
+        "buttons": [
+          {
+            "type": "QUICK_REPLY",
+            "text": "నడిచాను 🚶"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "తర్వాత వెళ్తా"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "ఈరోజు లేదు"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "ayana_walk_check_hi",
+    "language": "hi",
+    "status": "PENDING",
+    "category": "UTILITY",
+    "components": [
+      {
+        "type": "BODY",
+        "text": "हाय {{1}}, क्या आप आज टहलने गए? 🚶 थोड़ी देर टहलने से शरीर सक्रिय और मन तरोताज़ा रहता है। 💛"
+      },
+      {
+        "type": "BUTTONS",
+        "buttons": [
+          {
+            "type": "QUICK_REPLY",
+            "text": "टहल लिया 🚶"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "बाद में"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "आज नहीं"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "ayana_tea_check_en",
+    "language": "en",
+    "status": "PENDING",
+    "category": "UTILITY",
+    "components": [
+      {
+        "type": "BODY",
+        "text": "Hi {{1}}, is it time for your tea or coffee? ☕ Enjoy it slowly and rest for a little while. 💛"
+      },
+      {
+        "type": "BUTTONS",
+        "buttons": [
+          {
+            "type": "QUICK_REPLY",
+            "text": "Had it ☕"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "Later"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "Skip today"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "ayana_tea_check_te",
+    "language": "te",
+    "status": "PENDING",
+    "category": "UTILITY",
+    "components": [
+      {
+        "type": "BODY",
+        "text": "హాయ్ {{1}}, టీ లేదా కాఫీ తాగే సమయం అయ్యింది ☕ నెమ్మదిగా తాగి కొద్దిసేపు విశ్రాంతి తీసుకోండి. 💛"
+      },
+      {
+        "type": "BUTTONS",
+        "buttons": [
+          {
+            "type": "QUICK_REPLY",
+            "text": "తాగాను ☕"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "తర్వాత"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "వద్దు"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "ayana_tea_check_hi",
+    "language": "hi",
+    "status": "PENDING",
+    "category": "UTILITY",
+    "components": [
+      {
+        "type": "BODY",
+        "text": "हाय {{1}}, चाय या कॉफ़ी का समय हो गया है ☕ इत्मीनान से पीजिए और थोड़ी देर आराम कीजिए। 💛"
+      },
+      {
+        "type": "BUTTONS",
+        "buttons": [
+          {
+            "type": "QUICK_REPLY",
+            "text": "पी ली ☕"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "बाद में"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "आज नहीं"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "ayana_water_en",
+    "language": "en",
+    "status": "PENDING",
+    "category": "UTILITY",
+    "components": [
+      {
+        "type": "BODY",
+        "text": "Hi {{1}}, have you had water recently? 💧 Please drink a glass of water now. Staying hydrated keeps you well. 💛"
+      },
+      {
+        "type": "BUTTONS",
+        "buttons": [
+          {
+            "type": "QUICK_REPLY",
+            "text": "Drank 💧"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "Will drink now"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "ayana_water_te",
+    "language": "te",
+    "status": "PENDING",
+    "category": "UTILITY",
+    "components": [
+      {
+        "type": "BODY",
+        "text": "హాయ్ {{1}}, ఇటీవల నీళ్లు తాగారా? 💧 ఇప్పుడు ఒక గ్లాసు నీళ్లు తాగండి. తగినన్ని నీళ్లు తాగితే ఆరోగ్యంగా ఉంటారు. 💛"
+      },
+      {
+        "type": "BUTTONS",
+        "buttons": [
+          {
+            "type": "QUICK_REPLY",
+            "text": "తాగాను 💧"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "ఇప్పుడు తాగుతా"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "ayana_water_hi",
+    "language": "hi",
+    "status": "PENDING",
+    "category": "UTILITY",
+    "components": [
+      {
+        "type": "BODY",
+        "text": "हाय {{1}}, क्या आपने अभी पानी पिया? 💧 कृपया एक गिलास पानी पी लीजिए। पर्याप्त पानी पीने से सेहत ठीक रहती है। 💛"
+      },
+      {
+        "type": "BUTTONS",
+        "buttons": [
+          {
+            "type": "QUICK_REPLY",
+            "text": "पी लिया 💧"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "थोड़ी देर में"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "ayana_bp_check_en",
+    "language": "en",
+    "status": "PENDING",
+    "category": "UTILITY",
+    "components": [
+      {
+        "type": "BODY",
+        "text": "Hi {{1}}, it's time to check your blood pressure. 🩺 Please reply with your reading, or tap a button below. 💛"
+      },
+      {
+        "type": "BUTTONS",
+        "buttons": [
+          {
+            "type": "QUICK_REPLY",
+            "text": "Checked ✅"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "Will check later"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "Feeling unwell 😟"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "ayana_bp_check_te",
+    "language": "te",
+    "status": "PENDING",
+    "category": "UTILITY",
+    "components": [
+      {
+        "type": "BODY",
+        "text": "హాయ్ {{1}}, బీపీ చెక్ చేసుకునే సమయం అయ్యింది. 🩺 మీ రీడింగ్‌ను రిప్లైగా పంపండి లేదా కింది బటన్ నొక్కండి. 💛"
+      },
+      {
+        "type": "BUTTONS",
+        "buttons": [
+          {
+            "type": "QUICK_REPLY",
+            "text": "చెక్ చేశాను ✅"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "తర్వాత చేస్తా"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "బాగోలేదు 😟"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "ayana_bp_check_hi",
+    "language": "hi",
+    "status": "PENDING",
+    "category": "UTILITY",
+    "components": [
+      {
+        "type": "BODY",
+        "text": "हाय {{1}}, ब्लड प्रेशर जाँचने का समय हो गया है। 🩺 अपनी रीडिंग भेजें या नीचे दिया बटन दबाएँ। 💛"
+      },
+      {
+        "type": "BUTTONS",
+        "buttons": [
+          {
+            "type": "QUICK_REPLY",
+            "text": "जाँच लिया ✅"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "बाद में"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "ठीक नहीं 😟"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "ayana_sugar_check_en",
+    "language": "en",
+    "status": "PENDING",
+    "category": "UTILITY",
+    "components": [
+      {
+        "type": "BODY",
+        "text": "Hi {{1}}, it's time to check your blood sugar. 🩸 Please reply with your reading, or tap a button below. 💛"
+      },
+      {
+        "type": "BUTTONS",
+        "buttons": [
+          {
+            "type": "QUICK_REPLY",
+            "text": "Checked ✅"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "Will check later"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "Feeling unwell 😟"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "ayana_sugar_check_te",
+    "language": "te",
+    "status": "PENDING",
+    "category": "UTILITY",
+    "components": [
+      {
+        "type": "BODY",
+        "text": "హాయ్ {{1}}, షుగర్ చెక్ చేసుకునే సమయం అయ్యింది. 🩸 మీ రీడింగ్‌ను రిప్లైగా పంపండి లేదా కింది బటన్ నొక్కండి. 💛"
+      },
+      {
+        "type": "BUTTONS",
+        "buttons": [
+          {
+            "type": "QUICK_REPLY",
+            "text": "చెక్ చేశాను ✅"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "తర్వాత చేస్తా"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "బాగోలేదు 😟"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "ayana_sugar_check_hi",
+    "language": "hi",
+    "status": "PENDING",
+    "category": "UTILITY",
+    "components": [
+      {
+        "type": "BODY",
+        "text": "हाय {{1}}, ब्लड शुगर जाँचने का समय हो गया है। 🩸 अपनी रीडिंग भेजें या नीचे दिया बटन दबाएँ। 💛"
+      },
+      {
+        "type": "BUTTONS",
+        "buttons": [
+          {
+            "type": "QUICK_REPLY",
+            "text": "जाँच लिया ✅"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "बाद में"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "ठीक नहीं 😟"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "ayana_health_check_en",
+    "language": "en",
+    "status": "PENDING",
+    "category": "UTILITY",
+    "components": [
+      {
+        "type": "BODY",
+        "text": "Hi {{1}}, how is your health today? 💛 Any pain, dizziness or discomfort? Please let us know."
+      },
+      {
+        "type": "BUTTONS",
+        "buttons": [
+          {
+            "type": "QUICK_REPLY",
+            "text": "All fine 👍"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "Mild discomfort"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "Need help 🆘"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "ayana_health_check_te",
+    "language": "te",
+    "status": "PENDING",
+    "category": "UTILITY",
+    "components": [
+      {
+        "type": "BODY",
+        "text": "హాయ్ {{1}}, ఈరోజు మీ ఆరోగ్యం ఎలా ఉంది? 💛 నొప్పి, తలతిరుగుడు లేదా ఇబ్బంది ఏమైనా ఉందా? దయచేసి చెప్పండి."
+      },
+      {
+        "type": "BUTTONS",
+        "buttons": [
+          {
+            "type": "QUICK_REPLY",
+            "text": "బాగున్నా 👍"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "కొంచెం ఇబ్బంది"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "సహాయం కావాలి 🆘"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "ayana_health_check_hi",
+    "language": "hi",
+    "status": "PENDING",
+    "category": "UTILITY",
+    "components": [
+      {
+        "type": "BODY",
+        "text": "हाय {{1}}, आज आपकी सेहत कैसी है? 💛 कोई दर्द, चक्कर या परेशानी तो नहीं? कृपया बताइए।"
+      },
+      {
+        "type": "BUTTONS",
+        "buttons": [
+          {
+            "type": "QUICK_REPLY",
+            "text": "ठीक हूँ 👍"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "थोड़ी परेशानी"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "मदद चाहिए 🆘"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "ayana_goodnight_en",
+    "language": "en",
+    "status": "PENDING",
+    "category": "UTILITY",
+    "components": [
+      {
+        "type": "BODY",
+        "text": "Good night, {{1}}! 🌙 Rest well and sleep peacefully. AYANA will check in with you again tomorrow. 💛"
+      },
+      {
+        "type": "BUTTONS",
+        "buttons": [
+          {
+            "type": "QUICK_REPLY",
+            "text": "Good night 🌙"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "Not feeling well 😟"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "ayana_goodnight_te",
+    "language": "te",
+    "status": "PENDING",
+    "category": "UTILITY",
+    "components": [
+      {
+        "type": "BODY",
+        "text": "శుభ రాత్రి {{1}}! 🌙 హాయిగా నిద్రపోండి. రేపు AYANA మళ్ళీ మిమ్మల్ని పలకరిస్తుంది. 💛"
+      },
+      {
+        "type": "BUTTONS",
+        "buttons": [
+          {
+            "type": "QUICK_REPLY",
+            "text": "శుభ రాత్రి 🌙"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "బాగోలేదు 😟"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "ayana_goodnight_hi",
+    "language": "hi",
+    "status": "PENDING",
+    "category": "UTILITY",
+    "components": [
+      {
+        "type": "BODY",
+        "text": "शुभ रात्रि {{1}}! 🌙 आराम से सोइए। कल AYANA फिर आपसे बात करेगी। 💛"
+      },
+      {
+        "type": "BUTTONS",
+        "buttons": [
+          {
+            "type": "QUICK_REPLY",
+            "text": "शुभ रात्रि 🌙"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "ठीक नहीं 😟"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "ayana_love_note_en",
+    "language": "en",
+    "status": "PENDING",
+    "category": "UTILITY",
+    "components": [
+      {
+        "type": "BODY",
+        "text": "Hi {{1}}, {{2}} was thinking of you today and sends you lots of love. 🤗 You are very special to us. 💛"
+      },
+      {
+        "type": "BUTTONS",
+        "buttons": [
+          {
+            "type": "QUICK_REPLY",
+            "text": "Love you too 💛"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "Thank you 🙏"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "ayana_love_note_te",
+    "language": "te",
+    "status": "PENDING",
+    "category": "UTILITY",
+    "components": [
+      {
+        "type": "BODY",
+        "text": "హాయ్ {{1}}, {{2}} ఈరోజు మిమ్మల్ని గుర్తు చేసుకున్నారు, చాలా ప్రేమ పంపుతున్నారు. 🤗 మీరు మాకెంతో ప్రత్యేకం. 💛"
+      },
+      {
+        "type": "BUTTONS",
+        "buttons": [
+          {
+            "type": "QUICK_REPLY",
+            "text": "లవ్ యూ టూ 💛"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "ధన్యవాదాలు 🙏"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "ayana_love_note_hi",
+    "language": "hi",
+    "status": "PENDING",
+    "category": "UTILITY",
+    "components": [
+      {
+        "type": "BODY",
+        "text": "हाय {{1}}, {{2}} की तरफ़ से ढेर सारा प्यार! 🤗 आज उन्होंने आपको बहुत याद किया। आप हमारे लिए बहुत खास हैं। 💛"
+      },
+      {
+        "type": "BUTTONS",
+        "buttons": [
+          {
+            "type": "QUICK_REPLY",
+            "text": "आपको भी प्यार 💛"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "धन्यवाद 🙏"
+          }
+        ]
+      }
+    ]
+  }
+]

@@ -1,0 +1,1828 @@
+[
+  {
+    "name": "ayana_child_welcome_en",
+    "status": "APPROVED",
+    "category": "UTILITY",
+    "language": "en",
+    "components": [
+      {
+        "type": "BODY",
+        "text": "Hi {{1}}, your email is verified and your AYANA account is ready.\n\nAdd your parent's details and choose their check-in times in your dashboard. AYANA will use your selected WhatsApp number for care updates.",
+        "example": {
+          "body_text": [["Guna"]]
+        }
+      },
+      {
+        "type": "BUTTONS",
+        "buttons": [
+          {
+            "type": "URL",
+            "text": "Open dashboard",
+            "url": "https://app.ayanabott.com/dashboard"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "Enable updates"
+          }
+        ]
+      }
+    ],
+    "id": "ayana_child_welcome_en_001"
+  },
+  {
+    "name": "ayana_child_welcome_te",
+    "status": "APPROVED",
+    "category": "UTILITY",
+    "language": "te",
+    "components": [
+      {
+        "type": "BODY",
+        "text": "నమస్తే {{1}}, మీ ఇమెయిల్ ధృవీకరణ పూర్తయింది. మీ AYANA ఖాతా సిద్ధంగా ఉంది.\n\nడ్యాష్\u200cబోర్డ్\u200cలో మీ తల్లిదండ్రుల వివరాలు, చెక్-ఇన్ సమయాలను నమోదు చేయండి. మీరు ఎంచుకున్న WhatsApp నంబర్కు AYANA సంరక్షణ సమాచారాన్ని పంపుతుంది.",
+        "example": {
+          "body_text": [["గున"]]
+        }
+      },
+      {
+        "type": "BUTTONS",
+        "buttons": [
+          {
+            "type": "URL",
+            "text": "డ్యాష్\u200cబోర్డ్ చూడండి",
+            "url": "https://app.ayanabott.com/dashboard"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "అప్డేట్లు కావాలి"
+          }
+        ]
+      }
+    ],
+    "id": "ayana_child_welcome_te_001"
+  },
+  {
+    "name": "ayana_child_welcome_hi",
+    "status": "APPROVED",
+    "category": "UTILITY",
+    "language": "hi",
+    "components": [
+      {
+        "type": "BODY",
+        "text": "नमस्ते {{1}}, आपका ईमेल सत्यापित हो गया है और आपका AYANA खाता तैयार है।\n\nडैशबोर्ड में अपने माता-पिता की जानकारी और चेक-इन का समय जोड़ें। AYANA आपके चुने हुए WhatsApp नंबर पर देखभाल से जुड़े अपडेट भेजेगा।",
+        "example": {
+          "body_text": [["Guna"]]
+        }
+      },
+      {
+        "type": "BUTTONS",
+        "buttons": [
+          {
+            "type": "URL",
+            "text": "डैशबोर्ड खोलें",
+            "url": "https://app.ayanabott.com/dashboard"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "अपडेट शुरू करें"
+          }
+        ]
+      }
+    ],
+    "id": "ayana_child_welcome_hi_001"
+  },
+  {
+    "name": "ayana_morning_wish_te",
+    "status": "APPROVED",
+    "category": "MARKETING",
+    "language": "te",
+    "components": [
+      {
+        "type": "HEADER",
+        "format": "TEXT",
+        "text": "AyanaBot"
+      },
+      {
+        "type": "BODY",
+        "text": "శుభోదయం {{1}}! ☀️ మీకు ఆరోగ్యకరమైన, ప్రశాంతమైన రోజు కావాలని కోరుకుంటున్నాం. AYANA మీ కోసం ఉంది. 💛",
+        "example": {
+          "body_text": [
+            [
+              "అమ్మ"
+            ]
+          ]
+        }
+      },
+      {
+        "type": "BUTTONS",
+        "buttons": [
+          {
+            "type": "QUICK_REPLY",
+            "text": "శుభోదయం"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "బాగోలేదు"
+          }
+        ]
+      }
+    ],
+    "id": "1270264771892734"
+  },
+  {
+    "name": "ayana_morning_wish_en",
+    "status": "APPROVED",
+    "category": "UTILITY",
+    "language": "en",
+    "components": [
+      {
+        "type": "HEADER",
+        "format": "TEXT",
+        "text": "AyanaBot"
+      },
+      {
+        "type": "BODY",
+        "text": "Good morning, {{1}}! ☀️ Wishing you a healthy and peaceful day. AYANA is here for you. 💛",
+        "example": {
+          "body_text": [
+            [
+              "Amma"
+            ]
+          ]
+        }
+      },
+      {
+        "type": "BUTTONS",
+        "buttons": [
+          {
+            "type": "QUICK_REPLY",
+            "text": "Good morning"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "Doing well"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "Not feeling well"
+          }
+        ]
+      }
+    ],
+    "id": "2267488797131950"
+  },
+  {
+    "name": "ayana_parent_voice_hi",
+    "status": "APPROVED",
+    "category": "UTILITY",
+    "language": "hi",
+    "components": [
+      {
+        "type": "HEADER",
+        "format": "TEXT",
+        "text": "AyanaBot"
+      },
+      {
+        "type": "BODY",
+        "text": "AYANA अपडेट: {{1}} ने {{2}} चेक-इन के जवाब में एक वॉइस मैसेज भेजा है।\n\nमिलने का समय: {{3}} ,  \n\nअपने AYANA डैशबोर्ड में सुनें, या यहाँ ऑडियो पाने के लिए “वॉइस भेजें” बटन दबाएँ।",
+        "example": {
+          "body_text": [
+            [
+              "माँ  ",
+              "morning check-in",
+              "8:01 am"
+            ]
+          ]
+        }
+      },
+      {
+        "type": "BUTTONS",
+        "buttons": [
+          {
+            "type": "QUICK_REPLY",
+            "text": "वॉइस भेजें"
+          }
+        ]
+      }
+    ],
+    "id": "1632707045053620"
+  },
+  {
+    "name": "ayana_parent_voice_te",
+    "status": "APPROVED",
+    "category": "UTILITY",
+    "language": "te",
+    "components": [
+      {
+        "type": "HEADER",
+        "format": "TEXT",
+        "text": "AyanaBot"
+      },
+      {
+        "type": "BODY",
+        "text": "AYANA సమాచారం: {{1}} {{2}} చెక్-ఇన్‌కు వాయిస్ మెసేజ్ పంపారు.\n\nఅందిన సమయం: {{3}}\n\nమీ AYANA డ్యాష్‌బోర్డ్‌లో వినండి. ఇక్కడ వినాలంటే “వాయిస్ పంపండి” బటన్‌ను నొక్కండి.",
+        "example": {
+          "body_text": [
+            [
+              "Amma",
+              "morning check-in",
+              "08:02am "
+            ]
+          ]
+        }
+      },
+      {
+        "type": "BUTTONS",
+        "buttons": [
+          {
+            "type": "QUICK_REPLY",
+            "text": "వాయిస్ పంపండి"
+          }
+        ]
+      }
+    ],
+    "id": "1104476338904085"
+  },
+  {
+    "name": "ayana_parent_voice_en",
+    "status": "APPROVED",
+    "category": "UTILITY",
+    "language": "en",
+    "components": [
+      {
+        "type": "HEADER",
+        "format": "TEXT",
+        "text": "AyanaBot"
+      },
+      {
+        "type": "BODY",
+        "text": "AYANA care update: {{1}} sent a voice note in response to the {{2}} check-in.\n\nReceived at: {{3}}\n\nListen in your AYANA dashboard, or tap “Send voice note” to request the audio here.",
+        "example": {
+          "body_text": [
+            [
+              "Amma",
+              "morning check-in",
+              "08:02 am "
+            ]
+          ]
+        }
+      },
+      {
+        "type": "BUTTONS",
+        "buttons": [
+          {
+            "type": "QUICK_REPLY",
+            "text": "Send voice note"
+          }
+        ]
+      }
+    ],
+    "id": "907743808825205"
+  },
+  {
+    "name": "ayana_parent_reply_hi",
+    "status": "APPROVED",
+    "category": "UTILITY",
+    "language": "hi",
+    "components": [
+      {
+        "type": "HEADER",
+        "format": "TEXT",
+        "text": "AyanaBot"
+      },
+      {
+        "type": "BODY",
+        "text": "AYANA अपडेट: {{1}} ने {{2}} चेक-इन का जवाब दिया है।\n\nउनका जवाब: {{3}}\nजवाब मिलने का समय: {{4}}\n\nयह जवाब और हाल के चेक-इन अपने AYANA डैशबोर्ड में देखें।",
+        "example": {
+          "body_text": [
+            [
+              "माँ",
+              "दोपहर के भोजन",
+              "हाँ, खाना खा लिया।",
+              "18 सितंबर, दोपहर 1:30 IST"
+            ]
+          ]
+        }
+      }
+    ],
+    "id": "1630652108489807"
+  },
+  {
+    "name": "ayana_parent_reply_te",
+    "status": "APPROVED",
+    "category": "UTILITY",
+    "language": "te",
+    "components": [
+      {
+        "type": "HEADER",
+        "format": "TEXT",
+        "text": "AyanaBot"
+      },
+      {
+        "type": "BODY",
+        "text": "AYANA సమాచారం: {{1}} {{2}} చెక్-ఇన్‌కు సమాధానం ఇచ్చారు.\n\nవారి సమాధానం: {{3}}\nఅందిన సమయం: {{4}}\n\nఈ సమాధానాన్ని, ఇటీవలి చెక్-ఇన్‌లను మీ AYANA డ్యాష్‌బోర్డ్‌లో చూడవచ్చు.",
+        "example": {
+          "body_text": [
+            [
+              "అమ్మ",
+              "మధ్యాహ్న భోజనం",
+              "తిన్నాను",
+              "సెప్టెంబర్ 18, మధ్యాహ్నం 1:30 IST"
+            ]
+          ]
+        }
+      }
+    ],
+    "id": "1087048363904768"
+  },
+  {
+    "name": "ayana_parent_reply_en",
+    "status": "APPROVED",
+    "category": "UTILITY",
+    "language": "en",
+    "components": [
+      {
+        "type": "HEADER",
+        "format": "TEXT",
+        "text": "AyanaBot"
+      },
+      {
+        "type": "BODY",
+        "text": "AYANA care update: {{1}} replied to the {{2}} check-in.\n\nTheir reply: {{3}}\nReceived at: {{4}}\n\nYou can view this update and recent check-ins in your AYANA dashboard.",
+        "example": {
+          "body_text": [
+            [
+              "Amma",
+              "Morning check-in",
+              "Had a good sleep",
+              "8:01am"
+            ]
+          ]
+        }
+      }
+    ],
+    "id": "1454694889869641"
+  },
+  {
+    "name": "ayana_office_return_te",
+    "status": "APPROVED",
+    "category": "MARKETING",
+    "language": "en",
+    "components": [
+      {
+        "type": "HEADER",
+        "format": "TEXT",
+        "text": "AyanaBot"
+      },
+      {
+        "type": "BODY",
+        "text": "హాయ్ {{1}}, ఆఫీస్/పని నుండి ఇంటికి వచ్చారా? 💼 ఈరోజు పని ఎలా ఉంది? సురక్షితంగా వచ్చారా? 💛",
+        "example": {
+          "body_text": [
+            [
+              "అమ్మ"
+            ]
+          ]
+        }
+      },
+      {
+        "type": "FOOTER",
+        "text": "కింద ఆప్షన్‌ను నొక్కండి లేదా  వాయిస్ నోట్ పంపండి"
+      },
+      {
+        "type": "BUTTONS",
+        "buttons": [
+          {
+            "type": "QUICK_REPLY",
+            "text": "సురక్షితంగా చేరుకున్నాను"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "దారిలో ఉన్నాను"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "ఈరోజు బాగా గడిచింది"
+          }
+        ]
+      }
+    ],
+    "id": "1772710240415414"
+  },
+  {
+    "name": "ayana_office_return_hi",
+    "status": "APPROVED",
+    "category": "MARKETING",
+    "language": "hi",
+    "components": [
+      {
+        "type": "HEADER",
+        "format": "TEXT",
+        "text": "AyanaBot"
+      },
+      {
+        "type": "BODY",
+        "text": "हाय {{1}}, क्या आप ऑफिस/काम से घर आ गए? 💼 आज काम कैसा रहा? सुरक्षित पहुँचे? 💛",
+        "example": {
+          "body_text": [
+            [
+              "माँ"
+            ]
+          ]
+        }
+      },
+      {
+        "type": "FOOTER",
+        "text": "नीचे  दिए गए विकल्प टैप करें या  वॉइस नोट भेजें"
+      },
+      {
+        "type": "BUTTONS",
+        "buttons": [
+          {
+            "type": "QUICK_REPLY",
+            "text": "सुरक्षित पहुँच गया"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "रास्ते में हूँ"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "आज का दिन अच्छा रहा"
+          }
+        ]
+      }
+    ],
+    "id": "29251242424464424"
+  },
+  {
+    "name": "ayana_office_return_en",
+    "status": "APPROVED",
+    "category": "MARKETING",
+    "language": "en_IN",
+    "components": [
+      {
+        "type": "HEADER",
+        "format": "TEXT",
+        "text": "AyanaBot"
+      },
+      {
+        "type": "BODY",
+        "text": "Hi {{1}}, did you reach home from the office/work? 💼 How was your day? Did you come back safely? 💛",
+        "example": {
+          "body_text": [
+            [
+              "Amma"
+            ]
+          ]
+        }
+      },
+      {
+        "type": "FOOTER",
+        "text": "Tap below or  send a voice note"
+      },
+      {
+        "type": "BUTTONS",
+        "buttons": [
+          {
+            "type": "QUICK_REPLY",
+            "text": "Reached safely"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "On the way"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "Had a good day"
+          }
+        ]
+      }
+    ],
+    "id": "2299343100878287"
+  },
+  {
+    "name": "ayana_outing_return_hi",
+    "status": "APPROVED",
+    "category": "MARKETING",
+    "language": "hi",
+    "components": [
+      {
+        "type": "HEADER",
+        "format": "TEXT",
+        "text": "AyanaBot"
+      },
+      {
+        "type": "BODY",
+        "text": "हाय {{1}}, क्या आप सुरक्षित घर पहुँच गए? 🏡 वापस आ गए? बाहर जाना कैसा रहा? 💛",
+        "example": {
+          "body_text": [
+            [
+              "माँ"
+            ]
+          ]
+        }
+      },
+      {
+        "type": "FOOTER",
+        "text": "नीचे  दिए गए विकल्प टैप करें या  वॉइस नोट भेजें"
+      },
+      {
+        "type": "BUTTONS",
+        "buttons": [
+          {
+            "type": "QUICK_REPLY",
+            "text": "घर पहुँच गया"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "आउटिंग में मज़ा आया"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "रास्ते में हूँ"
+          }
+        ]
+      }
+    ],
+    "id": "2303180273799810"
+  },
+  {
+    "name": "ayana_outing_return_te",
+    "status": "APPROVED",
+    "category": "MARKETING",
+    "language": "te",
+    "components": [
+      {
+        "type": "HEADER",
+        "format": "TEXT",
+        "text": "AyanaBot"
+      },
+      {
+        "type": "BODY",
+        "text": "హాయ్ {{1}}, సురక్షితంగా ఇంటికి చేరారా? 🏡 ఇంటికి తిరిగి వచ్చారా? బయటకు వెళ్లడం ఎలా ఉంది? 💛",
+        "example": {
+          "body_text": [
+            [
+              "అమ్మ"
+            ]
+          ]
+        }
+      },
+      {
+        "type": "FOOTER",
+        "text": "కింద ఆప్షన్‌ను నొక్కండి లేదా  వాయిస్ నోట్ పంపండి"
+      },
+      {
+        "type": "BUTTONS",
+        "buttons": [
+          {
+            "type": "QUICK_REPLY",
+            "text": "ఇంటికి చేరుకున్నాను"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "షికారు చాలా బాగుంది"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "దారిలో ఉన్నాను"
+          }
+        ]
+      }
+    ],
+    "id": "1463950352227637"
+  },
+  {
+    "name": "ayana_outing_return_en",
+    "status": "APPROVED",
+    "category": "UTILITY",
+    "language": "en",
+    "components": [
+      {
+        "type": "HEADER",
+        "format": "TEXT",
+        "text": "AyanaBot"
+      },
+      {
+        "type": "BODY",
+        "text": "Hi {{1}}, did you reach home safely? 🏡 Are you back? How was your outing? 💛",
+        "example": {
+          "body_text": [
+            [
+              "Amma"
+            ]
+          ]
+        }
+      },
+      {
+        "type": "FOOTER",
+        "text": "Tap below or  send a voice note"
+      },
+      {
+        "type": "BUTTONS",
+        "buttons": [
+          {
+            "type": "QUICK_REPLY",
+            "text": "Reached Home"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "Enjoyed outing"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "On the way"
+          }
+        ]
+      }
+    ],
+    "id": "1712264639856378"
+  },
+  {
+    "name": "ayana_temple_return_hi",
+    "status": "APPROVED",
+    "category": "UTILITY",
+    "language": "hi",
+    "components": [
+      {
+        "type": "HEADER",
+        "format": "TEXT",
+        "text": "AyanaBot"
+      },
+      {
+        "type": "BODY",
+        "text": "हाय {{1}}, क्या आप मंदिर से वापस आ गए? 🛕 दर्शन कैसा रहा? सुरक्षित घर पहुँचे? 💛",
+        "example": {
+          "body_text": [
+            [
+              "माँ"
+            ]
+          ]
+        }
+      },
+      {
+        "type": "FOOTER",
+        "text": "नीचे  दिए गए विकल्प टैप करें या  वॉइस नोट भेजें"
+      },
+      {
+        "type": "BUTTONS",
+        "buttons": [
+          {
+            "type": "QUICK_REPLY",
+            "text": "घर आ गया"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "दर्शन बहुत अच्छे से हुआ"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "अभी भी मंदिर में हूँ"
+          }
+        ]
+      }
+    ],
+    "id": "2288891268565112"
+  },
+  {
+    "name": "ayana_temple_return_te",
+    "status": "APPROVED",
+    "category": "UTILITY",
+    "language": "te",
+    "components": [
+      {
+        "type": "HEADER",
+        "format": "TEXT",
+        "text": "AyanaBot"
+      },
+      {
+        "type": "BODY",
+        "text": "హాయ్ {{1}}, గుడి నుండి తిరిగి వచ్చారా? 🛕 దర్శనం ఎలా జరిగింది? సురక్షితంగా ఇంటికి చేరారా? 💛",
+        "example": {
+          "body_text": [
+            [
+              "అమ్మ"
+            ]
+          ]
+        }
+      },
+      {
+        "type": "FOOTER",
+        "text": "కింద ఆప్షన్‌ను నొక్కండి లేదా  వాయిస్ నోట్ పంపండి"
+      },
+      {
+        "type": "BUTTONS",
+        "buttons": [
+          {
+            "type": "QUICK_REPLY",
+            "text": "ఇంటికి వచ్చా"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "దర్శనం ప్రశాంతంగా జరిగింది"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "ఇప్పటికీ గుడిలో ఉన్న"
+          }
+        ]
+      }
+    ],
+    "id": "1409316121382110"
+  },
+  {
+    "name": "ayana_temple_return_en",
+    "status": "APPROVED",
+    "category": "UTILITY",
+    "language": "en",
+    "components": [
+      {
+        "type": "HEADER",
+        "format": "TEXT",
+        "text": "AyanaBot"
+      },
+      {
+        "type": "BODY",
+        "text": "Hi {{1}}, did you come back from temple? 🛕 How was darshan? Reached home safely? 💛",
+        "example": {
+          "body_text": [
+            [
+              "Amma"
+            ]
+          ]
+        }
+      },
+      {
+        "type": "FOOTER",
+        "text": "Tap below or  send a voice note"
+      },
+      {
+        "type": "BUTTONS",
+        "buttons": [
+          {
+            "type": "QUICK_REPLY",
+            "text": "Reached Home"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "Nicely done"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "Still in Temple"
+          }
+        ]
+      }
+    ],
+    "id": "1622707202529607"
+  },
+  {
+    "name": "_ayana_shopping_return_hi",
+    "status": "APPROVED",
+    "category": "MARKETING",
+    "language": "hi",
+    "components": [
+      {
+        "type": "HEADER",
+        "format": "TEXT",
+        "text": "AyanaBot"
+      },
+      {
+        "type": "BODY",
+        "text": "हाय {{1}}, क्या आप {{2}} शॉपिंग से वापस आ गए? 🛍️ शॉपिंग कैसी रही? सुरक्षित घर पहुँचे? 💛",
+        "example": {
+          "body_text": [
+            [
+              "माँ  ",
+              " डीमार्ट "
+            ]
+          ]
+        }
+      },
+      {
+        "type": "FOOTER",
+        "text": "नीचे  दिए गए विकल्प टैप करें या  वॉइस नोट भेजें"
+      },
+      {
+        "type": "BUTTONS",
+        "buttons": [
+          {
+            "type": "QUICK_REPLY",
+            "text": "घर पहुँच गई"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "शॉपिंग हो गई"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "सही-सलामत पहुँच गई"
+          }
+        ]
+      }
+    ],
+    "id": "1652275596397456"
+  },
+  {
+    "name": "ayana_shopping_return_te",
+    "status": "APPROVED",
+    "category": "MARKETING",
+    "language": "te",
+    "components": [
+      {
+        "type": "HEADER",
+        "format": "TEXT",
+        "text": "AyanaBot"
+      },
+      {
+        "type": "BODY",
+        "text": "హాయ్ {{1}}, {{2}} షాపింగ్ నుండి తిరిగి వచ్చారా? 🛍️ షాపింగ్ ఎలా జరిగింది? సురక్షితంగా ఇంటికి చేరారా? 💛",
+        "example": {
+          "body_text": [
+            [
+              "అమ్మ",
+              "డిమార్ట్"
+            ]
+          ]
+        }
+      },
+      {
+        "type": "FOOTER",
+        "text": "కింద ఆప్షన్‌ను నొక్కండి లేదా  వాయిస్ నోట్ పంపండి"
+      },
+      {
+        "type": "BUTTONS",
+        "buttons": [
+          {
+            "type": "QUICK_REPLY",
+            "text": "ఇంటికి వచ్చా"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "షాపింగ్ అయ్యింది"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "సేఫ్ గా వచ్చాను"
+          }
+        ]
+      }
+    ],
+    "id": "1556907265684896"
+  },
+  {
+    "name": "ayana_shopping_return_en",
+    "status": "APPROVED",
+    "category": "MARKETING",
+    "language": "en",
+    "components": [
+      {
+        "type": "HEADER",
+        "format": "TEXT",
+        "text": "AyanaBot"
+      },
+      {
+        "type": "BODY",
+        "text": "Hi {{1}}, did you come back from {{2}} shopping? 🛍️ How was your shopping? Are you home safely? 💛",
+        "example": {
+          "body_text": [
+            [
+              "Amma",
+              "Dmart"
+            ]
+          ]
+        }
+      },
+      {
+        "type": "FOOTER",
+        "text": "Tap below or  send a voice note"
+      },
+      {
+        "type": "BUTTONS",
+        "buttons": [
+          {
+            "type": "QUICK_REPLY",
+            "text": "Reached Home"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "Shopping Done"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "Yes Safely"
+          }
+        ]
+      }
+    ],
+    "id": "1947313929280751"
+  },
+  {
+    "name": "ayana_market_return_hi",
+    "status": "APPROVED",
+    "category": "MARKETING",
+    "language": "hi",
+    "components": [
+      {
+        "type": "HEADER",
+        "format": "TEXT",
+        "text": "AyanaBot"
+      },
+      {
+        "type": "BODY",
+        "text": "हाय {{1}}, क्या आप बाजार से सुरक्षित आ गए? 🛒 घर पहुँचे? 💛",
+        "example": {
+          "body_text": [
+            [
+              "माँ  "
+            ]
+          ]
+        }
+      },
+      {
+        "type": "FOOTER",
+        "text": "नीचे  दिए गए विकल्प टैप करें या  वॉइस नोट भेजें"
+      },
+      {
+        "type": "BUTTONS",
+        "buttons": [
+          {
+            "type": "QUICK_REPLY",
+            "text": "घर पहुँच गया"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "शॉपिंग हो गई"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "अभी भी मार्केट में हूँ"
+          }
+        ]
+      }
+    ],
+    "id": "1290330496463911"
+  },
+  {
+    "name": "ayana_market_return_te",
+    "status": "APPROVED",
+    "category": "UTILITY",
+    "language": "te",
+    "components": [
+      {
+        "type": "HEADER",
+        "format": "TEXT",
+        "text": "AyanaBot"
+      },
+      {
+        "type": "BODY",
+        "text": "హాయ్ {{1}}, మార్కెట్ నుండి సేఫ్ గ  వచ్చారా? 🛒 ఇంటికి చేరారా? 💛",
+        "example": {
+          "body_text": [
+            [
+              "అమ్మ"
+            ]
+          ]
+        }
+      },
+      {
+        "type": "FOOTER",
+        "text": "కింద ఆప్షన్‌ను నొక్కండి లేదా  వాయిస్ నోట్ పంపండి"
+      },
+      {
+        "type": "BUTTONS",
+        "buttons": [
+          {
+            "type": "QUICK_REPLY",
+            "text": "ఇంటికి వచ్చాను"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "షాపింగ్ అయ్యింది"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "ఇప్పటికీ మార్కెట్‌లో ఉన్న"
+          }
+        ]
+      }
+    ],
+    "id": "1544179943675879"
+  },
+  {
+    "name": "ayana_market_return_en",
+    "status": "APPROVED",
+    "category": "UTILITY",
+    "language": "en",
+    "components": [
+      {
+        "type": "HEADER",
+        "format": "TEXT",
+        "text": "AyanaBot"
+      },
+      {
+        "type": "BODY",
+        "text": "Hi {{1}}, did you come back from market safely? 🛒 Did you reach home? How was market? 💛",
+        "example": {
+          "body_text": [
+            [
+              "Amma"
+            ]
+          ]
+        }
+      },
+      {
+        "type": "FOOTER",
+        "text": "Tap below or  send a voice note"
+      },
+      {
+        "type": "BUTTONS",
+        "buttons": [
+          {
+            "type": "QUICK_REPLY",
+            "text": "Reached Home"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "Shopping Done"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "Still in market"
+          }
+        ]
+      }
+    ],
+    "id": "1061098876695623"
+  },
+  {
+    "name": "ayana_meal_en",
+    "status": "APPROVED",
+    "category": "MARKETING",
+    "language": "en",
+    "components": [
+      {
+        "type": "HEADER",
+        "format": "TEXT",
+        "text": "AyanaBot"
+      },
+      {
+        "type": "BODY",
+        "text": "🍽 {{1}}, have you eaten? Eat well and rest for some time.",
+        "example": {
+          "body_text": [
+            [
+              "Amma"
+            ]
+          ]
+        }
+      },
+      {
+        "type": "FOOTER",
+        "text": "Tap below or  send a voice note"
+      },
+      {
+        "type": "BUTTONS",
+        "buttons": [
+          {
+            "type": "QUICK_REPLY",
+            "text": "Yes"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "Not Yet"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "skipped"
+          }
+        ]
+      }
+    ],
+    "id": "1111981761396063"
+  },
+  {
+    "name": "ayana_report_ready_hi",
+    "status": "APPROVED",
+    "category": "MARKETING",
+    "language": "hi",
+    "components": [
+      {
+        "type": "HEADER",
+        "format": "TEXT",
+        "text": "AyanaBot"
+      },
+      {
+        "type": "BODY",
+        "text": "📋 {{1}} की मासिक वेलनेस रिपोर्ट तैयार है। चेक-इन, मूड ट्रेंड और दवा अनुपालन देखने के लिए AYANA BOT डैशबोर्ड खोलें।",
+        "example": {
+          "body_text": [
+            [
+              "माँ "
+            ]
+          ]
+        }
+      }
+    ],
+    "id": "1750495419425824"
+  },
+  {
+    "name": "ayana_report_ready_te",
+    "status": "APPROVED",
+    "category": "MARKETING",
+    "language": "te",
+    "components": [
+      {
+        "type": "HEADER",
+        "format": "TEXT",
+        "text": "AyanaBot"
+      },
+      {
+        "type": "BODY",
+        "text": "📋 {{1}} యొక్క నెలవారీ వెల్‌నెస్ రిపోర్ట్ సిద్ధంగా ఉంది. చెక్-ఇన్‌లు, మూడ్ ట్రెండ్‌లు, మందుల వినియోగం చూడటానికి AYANA డాష్‌బోర్డ్ తెరవండి.",
+        "example": {
+          "body_text": [
+            [
+              "అమ్మ"
+            ]
+          ]
+        }
+      }
+    ],
+    "id": "2349423165464094"
+  },
+  {
+    "name": "ayana_report_ready_en",
+    "status": "APPROVED",
+    "category": "MARKETING",
+    "language": "en",
+    "components": [
+      {
+        "type": "HEADER",
+        "format": "TEXT",
+        "text": "AyanaBot"
+      },
+      {
+        "type": "BODY",
+        "text": "📋 {{1}}'s monthly wellness report is ready. Open the AYANA dashboard to view check-ins, mood trends, and medicine adherence.",
+        "example": {
+          "body_text": [
+            [
+              "Amma"
+            ]
+          ]
+        }
+      }
+    ],
+    "id": "3699769840172052"
+  },
+  {
+    "name": "ayana_reengagement_hi",
+    "status": "APPROVED",
+    "category": "MARKETING",
+    "language": "hi",
+    "components": [
+      {
+        "type": "HEADER",
+        "format": "TEXT",
+        "text": "AyanaBot"
+      },
+      {
+        "type": "BODY",
+        "text": "नमस्ते {{1}}, आज आपसे जवाब नहीं मिला। सब ठीक तो है? जब समय हो जवाब दें।",
+        "example": {
+          "body_text": [
+            [
+              "माँ"
+            ]
+          ]
+        }
+      },
+      {
+        "type": "FOOTER",
+        "text": "नीचे  दिए गए विकल्प टैप करें या  वॉइस नोट भेजें"
+      },
+      {
+        "type": "BUTTONS",
+        "buttons": [
+          {
+            "type": "QUICK_REPLY",
+            "text": "मैं ठीक हूँ"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "मुझे मदद चाहिए"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "मुझे कॉल कीजिए"
+          }
+        ]
+      }
+    ],
+    "id": "2212040569370522"
+  },
+  {
+    "name": "ayana_reengagement_te",
+    "status": "APPROVED",
+    "category": "MARKETING",
+    "language": "te",
+    "components": [
+      {
+        "type": "HEADER",
+        "format": "TEXT",
+        "text": "AyanaBot"
+      },
+      {
+        "type": "BODY",
+        "text": "హలో {{1}}, ఈరోజు మీ నుండి రిప్లై రాలేదు. అంతా బాగానే ఉందా? వీలున్నప్పుడు రిప్లై ఇవ్వండి.",
+        "example": {
+          "body_text": [
+            [
+              "అమ్మ"
+            ]
+          ]
+        }
+      },
+      {
+        "type": "FOOTER",
+        "text": "కింద ఆప్షన్‌ను నొక్కండి లేదా  వాయిస్ నోట్ పంపండి"
+      },
+      {
+        "type": "BUTTONS",
+        "buttons": [
+          {
+            "type": "QUICK_REPLY",
+            "text": "నేను బాగున్నాను"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "నాకు సహాయం కావాలి"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "నాకు కాల్ చేయండి"
+          }
+        ]
+      }
+    ],
+    "id": "1081267404440059"
+  },
+  {
+    "name": "ayana_reengagement_en",
+    "status": "APPROVED",
+    "category": "MARKETING",
+    "language": "en",
+    "components": [
+      {
+        "type": "HEADER",
+        "format": "TEXT",
+        "text": "AyanaBot"
+      },
+      {
+        "type": "BODY",
+        "text": "Hi {{1}}, I haven't heard from you today. Everything okay? Reply whenever you can.",
+        "example": {
+          "body_text": [
+            [
+              "Dad"
+            ]
+          ]
+        }
+      },
+      {
+        "type": "FOOTER",
+        "text": "Tap below or  send a voice note"
+      },
+      {
+        "type": "BUTTONS",
+        "buttons": [
+          {
+            "type": "QUICK_REPLY",
+            "text": "I'm fine"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "Need Help"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "Call Me"
+          }
+        ]
+      }
+    ],
+    "id": "2177600549464016"
+  },
+  {
+    "name": "ayana_medicine_hi",
+    "status": "APPROVED",
+    "category": "MARKETING",
+    "language": "hi",
+    "components": [
+      {
+        "type": "HEADER",
+        "format": "TEXT",
+        "text": "AyanaBot"
+      },
+      {
+        "type": "BODY",
+        "text": "⏰ {{1}}, दवाई का समय हो गया है। अपनी {{2}} की टैबलेट खा लीजिए, भूलना मत!",
+        "example": {
+          "body_text": [
+            [
+              "माँ ",
+              "BP"
+            ]
+          ]
+        }
+      },
+      {
+        "type": "FOOTER",
+        "text": "नीचे  दिए गए विकल्प टैप करें या  वॉइस नोट भेजें"
+      },
+      {
+        "type": "BUTTONS",
+        "buttons": [
+          {
+            "type": "QUICK_REPLY",
+            "text": "ले लिया"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "अभी नहीं"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "छोड़ दिया"
+          }
+        ]
+      }
+    ],
+    "id": "2623946391375872"
+  },
+  {
+    "name": "ayana_medicine_te",
+    "status": "APPROVED",
+    "category": "MARKETING",
+    "language": "te",
+    "components": [
+      {
+        "type": "HEADER",
+        "format": "TEXT",
+        "text": "AyanaBot"
+      },
+      {
+        "type": "BODY",
+        "text": "⏰{{1}}, మందుల టైం మీ {{2}}  టాబ్లెట్ 💊 వేసుకోండి, మర్చిపోకండి!",
+        "example": {
+          "body_text": [
+            [
+              "అమ్మ",
+              "BP"
+            ]
+          ]
+        }
+      },
+      {
+        "type": "FOOTER",
+        "text": "కింద ఆప్షన్‌ను నొక్కండి లేదా  వాయిస్ నోట్ పంపండి"
+      },
+      {
+        "type": "BUTTONS",
+        "buttons": [
+          {
+            "type": "QUICK_REPLY",
+            "text": "వేసుకున్నా"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "ఇంకా లేదు"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "వేసుకోలేదు"
+          }
+        ]
+      }
+    ],
+    "id": "2303045180463193"
+  },
+  {
+    "name": "ayana_medicine_en",
+    "status": "APPROVED",
+    "category": "MARKETING",
+    "language": "en",
+    "components": [
+      {
+        "type": "HEADER",
+        "format": "TEXT",
+        "text": "AyanaBot"
+      },
+      {
+        "type": "BODY",
+        "text": "💊 {{1}} Time for a {{2}} tablet.",
+        "example": {
+          "body_text": [
+            [
+              "Amma",
+              "BP"
+            ]
+          ]
+        }
+      },
+      {
+        "type": "FOOTER",
+        "text": "Tap below or  send a voice note"
+      },
+      {
+        "type": "BUTTONS",
+        "buttons": [
+          {
+            "type": "QUICK_REPLY",
+            "text": "Taken"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "Not yet"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "Skipped"
+          }
+        ]
+      }
+    ],
+    "id": "1830022381784179"
+  },
+  {
+    "name": "ayana_meal_hi",
+    "status": "APPROVED",
+    "category": "MARKETING",
+    "language": "hi",
+    "components": [
+      {
+        "type": "HEADER",
+        "format": "TEXT",
+        "text": "AyanaBot"
+      },
+      {
+        "type": "BODY",
+        "text": "🍽 {{1}}, खाने का समय!  अच्छे से खाना, फिर थोड़ा आराम करना।",
+        "example": {
+          "body_text": [
+            [
+              "माँ"
+            ]
+          ]
+        }
+      },
+      {
+        "type": "FOOTER",
+        "text": "नीचे  दिए गए विकल्प टैप करें या  वॉइस नोट भेजें"
+      },
+      {
+        "type": "BUTTONS",
+        "buttons": [
+          {
+            "type": "QUICK_REPLY",
+            "text": "मैंने खा लिया"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "खा लेंगे"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "नहीं खाना"
+          }
+        ]
+      }
+    ],
+    "id": "2869158716789650"
+  },
+  {
+    "name": "ayana_meal_te",
+    "status": "APPROVED",
+    "category": "MARKETING",
+    "language": "te",
+    "components": [
+      {
+        "type": "HEADER",
+        "format": "TEXT",
+        "text": "AyanaBot"
+      },
+      {
+        "type": "BODY",
+        "text": "🍽️ {{1}}, భోజనం చేశారా?",
+        "example": {
+          "body_text": [
+            [
+              "అమ్మ"
+            ]
+          ]
+        }
+      },
+      {
+        "type": "FOOTER",
+        "text": "కింద ఆప్షన్‌ను నొక్కండి లేదా  వాయిస్ నోట్ పంపండి"
+      },
+      {
+        "type": "BUTTONS",
+        "buttons": [
+          {
+            "type": "QUICK_REPLY",
+            "text": "తిన్నాను"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "తింటాను"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "తినను"
+          }
+        ]
+      }
+    ],
+    "id": "936687352201889"
+  },
+  {
+    "name": "ayana_mood_hi",
+    "status": "APPROVED",
+    "category": "MARKETING",
+    "language": "hi",
+    "components": [
+      {
+        "type": "HEADER",
+        "format": "TEXT",
+        "text": "AyanaBot"
+      },
+      {
+        "type": "BODY",
+        "text": "💬 {{1}} आज कैसा महसूस कर रहे हैं?",
+        "example": {
+          "body_text": [
+            [
+              "माँ"
+            ]
+          ]
+        }
+      },
+      {
+        "type": "FOOTER",
+        "text": "नीचे  दिए गए विकल्प टैप करें या  वॉइस नोट भेजें"
+      },
+      {
+        "type": "BUTTONS",
+        "buttons": [
+          {
+            "type": "QUICK_REPLY",
+            "text": "अच्छा"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "ठीक है"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "ठीक नहीं हूँ"
+          }
+        ]
+      }
+    ],
+    "id": "1428526966047430"
+  },
+  {
+    "name": "ayana_mood_te",
+    "status": "APPROVED",
+    "category": "MARKETING",
+    "language": "te",
+    "components": [
+      {
+        "type": "HEADER",
+        "format": "TEXT",
+        "text": "AyanaBot"
+      },
+      {
+        "type": "BODY",
+        "text": "💬 {{1}} ఈరోజు ఎలా ఉన్నారు?",
+        "example": {
+          "body_text": [
+            [
+              "అమ్మ"
+            ]
+          ]
+        }
+      },
+      {
+        "type": "FOOTER",
+        "text": "కింద ఆప్షన్‌ను నొక్కండి లేదా  వాయిస్ నోట్ పంపండి"
+      },
+      {
+        "type": "BUTTONS",
+        "buttons": [
+          {
+            "type": "QUICK_REPLY",
+            "text": "బాగున్నాను"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "పరవాలేదు"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "బాగోలేదు"
+          }
+        ]
+      }
+    ],
+    "id": "1604758167994117"
+  },
+  {
+    "name": "ayana_mood_en",
+    "status": "APPROVED",
+    "category": "MARKETING",
+    "language": "en",
+    "components": [
+      {
+        "type": "HEADER",
+        "format": "TEXT",
+        "text": "AyanaBot"
+      },
+      {
+        "type": "BODY",
+        "text": "💬 {{1}} How are you feeling right now? 💛",
+        "example": {
+          "body_text": [
+            [
+              "Dad"
+            ]
+          ]
+        }
+      },
+      {
+        "type": "FOOTER",
+        "text": "Tap below or  send a voice note"
+      },
+      {
+        "type": "BUTTONS",
+        "buttons": [
+          {
+            "type": "QUICK_REPLY",
+            "text": "Good"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "Okay"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "Not well"
+          }
+        ]
+      }
+    ],
+    "id": "1618735603189903"
+  },
+  {
+    "name": "ayana_opener_hi",
+    "status": "APPROVED",
+    "category": "MARKETING",
+    "language": "hi",
+    "components": [
+      {
+        "type": "HEADER",
+        "format": "TEXT",
+        "text": "AyanaBot"
+      },
+      {
+        "type": "BODY",
+        "text": "नमस्ते {{1}}! AYANA {{2}} के लिए चेक-इन कर रही है। आज आप कैसा महसूस कर रहे हैं?",
+        "example": {
+          "body_text": [
+            [
+              "GK",
+              "माँ"
+            ]
+          ]
+        }
+      },
+      {
+        "type": "FOOTER",
+        "text": "नीचे दिए गए विकल्प टैप करें या  वॉइस नोट भेजें"
+      },
+      {
+        "type": "BUTTONS",
+        "buttons": [
+          {
+            "type": "QUICK_REPLY",
+            "text": "अच्छा"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "ठीक है"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "ठीक नहीं हूँ"
+          }
+        ]
+      }
+    ],
+    "id": "1984549508921111"
+  },
+  {
+    "name": "ayana_opener_te",
+    "status": "APPROVED",
+    "category": "MARKETING",
+    "language": "te",
+    "components": [
+      {
+        "type": "HEADER",
+        "format": "TEXT",
+        "text": "AyanaBot"
+      },
+      {
+        "type": "BODY",
+        "text": "నమస్తే {{1}}! AYANA {{2}} కోసం చెక్-ఇన్ చేస్తోంది. ఈరోజు మీరు ఎలా ఉన్నారు?",
+        "example": {
+          "body_text": [
+            [
+              "GK",
+              "అమ్మ"
+            ]
+          ]
+        }
+      },
+      {
+        "type": "FOOTER",
+        "text": "కింద ఆప్షన్‌ను నొక్కండి లేదా  వాయిస్ నోట్ పంపండి"
+      },
+      {
+        "type": "BUTTONS",
+        "buttons": [
+          {
+            "type": "QUICK_REPLY",
+            "text": "బాగున్నాను"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "పరవాలేదు"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "బాగాలేదు"
+          }
+        ]
+      }
+    ],
+    "id": "1623976706086610"
+  },
+  {
+    "name": "ayana_opener_en",
+    "status": "APPROVED",
+    "category": "MARKETING",
+    "language": "en",
+    "components": [
+      {
+        "type": "HEADER",
+        "format": "TEXT",
+        "text": "AyanaBot"
+      },
+      {
+        "type": "BODY",
+        "text": "Hi {{1}}! This is AYANA checking in for {{2}}. Reply anytime. I'm here for check-ins, reminders, and updates. 💛",
+        "example": {
+          "body_text": [
+            [
+              "Gk",
+              "Amma"
+            ]
+          ]
+        }
+      },
+      {
+        "type": "FOOTER",
+        "text": "Click below option or hold mic to send voice note"
+      },
+      {
+        "type": "BUTTONS",
+        "buttons": [
+          {
+            "type": "QUICK_REPLY",
+            "text": "Good"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "Okay"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "Not well"
+          }
+        ]
+      }
+    ],
+    "id": "1071961999012444"
+  }
+]

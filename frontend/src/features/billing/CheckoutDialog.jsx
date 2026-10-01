@@ -22,6 +22,7 @@ export const CheckoutDialog = ({ selection, onClose, onComplete, allowTrial = fa
   const [localOrder, setLocalOrder] = useState(null);
   const sequence = useRef(0);
   useEffect(() => { api.get('/payment/config').then(({ data }) => { setConfig(data); setCurrency(data.currencies[0] || ''); }).catch(e => setError(formatAxiosError(e))); }, []);
+  useEffect(() => { if (config?.currencies.includes(selection?.currency)) setCurrency(selection.currency); }, [selection, config]);
   useEffect(() => {
     if (!selection || !currency) return;
     setCode(''); setError(''); setStatus(''); setLocalOrder(null);

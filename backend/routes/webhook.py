@@ -396,7 +396,7 @@ async def _record_reply(from_number: str, body_text: str, num_media: int = 0, pa
                 owner_id, parent["id"], from_number, body_text, json.dumps(keywords), intent, is_voice,
             )
     await archive_audio(dict(reply_row))
-    await notifications.drain_notifications()
+    asyncio.ensure_future(notifications.drain_notifications())
     # One-sync: invalidate this owner's cached views so the new reply shows up
     # consistently across dashboard / check-ins / replies on the next fetch.
     try:
@@ -775,6 +775,11 @@ async def _process_meta_payload(payload: dict) -> None:
                 elif msg_type == "button":
                     button_payload = message.get("button", {}).get("payload")
                     body_text = message.get("button", {}).get("text", "")
+
+                if msg_type in ('button', 'interactive') and body_text and not button_payload:
+                    # Preserve evidence of a button tap even when Meta supplies
+                    # only its title. Classification still requires exact context.
+                    button_payload = 'template_button'
 
                 logger.info(
                     "[webhook] Inbound from %s | type=%s | payload=%s | media=%s | body=%.60s",

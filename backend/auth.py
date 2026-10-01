@@ -144,6 +144,8 @@ async def get_current_user(request: Request) -> dict:
         user.pop("_revoked", None)
         if not token_still_valid(payload, user):
             raise HTTPException(status_code=401, detail="Session expired after password change. Please log in again.")
+        enforce_support_access(user, request)
+        await enforce_family_access(user, request)
         # Sentry: tag this request with the real user so errors are
         # attributable. No-op if Sentry isn't initialized.
         try:
@@ -156,6 +158,35 @@ async def get_current_user(request: Request) -> dict:
         raise HTTPException(status_code=401, detail="Token expired")
     except jwt.InvalidTokenError:
         raise HTTPException(status_code=401, detail="Invalid token")
+
+async def enforce_family_access(user, request):
+    owner_id = user.get('household_owner_id')
+    # Personal account maintenance remains available after household access ends.
+    path = request.url.path.rstrip('/')
+    if not owner_id or path.startswith('/api/auth/') or path == '/api/account' or path.startswith('/api/account/'):
+        return
+    from services.family_access import recipient
+    async with get_pool().acquire() as conn:
+        allowed = await recipient(conn, owner_id, 'user', user['id'])
+    if not allowed:
+        raise HTTPException(403, 'Family access is not included in the household’s current plan.')
+
+
+def enforce_support_access(user, request):
+    if user.get('role') != 'support':
+        return
+    allowed = {('GET', '/api/auth/me'), ('POST', '/api/auth/logout'),
+               ('GET', '/api/admin/delivery-status')}
+    if (request.method, request.url.path.rstrip('/')) not in allowed:
+        raise HTTPException(403, 'Support access is limited to delivery status.')
+
+
+async def get_delivery_viewer(request: Request) -> dict:
+    user = await get_current_user(request)
+    if user.get('role') not in ('admin', 'support'):
+        raise HTTPException(403, 'Staff access required')
+    return user
+
 
 async def get_current_admin(request: Request) -> dict:
     user = await get_current_user(request)
@@ -176,22 +207,34 @@ async def seed_admin():
     if len(admin_password) < 8:
         raise ValueError("ADMIN_PASSWORD must be at least 8 characters.")
 
-    async with get_pool().acquire() as conn:
-        existing = await conn.fetchrow("select * from users where email = $1", admin_email)
-        if existing is None:
-            await conn.execute(
-                """
-                insert into users (name, email, phone, password_hash, role,
-                                    onboarding_complete, city, timezone, deleted_at)
-                values ($1, $2, $3, $4, 'admin', true, null, 'Asia/Kolkata', null)
-                """,
-                "AYANA Admin", admin_email, "+10000000000", hash_password(admin_password),
-            )
-        elif not verify_password(admin_password, existing["password_hash"]):
-            await conn.execute(
-                "update users set password_hash = $1, role = 'admin' where email = $2",
-                hash_password(admin_password), admin_email,
-            )
+    accounts = [(admin_email, admin_password, 'admin', 'AYANA Admin', '+10000000000')]
+    support_email = os.environ.get('EMPLOYEE_EMAIL', '').strip().lower()
+    support_password = os.environ.get('EMPLOYEE_PASSWORD', '')
+    if support_email or support_password:
+        if not support_email or len(support_password) < 8:
+            raise ValueError('EMPLOYEE_EMAIL and EMPLOYEE_PASSWORD (min 8 chars) must both be configured.')
+        if support_email == admin_email:
+            raise ValueError('Admin and support accounts must use different emails.')
+        accounts.append((support_email, support_password, 'support', 'AYANA Support', '+10000000001'))
+    async with get_pool().acquire() as conn, conn.transaction():
+        for email, password, role, name, phone in accounts:
+            existing = await conn.fetchrow("select * from users where email = $1 FOR UPDATE", email)
+            if existing is None:
+                await conn.execute(
+                    """
+                    insert into users (name, email, phone, password_hash, role,
+                                        onboarding_complete, city, timezone, deleted_at)
+                    values ($1, $2, $3, $4, $5, true, null, 'Asia/Kolkata', null)
+                    """,
+                    name, email, phone, hash_password(password), role,
+                )
+            elif existing['deleted_at'] is not None:
+                raise ValueError('Configured staff account is deleted; restore it explicitly before seeding.')
+            elif not verify_password(password, existing["password_hash"]) or existing['role'] != role:
+                await conn.execute(
+                    "update users set password_hash=$1, role=$3, auth_version=auth_version+1, password_changed_at=now() where email=$2",
+                    hash_password(password), email, role,
+                )
 
 # ── CSRF Protection ──────────────────────────────────────────────────────────
 _CSRF_COOKIE_NAME = "csrf_token"

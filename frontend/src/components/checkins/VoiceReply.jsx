@@ -7,6 +7,14 @@ export const VoiceReply = ({ reply }) => {
   const [url, setUrl] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [summary, setSummary] = useState(null);
+  useEffect(() => {
+    let mounted = true;
+    api.get(`/replies/${reply.id}`).then(({ data }) => {
+      if (mounted) setSummary(data.summary ? data : null);
+    }).catch(() => {});
+    return () => { mounted = false; };
+  }, [reply.id]);
   const active = useRef(true);
   useEffect(() => { active.current = true; return () => { active.current = false; }; }, []);
   useEffect(() => () => { if (url) URL.revokeObjectURL(url); }, [url]);
@@ -19,6 +27,7 @@ export const VoiceReply = ({ reply }) => {
     finally { if (active.current) setBusy(false); }
   };
   return <div className="space-y-3 min-w-0" data-testid={`voice-reply-${reply.id}`}>
+    {summary && <div data-testid={`voice-summary-${reply.id}`}><p className="text-xs text-ayana-secondary">AI summary · {({ en: 'English', te: 'తెలుగు', hi: 'हिंदी' })[summary.summary_language]}</p><p className="text-sm whitespace-pre-wrap break-words mt-1">{summary.summary}</p><p className="text-xs text-ayana-secondary">May miss details. Listen to the original recording when needed.</p></div>}
     {url ? <audio controls autoPlay preload="metadata" src={url} className="w-full max-w-full" data-testid={`voice-player-${reply.id}`} onError={() => setError('This recording could not be played. Try loading it again.')} /> : null}
     {(!url || error) && <Button variant="outline" size="sm" disabled={busy} onClick={load} data-testid={`voice-load-${reply.id}`}>{busy ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Mic className="w-4 h-4 mr-2" />}{error ? 'Retry recording' : 'Play voice note'}</Button>}
     {error && <p role="alert" className="text-sm text-red-700 break-words" data-testid={`voice-error-${reply.id}`}>{error}</p>}
