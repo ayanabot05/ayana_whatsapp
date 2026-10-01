@@ -23,7 +23,10 @@ async def get_reply(reply_id: UUID, user=Depends(get_current_user)):
     reply = await authorized_reply(reply_id,user)
     public = {key:reply.get(key) for key in ('id','parent_id','parent_name','prompt','display_time','local_date','body','transcription','stt_confidence','is_voice','created_at','read_at')}
     notifications = await get_pool().fetch('SELECT status,email_status,audio_status,detail FROM reply_notifications WHERE reply_id=$1 AND recipient_kind=$2 AND recipient_id=$3',reply_id,'user',user['id'])
-    return {**serialize(public),'notifications':[dict(n) for n in notifications]}
+    from services.family_access import recipient_language
+    language = recipient_language(user)
+    summary = await get_pool().fetchval('SELECT summary FROM voice_summaries WHERE reply_id=$1 AND language=$2',reply_id,language) if reply['is_voice'] else None
+    return {**serialize(public),'notifications':[dict(n) for n in notifications], 'summary':summary,'summary_language':language}
 
 
 @router.get('/{reply_id}/audio')

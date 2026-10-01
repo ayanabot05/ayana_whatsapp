@@ -34,11 +34,9 @@ async def _send_claimed(key,parent,phone,template,lang,params):
 
 
 async def _notify_family_warning(conn,parent,day,kind,missed=0):
-    members = await conn.fetch('SELECT * FROM users WHERE (id=$1 OR household_owner_id=$1) AND deleted_at IS NULL',parent['user_id'])
-    siblings = await conn.fetch('SELECT * FROM care_circle_siblings WHERE owner_id=$1 AND verified',parent['user_id'])
+    from services.family_access import recipients, recipient
     outcomes, seen = [], set()
-    for row in [*members,*siblings]:
-        person = dict(row)
+    for recipient_kind, person in await recipients(conn, parent['user_id']):
         if person['phone'] in seen:
             continue
         seen.add(person['phone'])
@@ -48,13 +46,10 @@ async def _notify_family_warning(conn,parent,day,kind,missed=0):
         # Serialize with an email-authorized number change before reading contact.
         async with get_pool().acquire() as contact_conn, contact_conn.transaction():
             await contact_conn.execute('SELECT pg_advisory_xact_lock(hashtextextended($1,0))','recipient:'+str(person['id']))
-            table = 'users' if 'password_hash' in person else 'care_circle_siblings'
-            if table == 'users':
-                phone = await contact_conn.fetchval('SELECT phone FROM users WHERE id=$1 AND (id=$2 OR household_owner_id=$2) AND deleted_at IS NULL', person['id'], parent['user_id'])
-            else:
-                phone = await contact_conn.fetchval('SELECT phone FROM care_circle_siblings WHERE id=$1 AND owner_id=$2 AND verified', person['id'], parent['user_id'])
-            if not phone:
+            current = await recipient(contact_conn,parent['user_id'],recipient_kind,person['id'])
+            if not current:
                 continue
+            phone = current['phone']
             key = f"warning:{kind}:{parent['id']}:{day}:{person['id']}"
             result = await _send_claimed(key,parent,phone,f'ayana_{kind}_warn_child_{lang}',lang,params)
         outcomes.append(result.get('status') in ('sent','delivered','read'))
@@ -83,34 +78,31 @@ async def _watch_parent(parent):
         if not logs:
             return
         first_delivery = logs[0]['delivered_at'] or logs[0]['created_at']
-        if datetime.now(timezone.utc)-first_delivery<timedelta(minutes=30):
+        if local-first_delivery<timedelta(minutes=30):
             return
         await conn.execute('INSERT INTO care_watch(parent_id,day_key) VALUES($1,$2) ON CONFLICT DO NOTHING',parent['id'],day)
         watch = await conn.fetchrow('SELECT * FROM care_watch WHERE parent_id=$1 AND day_key=$2',parent['id'],day)
         replied = await conn.fetchval('SELECT EXISTS(SELECT 1 FROM parent_replies WHERE parent_id=$1 AND created_at BETWEEN $2 AND $3)',parent['id'],first_delivery,local)
         if replied:
             return
+        if middle <= local < middle + timedelta(minutes=30) and first_delivery < middle and not watch['first_warn_sent']:
+            # The child's approved wording says a new check-in was sent. Only
+            # send it after Meta accepts the parent nudge. Claims deduplicate
+            # each recipient separately when only part of the family succeeds.
+            lang = parent.get('language') or 'en'
+            name = parent.get('preferred_name') or parent['name']
+            key = f"warning:first_parent:{parent['id']}:{day}"
+            result = await _send_claimed(key, parent, parent['phone'],
+                f'ayana_first_warn_parent_{lang}', lang, {'1': name})
+            if result.get('status') in ('sent', 'delivered', 'read'):
+                if not result.get('already_attempted'):
+                    await conn.execute("INSERT INTO message_logs(user_id,parent_id,day_key,category,body,msg_type,status,sid,event_key,created_at) VALUES($1,$2,$3,'reengagement',$4,'reengagement','sent',$5,$6,$7)",
+                        parent['user_id'],parent['id'],day,result.get('body') or 'Midday check-in',result.get('sid'),key,local)
+                sent = await _notify_family_warning(conn,parent,day,'first')
+                await conn.execute('UPDATE care_watch SET first_warn_sent=$3,updated_at=now() WHERE parent_id=$1 AND day_key=$2',parent['id'],day,sent)
         if local>=end and not watch['main_warn_sent']:
             sent = await _notify_family_warning(conn,parent,day,'main',len(logs))
             await conn.execute('UPDATE care_watch SET main_warn_sent=$3,updated_at=now() WHERE parent_id=$1 AND day_key=$2',parent['id'],day,sent)
-        elif local<end and not watch['first_warn_sent']:
-            if not eligible(parent,local,schedule):
-                return
-            # Only morning deliveries qualify for the morning-specific template.
-            if not any(log['created_at']<middle for log in logs):
-                return
-            recent = await conn.fetchval('SELECT max(created_at) FROM message_logs WHERE parent_id=$1',parent['id'])
-            total = await conn.fetchval('SELECT count(*) FROM message_logs WHERE parent_id=$1 AND day_key=$2',parent['id'],day)
-            if total>=15 or (recent and datetime.now(timezone.utc)-recent<timedelta(seconds=120)):
-                return
-            lang = parent.get('language') if parent.get('language') in ('en','te','hi') else 'en'
-            key = f"nudge:{parent['id']}:{day}"
-            result = await _send_claimed(key,parent,parent['phone'],f'ayana_first_warn_parent_{lang}',lang,{'1':parent.get('preferred_name') or parent['name']})
-            if not result.get('already_attempted'):
-                await conn.execute("INSERT INTO message_logs(user_id,parent_id,day_key,category,msg_type,status,detail,sid,event_key) VALUES($1,$2,$3,'midday_nudge','reengagement',$4,$5,$6,$7)",parent['user_id'],parent['id'],day,result.get('status','failed'),result.get('detail'),result.get('sid'),key)
-            if result.get('status') in ('sent','delivered','read'):
-                sent = await _notify_family_warning(conn,parent,day,'first')
-                await conn.execute('UPDATE care_watch SET first_warn_sent=$3,updated_at=now() WHERE parent_id=$1 AND day_key=$2',parent['id'],day,sent)
 
 
 async def run_care_watch_impl():

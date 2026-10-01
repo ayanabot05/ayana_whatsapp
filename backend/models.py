@@ -335,6 +335,7 @@ class RecoveryStartInput(BaseModel):
 
 # ---------- Preferences ----------
 class PreferencesInput(BaseModel):
+    notification_language: Optional[str] = Field(None, pattern='^(en|te|hi)$')
     emergency_keywords: Optional[List[str]] = None
     daily_summary: Optional[bool] = None
     email_notifications: Optional[bool] = None

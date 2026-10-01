@@ -102,7 +102,7 @@ from pricing import PLANS, CURRENCIES, plan_limits
 from scheduler import start_scheduler, shutdown_scheduler
 from email_sender import send_invite_email
 from monthly_report import generate_monthly_report
-from whatsapp import is_session_open, send_dynamic_checkin, send_meal_template, send_medicine_template, send_mood_template, send_whatsapp, send_whatsapp_opener, whatsapp_enabled, send_member_removed_notice, send_sibling_welcome, send_sibling_added_notice
+from whatsapp import is_session_open, send_dynamic_checkin, send_meal_template, send_medicine_template, send_mood_template, send_whatsapp, send_whatsapp_opener, whatsapp_enabled, send_member_removed_notice, send_sibling_welcome, send_sibling_added_notice, send_opener_welcome
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger("ayana")
@@ -171,6 +171,7 @@ async def _run_startup_migrations():
             )
         """)
         await conn.execute("alter table monthly_reports add column if not exists details jsonb")
+        await conn.execute("alter table monthly_reports add column if not exists pdf_url text")
         await conn.execute("alter table users add column if not exists password_changed_at timestamptz")
         await conn.execute("alter table users add column if not exists pending_email text")
         # Sprint Phase 1: raw webhook archive (2-week TTL) + wam_id idempotency
@@ -635,8 +636,8 @@ async def say_hi(parent_id: str, user: dict = Depends(get_current_user), _csrf: 
         raise HTTPException(status_code=404, detail="Parent not found")
     language = parent["language"] or "en"
     preferred = parent["preferred_name"] or parent["name"] or "Amma"
-    copy = SAY_HI_COPY.get(language, SAY_HI_COPY["en"]).format(parent_name=preferred)
-    result = send_whatsapp(parent["phone"] or "", copy)
+    child_name = user.get("name", "your child").split()[0]
+    result = await send_opener_welcome(parent["phone"] or "", preferred, child_name, language)
     await audit(user["id"], "say_hi", {"parent_id": str(parent["id"])})
     return {"ok": True, "status": result.get("status"), "detail": result.get("detail")}
 
@@ -984,44 +985,18 @@ async def remove_sibling(sibling_id: str, background_tasks: BackgroundTasks, use
 # ---------------- Monthly reports ----------------
 @api.get("/reports/monthly")
 async def get_monthly_report(parent_id: str, period: str, user: dict = Depends(get_current_user)):
-    async with get_pool().acquire() as conn:
-        parent = await conn.fetchrow(
-            "select * from parents where id = $1::uuid and user_id = $2 and deleted_at is null",
-            parent_id, scope(user),
-        )
-        report = await conn.fetchrow(
-            "select * from monthly_reports where user_id = $1 and parent_id = $2::uuid and period = $3",
-            scope(user), parent_id, period,
-        )
-    if not parent:
-        raise HTTPException(status_code=404, detail="Parent not found")
-
-    # "Month so far" must be live: the current month's report is a snapshot
-    # that goes stale the moment a check-in goes out or a reply lands (a
-    # parent replying at 21:44 was invisible in a report generated at 21:28).
-    # Auto-regenerate the CURRENT period when missing or older than 15 min.
-    current_period = datetime.now(timezone.utc).strftime("%Y-%m")
-    if period == current_period:
-        gen_at = report["generated_at"] if report else None
-        if gen_at is not None and gen_at.tzinfo is None:
-            gen_at = gen_at.replace(tzinfo=timezone.utc)
-        is_stale = gen_at is None or gen_at < datetime.now(timezone.utc) - timedelta(minutes=15)
-        if is_stale:
-            try:
-                year, month = (int(x) for x in period.split("-"))
-                plan_id = await _get_plan_id(user)
-                fresh = await generate_monthly_report(scope(user), parent["id"], plan_id, year, month)
-                fresh["found"] = True
-                return fresh
-            except Exception as e:
-                logger.error("[reports] current-month auto-refresh failed: %s", e, exc_info=True)
-                # fall through to the stored snapshot rather than failing the view
-
-    if not report:
-        return {"found": False, "parent_id": parent_id, "period": period}
-    out = serialize(report)
-    out["found"] = True
-    return out
+    # Viewing a report must neither generate/upload a PDF nor use stale snapshots.
+    from routes.schedules import checkins_summary
+    result = await checkins_summary(user=user, parent_id=parent_id, period=period)
+    parent = result['parents'][0]
+    summary = parent['summary']
+    return {'found': True, 'parent_id': parent_id, 'period': period,
+            'total_touches': summary['total'], 'replied': summary['replied'],
+            'total_replied': summary['replied'], 'delivered': summary['delivered'],
+            'skipped': summary['skipped'], 'voice_replies': summary['voice'],
+            'medicine_taken': summary['medicine_taken'], 'medicine_skipped': summary['medicine_skipped'],
+            'reply_rate': summary['replied'] / summary['total'] if summary['total'] else 0,
+            'days': parent['days'], 'summary': summary}
 
 @api.post("/reports/monthly/generate")
 async def generate_monthly_report_now(parent_id: str, period: str, user: dict = Depends(get_current_user), _csrf: None = Depends(validate_csrf_token)):
@@ -1116,7 +1091,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
     allow_origins=_cors_origins,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "X-Hub-Signature-256", "X-Dev-Token", "X-Razorpay-Signature", "X-CSRF-Token", "User-Agent"],
     )
 

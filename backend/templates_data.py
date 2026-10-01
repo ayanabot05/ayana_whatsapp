@@ -24,26 +24,27 @@ STATIC_LANGUAGES = frozenset(("en", "te", "hi"))
 RELATIONSHIPS = ["mother", "father"]
 
 
-# ── Category → underlying approved template type (5 templates total) ───────
+# Match the scheduled conversation. Dedicated templates must exist in the
+# approved catalog before they can be sent outside the recipient's window.
 CATEGORY_TO_TEMPLATE = {
-    "morning_wish": "opener",
+    "morning_wish": "morning_wish",
 
     "medicine": "medicine",
-    "water": "medicine",
-    "bp_check": "medicine",
-    "sugar_check": "medicine",
-    "health_check": "medicine",
+    "water": "water",
+    "bp_check": "bp_check",
+    "sugar_check": "sugar_check",
+    "health_check": "health_check",
 
     "breakfast": "meal",
     "lunch": "meal",
     "dinner": "meal",
-    "afternoon_checkin": "meal",
-    "tea_check": "meal",
-    "walk_check": "meal",
+    "afternoon_checkin": "afternoon_checkin",
+    "tea_check": "tea_check",
+    "walk_check": "walk_check",
 
     "how_feeling": "mood",
-    "goodnight": "mood",
-    "love_note": "mood",
+    "goodnight": "goodnight",
+    "love_note": "love_note",
 }
 
 
@@ -73,6 +74,10 @@ ACTIVITY_CATEGORIES = {
 
 
 def category_type(category: str) -> str:
+    if category in {'office_return', 'market_return', 'shopping_return', 'temple_return', 'outing_return'}:
+        return 'safety'
+    if category == 'afternoon_checkin':
+        return 'activity'
     if category in REMINDER_CATEGORIES:
         return "reminder"
     if category in ACTIVITY_CATEGORIES:
@@ -81,7 +86,7 @@ def category_type(category: str) -> str:
 
 
 def get_template_sid_key(category: str) -> str:
-    return CATEGORY_TO_TEMPLATE.get(category, "opener")
+    return CATEGORY_TO_TEMPLATE.get(category, category)
 
 
 # ── Relationship label ──────────────────────────────────────────────────────

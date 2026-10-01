@@ -9,9 +9,11 @@ from zoneinfo import ZoneInfo
 from io import BytesIO
 from database import get_pool
 from pricing import plan_limits, PLAN_BY_ID
-from whatsapp import send_report_ready, send_report_pdf_with_link, send_document_link
+from whatsapp import send_report_ready
+import os
 from storage import put_object, signed_url, is_enabled as storage_enabled
 logger = logging.getLogger("ayana.monthly_report")
+_LOGO_PATH = os.environ.get('AYANA_LOGO_PATH', '/mnt/data/ayana_emblem_400.png')
 _FEELING_SCORE = {"good": 1.0, "okay": 0.5, "not_well": 0.0}
 def _tz(tz_name):
     try:
@@ -25,8 +27,11 @@ def _local_day(dt, tz):
 def _month_bounds(year, month):
     last_day = monthrange(year, month)[1]
     return f"{year:04d}-{month:02d}-01", f"{year:04d}-{month:02d}-{last_day:02d}"
-def _day_key_to_dt(day_key):
-    return datetime.strptime(day_key, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+def _day_key_to_dt(day_key, tz=None):
+    if not tz:
+        tz = timezone.utc
+    dt = datetime.strptime(day_key, "%Y-%m-%d").replace(tzinfo=tz)
+    return dt.astimezone(timezone.utc)
 
 
 def _generate_pdf_bytes(report, details):
@@ -91,7 +96,7 @@ def _generate_pdf_bytes(report, details):
             c.showPage()
             y = page_h - 16*2.83465
             try:
-                logo_path = "/mnt/data/ayana_emblem_400.png"
+                logo_path = _LOGO_PATH
                 if os.path.exists(logo_path):
                     c.saveState()
                     c.setFillAlpha(0.05)
@@ -101,7 +106,7 @@ def _generate_pdf_bytes(report, details):
                 pass
     y = page_h - 16*2.83465
     try:
-        logo_path = "/mnt/data/ayana_emblem_400.png"
+        logo_path = _LOGO_PATH
         if os.path.exists(logo_path):
             c.saveState()
             c.setFillAlpha(0.05)
@@ -110,7 +115,7 @@ def _generate_pdf_bytes(report, details):
     except Exception:
         pass
     try:
-        logo_path = "/mnt/data/ayana_emblem_400.png"
+        logo_path = _LOGO_PATH
         if os.path.exists(logo_path):
             c.drawImage(ImageReader(logo_path), margin_x, y-10*2.83465, 10*2.83465, 10*2.83465, preserveAspectRatio=True, mask='auto')
         else:
@@ -295,8 +300,8 @@ async def _mood_series(conn, parent_id, start_day: str, end_day: str, tz_name: s
 
 async def _daily_details(conn, parent_id, start_day: str, end_day: str, tz_name: str = None) -> dict:
     tz = _tz(tz_name)
-    range_start = _day_key_to_dt(start_day)
-    range_end = _day_key_to_dt(end_day) + timedelta(days=1)
+    range_start = _day_key_to_dt(start_day, tz)
+    range_end = _day_key_to_dt(end_day, tz) + timedelta(days=1)
 
     logs = await conn.fetch(
         """
@@ -304,81 +309,47 @@ async def _daily_details(conn, parent_id, start_day: str, end_day: str, tz_name:
         from message_logs 
         where parent_id = $1 
           and created_at >= $2 and created_at < $3
-          and msg_type = any($4::text[])
         order by created_at asc
         """,
         parent_id, range_start, range_end,
-        ["checkin", "reminder", "activity", "safety", "reengagement"],
     )
     replies = await conn.fetch(
         """
         select * from parent_replies
-        where parent_id = $1 and (created_at >= $2 and created_at < $3 OR context_id=ANY($4::text[]))
+        where parent_id = $1 and (created_at >= $2 and created_at < $3 OR context_id=ANY($4::text[])
+            OR (association_source='explicit' AND message_log_id=ANY($5::uuid[])))
         order by created_at asc
         """,
-        parent_id, range_start, range_end, [l['sid'] for l in logs if l['sid']],
+        parent_id, range_start, range_end, [l['sid'] for l in logs if l['sid']], [l['id'] for l in logs],
     )
     emergencies = await conn.fetchval(
         "select count(*) from emergency_events where parent_id = $1 and created_at >= $2 and created_at < $3",
         parent_id, range_start, range_end,
     )
 
-    from services.reply_linking import linked_replies, response_state
-    links, _ = linked_replies([dict(l) for l in logs], [dict(r) for r in replies])
-
-    days: dict = {}
-    by_category: dict = {}
-
-    for log in logs:
-        dk = _local_day(log["created_at"], tz)
-        d = days.setdefault(dk, {"day": dk, "sent": 0, "replied": 0, "items": []})
-        delivered = log["status"] in ("sent", "simulated")
-
-        matched = links.get(str(log['id']), [])
-        replied = bool(matched)
-
-        if delivered:
-            d["sent"] += 1
-        if replied:
-            d["replied"] += 1
-            
-        d["items"].append({
-            "time": log["created_at"].astimezone(tz).strftime("%H:%M"),
-            "category": log["category"],
-            "msg_type": log["msg_type"],
-            "status": log["status"],
-            "reply_status": response_state(matched),
-            "replied": replied,
-        })
-        
-        cat = by_category.setdefault(log["category"], {"category": log["category"], "sent": 0, "replied": 0})
-        if delivered:
-            cat["sent"] += 1
-        if replied:
-            cat["replied"] += 1
-
+    from services.reply_linking import build_parent_days, summarize_days
+    timeline_days = build_parent_days({"timezone": tz_name}, [dict(l) for l in logs], [dict(r) for r in replies])
+    timeline_days = [d for d in timeline_days if start_day <= d["day_key"] <= end_day]
+    summary = summarize_days(timeline_days)
+    by_category = {}
+    days = []
+    for day in timeline_days:
+        items = day["messages"]
+        days.append({"day": day["day_key"], "sent": len(items), "replied": day["replied"],
+                     "items": [{**m, "time": m["time"]} for m in items]})
+        for item in items:
+            bucket = by_category.setdefault(item["category"], {"category": item["category"], "sent": 0, "replied": 0})
+            bucket["sent"] += 1
+            bucket["replied"] += int(item["replied"])
     feelings = {"good": 0, "okay": 0, "not_well": 0}
-    medicine = {"done": 0, "skipped": 0}
-    for r in replies:
-        intent = r["intent"] or ""
-        if intent.startswith("feeling:"):
-            f = intent.split(":", 1)[1]
-            if f in feelings:
-                feelings[f] += 1
-    for log in logs:
-        if log['category'] == 'medicine':
-            state = response_state(links.get(str(log['id']), []))
-            if state in ('done', 'skip'):
-                medicine['done' if state == 'done' else 'skipped'] += 1
+    for reply in replies:
+        feeling = (reply["intent"] or "").removeprefix("feeling:")
+        if feeling in feelings:
+            feelings[feeling] += 1
+    return {"days": sorted(days, key=lambda d: d["day"]), "by_category": by_category,
+            "feelings": feelings, "medicine": {"done": summary["medicine_taken"], "skipped": summary["medicine_skipped"]},
+            "emergencies": emergencies or 0, "total_replies": len(replies), "summary": summary}
 
-    return {
-        "days": sorted(days.values(), key=lambda x: x["day"]),
-        "by_category": by_category,
-        "feelings": feelings,
-        "medicine": medicine,
-        "emergencies": emergencies or 0,
-        "total_replies": len(replies),
-    }
 
 def _trend_note(series: list) -> str:
     if not series or len(series) < 3:
@@ -394,78 +365,27 @@ def _trend_note(series: list) -> str:
     return "Mood stayed fairly steady this month."
 
 async def _notify_report_ready(conn, user_id: str, parent_id, period: str, shared: bool, pdf_url: str = None, pdf_bytes: bytes = None) -> None:
-    """PERMANENT FIX FOR CHILD 24H WINDOW - works even if child never replied"""
+    """Notify recipients using the approved dashboard report template."""
     parent = await conn.fetchrow("select * from parents where id = $1", parent_id)
     if not parent:
         return
     parent_display = parent["preferred_name"] or parent["name"] or "Amma"
-    language = parent["language"] or "en"
 
-    owner = await conn.fetchrow("select * from users where id = $1::uuid", user_id)
-    recipients = [owner] if owner else []
-    if shared:
-        members = await conn.fetch(
-            "select * from users where household_owner_id = $1::uuid and deleted_at is null limit 20",
-            user_id,
-        )
-        recipients += list(members)
+    from services.family_delivery import enqueue
+    await enqueue(conn, dict(parent), 'report', period, {'name':parent_display,'period':period})
 
-    for r in recipients:
-        if not r or not r["phone"]:
-            continue
-        try:
-            # PERMANENT SOLUTION: Try template WITH document header first (works outside 24h window)
-            # This is for child/siblings who never reply - free-form document fails outside window
-            pdf_media_id = None
-            if pdf_bytes and not pdf_url:
-                # Upload first to get media_id for template header
-                try:
-                    from whatsapp import upload_media_to_whatsapp
-                    pdf_media_id = await upload_media_to_whatsapp(pdf_bytes, f"AYANA-{parent_display}-{period}.pdf")
-                except Exception:
-                    pdf_media_id = None
-            
-            if pdf_url or pdf_media_id:
-                try:
-                    from whatsapp import send_report_ready_with_pdf_template
-                    res = await send_report_ready_with_pdf_template(
-                        r["phone"], language, parent_display, 
-                        pdf_url=pdf_url, pdf_media_id=pdf_media_id, period=period
-                    )
-                    if res.get("status") == "sent":
-                        logger.info("[monthly_report] Report with PDF via TEMPLATE sent to %s (24h window FIXED)", r["phone"])
-                        continue  # Success - skip fallback
-                except Exception as e:
-                    logger.warning("[monthly_report] Template with PDF header failed, fallback to old method: %s", e)
-            
-            # Fallback: old method (template + separate document) - requires 24h window for document
-            res1 = await send_report_ready(r["phone"], language, parent_display)
-            logger.info("[monthly_report] report_ready template sent to %s: %s", r["phone"], res1.get("status"))
-
-            if pdf_url or pdf_bytes:
-                if pdf_url:
-                    from whatsapp import send_report_pdf_with_link
-                    res2 = await send_report_pdf_with_link(r["phone"], pdf_url, period, parent_display, language)
-                    logger.info("[wa] Document sent to %s via link: %s (requires 24h window)", r["phone"], res2.get("status"))
-                    if res2.get("status") == "failed" and pdf_bytes:
-                        from whatsapp import upload_media_and_send_document
-                        res3 = await upload_media_and_send_document(r["phone"], pdf_bytes, f"AYANA-{parent_display}-{period}.pdf", f"AYANA Report {period}")
-                        logger.info("[wa] Document sent to %s via media_id fallback: %s (requires 24h window)", r["phone"], res3.get("status"))
-                elif pdf_bytes:
-                    from whatsapp import upload_media_and_send_document
-                    res2 = await upload_media_and_send_document(r["phone"], pdf_bytes, f"AYANA-{parent_display}-{period}.pdf", f"AYANA Report {period}")
-                    logger.info("[wa] Document sent to %s via media_id: %s (requires 24h window)", r["phone"], res2.get("status"))
-
-        except Exception as e:
-            logger.error("[monthly_report] report_ready notify failed for user %s: %s", r["id"], e, exc_info=True)
 
 async def generate_monthly_report(user_id: str, parent_id, plan_id: str, year: int, month: int, notify: bool = False) -> dict:
     start_day, end_day = _month_bounds(year, month)
-    range_start = _day_key_to_dt(start_day)
-    range_end = _day_key_to_dt(end_day) + timedelta(days=1)
     limits = plan_limits(plan_id)
 
     async with get_pool().acquire() as conn:
+        parent_row = await conn.fetchrow("select name, preferred_name, relationship, language, timezone from parents where id = $1", parent_id)
+        tz_name = (parent_row["timezone"] if parent_row else None) or "Asia/Kolkata"
+        tz = _tz(tz_name)
+        range_start = _day_key_to_dt(start_day, tz)
+        range_end = _day_key_to_dt(end_day, tz) + timedelta(days=1)
+
         logs = await conn.fetch(
             """
             select * from message_logs 
@@ -474,7 +394,7 @@ async def generate_monthly_report(user_id: str, parent_id, plan_id: str, year: i
               and msg_type = any($4::text[])
             """,
             parent_id, range_start, range_end,
-            ["checkin", "reminder", "reengagement"],
+            ["checkin", "reminder", "activity", "safety", "reengagement"],
         )
 
         total = len(logs)
@@ -489,8 +409,6 @@ async def generate_monthly_report(user_id: str, parent_id, plan_id: str, year: i
             parent_id, range_start, range_end,
         )
 
-        parent_row = await conn.fetchrow("select name, preferred_name, relationship, language, timezone from parents where id = $1", parent_id)
-        tz_name = (parent_row["timezone"] if parent_row else None) or "Asia/Kolkata"
         details = await _daily_details(conn, parent_id, start_day, end_day, tz_name)
         details["parent_name"] = (parent_row["name"] if parent_row else None) or "Parent"
         details["relationship"] = parent_row["relationship"] if parent_row else None
@@ -505,9 +423,9 @@ async def generate_monthly_report(user_id: str, parent_id, plan_id: str, year: i
             "plan": plan_id,
             "period": f"{year:04d}-{month:02d}",
             "total_touches": synced_total,
-            "delivered": synced_total,
-            "skipped": skipped,
-            "voice_replies": voice_replies,
+            "delivered": details['summary']['delivered'],
+            "skipped": details['summary']['skipped'],
+            "voice_replies": details['summary']['voice'],
             "mood_graph": None,
             "trend_note": None,
             "details": details,
@@ -537,7 +455,7 @@ async def generate_monthly_report(user_id: str, parent_id, plan_id: str, year: i
             except Exception as e:
                 logger.error("[monthly_report] PDF upload failed: %s", e, exc_info=True)
         elif pdf_bytes:
-            logger.warning("[monthly_report] PDF generated but storage disabled, will send via media_id")
+            logger.warning("[monthly_report] PDF generated but storage disabled; report remains available in the dashboard")
 
         # Save to DB
         await conn.execute(
@@ -559,8 +477,8 @@ async def generate_monthly_report(user_id: str, parent_id, plan_id: str, year: i
                     details = excluded.details,
                     pdf_url = excluded.pdf_url
             """,
-            user_id, parent_id, plan_id, report["period"], report["total_touches"], report["delivered"], skipped,
-            voice_replies, json.dumps(report["mood_graph"]) if report["mood_graph"] else None,
+            user_id, parent_id, plan_id, report["period"], report["total_touches"], report["delivered"], report['skipped'],
+            report['voice_replies'], json.dumps(report["mood_graph"]) if report["mood_graph"] else None,
             report["trend_note"], report["shared_with_care_circle"], report["generated_at"],
             json.dumps(details), pdf_url,
         )
@@ -587,10 +505,11 @@ async def generate_reports_for_month(year: int, month: int):
 
     for parent in parents:
         async with get_pool().acquire() as conn:
-            ps = await conn.fetchrow(
-                "select * from payment_state where user_id = $1", parent["user_id"]
-            )
-        plan_id = (ps["plan"] if ps else None) or "nitya"
+            from services.billing_access import access
+            entitlement = await access(conn, parent["user_id"])
+        if not entitlement['allowed']:
+            continue
+        plan_id = entitlement['plan']
         try:
             await generate_monthly_report(parent["user_id"], parent["id"], plan_id, year, month, notify=True)
         except Exception as e:

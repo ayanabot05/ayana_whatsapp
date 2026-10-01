@@ -9,12 +9,24 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Query
 
-from auth import get_current_admin, serialize
+from auth import get_current_admin, get_delivery_viewer, serialize
 from database import get_pool
 from services.delivery_stats import delivery_funnel
 from whatsapp import whatsapp_enabled
 
 router = APIRouter(prefix='/api/admin', tags=['Admin'])
+
+
+@router.get('/delivery-status')
+async def delivery_status(viewer: dict = Depends(get_delivery_viewer)):
+    """Aggregate receipt states only; no customer identities or message contents."""
+    async with get_pool().acquire() as conn:
+        rows = await conn.fetch("""SELECT coalesce(delivery_status,status,'unknown') AS state,
+            count(*) AS count FROM message_logs
+            WHERE created_at >= now() - interval '24 hours'
+            GROUP BY coalesce(delivery_status,status,'unknown')""")
+    return {'period': 'Last 24 hours', 'checked_at': datetime.now(timezone.utc).isoformat(),
+            'counts': {row['state']: row['count'] for row in rows}}
 
 
 @router.get('/stats')

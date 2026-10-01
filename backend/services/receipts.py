@@ -23,10 +23,13 @@ async def apply(key, status):
             OR EXISTS(SELECT 1 FROM child_content_requests WHERE sid=$1)
             OR EXISTS(SELECT 1 FROM welcome_deliveries WHERE sid=$1)
             OR EXISTS(SELECT 1 FROM care_send_claims WHERE sid=$1)
+            OR EXISTS(SELECT 1 FROM family_notifications WHERE sid=$1)
             OR EXISTS(SELECT 1 FROM moments WHERE sid=$1)''', sid)
         if not known:
             return
     await notifications.persist_receipt(status)
+    from services.family_delivery import persist_receipt
+    await persist_receipt(status)
     error = (status.get('errors') or [{}])[0]
     code = error.get('code')
     async with get_pool().acquire() as conn, conn.transaction():
@@ -40,7 +43,7 @@ async def apply(key, status):
             retry_state = 'failed' if code in notifications.RETRYABLE_CODES | {131047} else 'blocked'
             claims = await conn.fetch("UPDATE care_send_claims SET status=$2,detail=$3 WHERE sid=$1 AND status NOT IN ('delivered','read') RETURNING event_key,parent_id", sid, retry_state, error.get('title'))
             if code == 131047:
-                await conn.execute("UPDATE wa_sessions w SET session_open=false WHERE EXISTS (SELECT 1 FROM message_logs l WHERE l.sid=$1 AND l.parent_id=w.parent_id AND w.last_inbound_at<=l.created_at)", sid)
+                await conn.execute("UPDATE wa_sessions w SET session_open=false,last_inbound_at=least(last_inbound_at,now()-interval '25 hours') WHERE EXISTS (SELECT 1 FROM message_logs l WHERE l.sid=$1 AND l.parent_id=w.parent_id AND w.last_inbound_at<=l.created_at)", sid)
             for claim in claims:
                 parts = claim['event_key'].split(':')
                 if len(parts) >= 5 and parts[0] == 'warning' and parts[1] in ('main', 'first'):
@@ -49,6 +52,12 @@ async def apply(key, status):
         await conn.execute("UPDATE welcome_deliveries SET status=$2,detail=coalesce($3,detail),next_attempt_at=now()+interval '15 minutes',updated_at=now() WHERE sid=$1 AND status NOT IN ('delivered','read')", sid, welcome_state, error.get('title'))
         await conn.execute("UPDATE moments SET delivery_status=$2 WHERE sid=$1 AND coalesce(delivery_status,'') NOT IN ('delivered','read')", sid, state)
         await conn.execute('UPDATE provider_receipts SET processed_at=now() WHERE event_key=$1', key)
+    from services.cache import bump_version
+    owners = await get_pool().fetch('''SELECT user_id FROM message_logs WHERE sid=$1
+        UNION SELECT r.user_id FROM parent_replies r JOIN reply_notifications n ON n.reply_id=r.id
+        WHERE n.sid=$1 OR n.audio_sid=$1''', sid)
+    for owner in owners:
+        await bump_version(owner['user_id'])
 
 
 async def drain():

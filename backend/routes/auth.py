@@ -81,9 +81,9 @@ async def register(request: Request, response: Response, payload: RegisterInput,
                 uid,
             )
 
-    await audit(uid, "register", {"linked_household": str(household_owner_id) if household_owner_id else None})
-    # Welcome the new account owner (adult child) over WhatsApp — best-effort.
-    background_tasks.add_task(send_child_welcome, dict(user_row))
+    # Welcome the new account owner over WhatsApp once email is verified.
+    if user_row.get("email_verified_at"):
+        background_tasks.add_task(send_child_welcome, dict(user_row))
     access_token = create_access_token(str(uid), email, "user")
     refresh_token = create_refresh_token(str(uid), email, "user")
     set_auth_cookies(response, access_token, refresh_token)

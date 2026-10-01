@@ -33,6 +33,8 @@ async def set_schedule_active(schedule_id: str, payload: ScheduleActiveInput, us
             if not (await access(conn, scope(user)))['allowed']:
                 raise HTTPException(403, 'Care access has ended. Review your plan before resuming.')
         await conn.execute('UPDATE schedules SET active=$2 WHERE id=$1', row['id'], payload.active)
+    from services.cache import bump_version
+    await bump_version(scope(user))
     return {'id': schedule_id, 'active': payload.active}
 
 
@@ -95,6 +97,8 @@ async def create_schedule(payload: ScheduleInput, user: dict = Depends(get_curre
         final_row = await conn.fetchrow("select * from schedules where id = $1", row["id"])
 
     await audit(user["id"], "create_schedule", {"schedule_id": str(row["id"])})
+    from services.cache import bump_version
+    await bump_version(scope(user))
     out = serialize(final_row)
     if sync_result["dropped"]:
         out["medicine_reminders_dropped"] = sync_result["dropped"]
@@ -131,6 +135,8 @@ async def update_schedule(schedule_id: str, payload: ScheduleInput, user: dict =
         )
         updated = await conn.fetchrow("select * from schedules where id = $1::uuid", schedule_id)
 
+    from services.cache import bump_version
+    await bump_version(scope(user))
     out = serialize(updated)
     if sync_result["dropped"]:
         out["medicine_reminders_dropped"] = sync_result["dropped"]
@@ -525,6 +531,7 @@ async def checkins_summary(
     parent_id: str | None = None,
     page: int = 1,
     page_size: int | None = None,
+    period: str | None = None,
 ):
     from services.checkin_timeline import timeline
     from services import cache
@@ -538,7 +545,7 @@ async def checkins_summary(
     # Read-through cache namespaced by the user's version. Writes bump the
     # version (see services.cache.bump_version) so every view stays in sync.
     ver = await cache.get_version(uid)
-    key = f"v{ver}:checkins:{uid}:{days}:{date or 'none'}:{parent_id or 'all'}:{page}:{page_size or 'all'}"
+    key = f"v{ver}:checkins:{uid}:{days}:{date or 'none'}:{parent_id or 'all'}:{page}:{page_size or 'all'}:{period or 'none'}"
     return await cache.cached_json(
-        key, 12, lambda: timeline(uid, days, date, parent_id, page, page_size)
+        key, 12, lambda: timeline(uid, days, date, parent_id, page, page_size, period)
     )

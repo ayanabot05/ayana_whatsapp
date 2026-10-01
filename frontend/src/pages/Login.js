@@ -41,7 +41,8 @@ export default function Login() {
       const { data } = await api.post("/auth/login", { email, password });
       loginWithToken(data.access_token, data.refresh_token, data.user);
       toast.success(`Welcome back, ${data.user.name.split(" ")[0]}! Your parents missed you. 💛`);
-      if (isSafeRedirect) navigate(redirectTo);
+      if (data.user.role === 'support') navigate('/worker');
+      else if (isSafeRedirect) navigate(redirectTo);
       else if (data.user.role === "admin") navigate("/admin");
       else navigate(data.user.onboarding_complete? "/dashboard" : "/onboarding");
     } catch (err) {

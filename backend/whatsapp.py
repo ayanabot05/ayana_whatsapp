@@ -25,7 +25,7 @@ from templates_data import (
 logger = logging.getLogger("ayana.whatsapp")
 
 # Redis setup for cooldown (shared with scheduler)
-REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379")
+REDIS_URL = os.environ.get("REDIS_URL") or "redis://localhost:6379"
 redis_client = redis.Redis.from_url(REDIS_URL, decode_responses=True)
 
 _GRAPH_VERSION = os.environ.get("META_WA_GRAPH_VERSION", "v22.0").strip()
@@ -44,6 +44,21 @@ _CATEGORY_TEMPLATE_NAME = {
     "mood": "ayana_mood",
     "reengagement": "ayana_reengagement",
     "report_ready": "ayana_report_ready",
+    "office_return": "ayana_office_return",
+    "market_return": "ayana_market_return",
+    "shopping_return": "ayana_shopping_return",
+    "temple_return": "ayana_temple_return",
+    "outing_return": "ayana_outing_return",
+    "first_warn_child": "ayana_first_warn_child",
+    "main_warn_child": "ayana_main_warn_child",
+    "first_warn_parent": "ayana_first_warn_parent",
+    "child_welcome": "ayana_child_welcome",
+    "parent_reply": "ayana_parent_reply",
+    "parent_voice": "ayana_parent_voice",
+    **{key: f"ayana_{key}" for key in (
+        "morning_wish", "water", "bp_check", "sugar_check", "health_check",
+        "afternoon_checkin", "tea_check", "walk_check", "goodnight", "love_note",
+    )},
 }
 
 TEMPLATE_LANG_CODE_MAP = {"en": "en", "te": "te", "hi": "hi"}
@@ -67,13 +82,9 @@ def _creds() -> Tuple[str, str]:
 
 
 def _meta_phone(phone: str) -> str:
-    """Strip '+' prefix for Meta Cloud API (E.164 digits-only).
-
-    Meta requires the 'to' field as digits without '+'.  Indian numbers
-    happened to work with the '+', but US / UK numbers were silently
-    rejected, causing welcome messages and forwarded replies to fail.
-    """
-    return (phone or "").lstrip("+")
+    """Normalize an international number without guessing its country code."""
+    from validation import validate_phone
+    return validate_phone(phone).lstrip('+')
 
 
 def meta_auth_header() -> Dict[str, str]:
@@ -154,16 +165,14 @@ def _send_content_template_once(
         return {"status": "simulated", "template_type": template_key, "template_name": template_name, "to": to_phone, "vars": content_variables}
     if not template_name:
         return None
-    lang_code = TEMPLATE_LANG_CODE_MAP.get(language, language)
+    from services.template_registry import build
+    template, body = build(template_name, language,
+                           [content_variables[k] for k in sorted(content_variables, key=int)])
     payload = {
         "messaging_product": "whatsapp",
         "to": _meta_phone(to_phone),
         "type": "template",
-        "template": {
-            "name": template_name,
-            "language": {"code": lang_code},
-            "components": [{"type": "body", "parameters": _build_body_params(content_variables)}],
-        },
+        "template": template,
     }
     resp = httpx.post(
         _messages_url(phone_id),
@@ -175,19 +184,22 @@ def _send_content_template_once(
         _log_meta_error(resp, f"template={template_name} lang={language} to={to_phone}")
     resp.raise_for_status()
     msg_id = _extract_message_id(resp.json())
-    return {"status": "sent", "sid": msg_id, "template_type": template_key}
+    return {"status": "sent", "sid": msg_id, "template_type": template_key,
+            "template_name": template['name'], "body": body}
 
 
 async def _send_content_template_with_retry(
     to_phone: str, template_name: str, language: str, content_variables: Dict[str, str], template_key: str
 ) -> Optional[Dict[str, Any]]:
-    token, phone_id = _creds()
-    if not whatsapp_enabled() or not token or not phone_id:
-        return _send_content_template_once(to_phone, template_name, language, content_variables, template_key)
-
     # Durable callers own retries. A timeout may mean Meta accepted the send.
     try:
+        # Validate even in simulation so missing approvals cannot look successful.
+        from services.template_registry import build
+        build(template_name, language,
+              [content_variables[k] for k in sorted(content_variables, key=int)])
         return await asyncio.to_thread(_send_content_template_once,to_phone,template_name,language,content_variables,template_key)
+    except ValueError as exc:
+        return {'status':'configuration_error','detail':str(exc),'template_type':template_key}
     except (httpx.TimeoutException, httpx.NetworkError):
         return {'status':'uncertain','detail':'Provider acceptance is unknown; do not automatically resend.','template_type':template_key}
     except httpx.HTTPStatusError as exc:
@@ -331,14 +343,6 @@ async def mark_reengagement_sent(parent_id) -> None:
         )
 
 
-_NON_MEDICINE_REMINDER_LABELS = {
-    "water": "water check 💧",
-    "bp_check": "BP check",
-    "sugar_check": "sugar check",
-    "health_check": "health check",
-}
-
-
 def _language_native_medicine_placeholder(language: str) -> str:
     lang = (language or "en").lower()
     return {"en": "your medicine", "te": "మందు", "hi": "दवाई"}.get(lang, "your medicine")
@@ -348,32 +352,37 @@ def _build_approved_template_vars(template_key: str, category: str, preferred: s
     if template_key == "opener":
         return {"1": preferred, "2": parent_relation_label(parent, language)}
     if template_key == "medicine":
-        if category == "medicine":
-            label = medicine_name or _language_native_medicine_placeholder(language)
-        else:
-            label = _NON_MEDICINE_REMINDER_LABELS.get(category, medicine_name or _language_native_medicine_placeholder(language))
-        return {"1": preferred, "2": label}
+        return {"1": preferred, "2": medicine_name or _language_native_medicine_placeholder(language)}
+    if template_key == "love_note":
+        return {"1": preferred, "2": parent.get('child_name') or
+                {'en':'your family','te':'మీ కుటుంబం','hi':'आपका परिवार'}.get(language, 'your family')}
     return {"1": preferred}
 
 
-async def send_template_for_category(parent: Dict[str, Any], category: str, day_index: int, variants_per_slot: int, medicine_name: str = "") -> Dict[str, Any]:
+async def send_template_for_category(parent: Dict[str, Any], category: str, day_index: int, variants_per_slot: int, medicine_name: str = "", force_template: bool = False, location_label: str = "") -> Dict[str, Any]:
     parent_id = parent["id"]
     phone = parent.get("phone", "")
     language = parent.get("language", "en")
     preferred = parent.get("preferred_name") or parent.get("name", "") or "Amma"
 
-    if await is_session_open(parent_id):
-        return await send_dynamic_checkin(parent, category, day_index, variants_per_slot, medicine_name)
+    if not force_template and await is_session_open(parent_id):
+        return await send_dynamic_checkin(parent, category, day_index, variants_per_slot, medicine_name, location_label=location_label)
 
+    if category in ('office_return','market_return','shopping_return','temple_return','outing_return'):
+        variables = {'1': preferred}
+        if category == 'shopping_return':
+            variables['2'] = location_label.strip() or {'en':'your usual','te':'మీ సాధారణ','hi':'आपकी नियमित'}.get(language, 'your usual')
+        return await _send_content_template_with_retry(phone, _get_template_name(category, language), language, variables, category)
     template_key = get_template_sid_key(category)
     template_name = _get_template_name(template_key, language)
-    body = await render_slot_body_async(category, language, parent, day_index, medicine_name or _language_native_medicine_placeholder(language), variants_per_slot)
-
-    if template_name and whatsapp_enabled():
+    if template_name:
+        if template_key == 'love_note' and not parent.get('child_name') and parent.get('user_id'):
+            child_name = await get_pool().fetchval('SELECT name FROM users WHERE id=$1 AND deleted_at IS NULL', parent['user_id'])
+            parent = {**parent, 'child_name': child_name}
         content_vars = _build_approved_template_vars(template_key, category, preferred, parent, language, medicine_name)
         result = await _send_content_template_with_retry(phone, template_name, language, content_vars, template_key)
     else:
-        result = send_whatsapp(phone, body)
+        result = {'status': 'configuration_error', 'detail': f'No approved template configured for {category}'}
 
     if result and result.get("status") in ("sent", "simulated"):
         await mark_opener_sent(parent_id, template_key)
@@ -398,27 +407,25 @@ async def send_mood_template(parent, category: str = "goodnight", day_index: int
     return await send_template_for_category(parent, category, day_index, variants_per_slot)
 
 
-async def send_dynamic_checkin(parent: Dict[str, Any], category: str, day_index: int, variants_per_slot: int, medicine_name: str = "") -> Dict[str, Any]:
+async def send_dynamic_checkin(parent: Dict[str, Any], category: str, day_index: int, variants_per_slot: int, medicine_name: str = "", location_label: str = "") -> Dict[str, Any]:
     parent_id = parent["id"]
     phone = parent.get("phone", "")
     language = parent.get("language", "en")
 
     if not await is_session_open(parent_id):
-        if category in ('water','bp_check','sugar_check','health_check'):
-            return {'status':'blocked_template','detail':'A dedicated health-check template is required outside the parent window; medicine wording is unsafe for this check.'}
-        if category in ('office_return','market_return','shopping_return','temple_return','outing_return'):
-            lang = parent.get('language') if parent.get('language') in ('en','te','hi') else 'en'
-            variables = {'1':parent.get('preferred_name') or parent['name']}
-            if category == 'shopping_return':
-                variables['2'] = 'your usual' if lang == 'en' else 'మీ సాధారణ' if lang == 'te' else 'आपकी नियमित'
-            return await _send_content_template_with_retry(phone,f'ayana_{category}_{lang}',lang,variables,category)
-        return await send_template_for_category(parent, category, day_index, variants_per_slot, medicine_name)
+        return await send_template_for_category(parent, category, day_index, variants_per_slot, medicine_name, force_template=True, location_label=location_label)
 
     body = await render_slot_body_async(category, language, parent, day_index, medicine_name or _language_native_medicine_placeholder(language), variants_per_slot)
+    if category == 'shopping_return' and location_label.strip():
+        from services.template_content import snapshot
+        preferred = parent.get('preferred_name') or parent.get('name') or 'Amma'
+        body = snapshot('shopping_return', language, {'1': preferred, '2': location_label.strip()})
     buttons = render_slot_buttons(category, language)
     result = await _send_quick_reply(phone, body, buttons, context=category, language=language)
     if result.get('error_code') == 131047:
         await get_pool().execute("UPDATE wa_sessions SET last_inbound_at=now()-interval '25 hours' WHERE parent_id=$1",parent_id)
+        return await send_template_for_category(parent, category, day_index, variants_per_slot, medicine_name, force_template=True, location_label=location_label)
+    result['body'] = body
     return result
 
 
@@ -451,12 +458,12 @@ async def send_reengagement(parent: Dict[str, Any], reengagement_hours: int = 4)
         if last_inbound > opener_sent_at:
             return {"skipped": True, "reason": "parent_replied"}
 
-    template_name = _get_template_name("reengagement", language)
-    if template_name and whatsapp_enabled():
-        result = await _send_content_template_with_retry(phone, template_name, language, {"1": preferred}, "reengagement")
+    lang = language if language in ('en', 'te', 'hi') else 'en'
+    template_name = f"ayana_reengagement_{lang}"
+    if whatsapp_enabled():
+        result = await _send_content_template_with_retry(phone, template_name, lang, {"1": preferred}, "reengagement")
     else:
-        body = f"{preferred}, we miss hearing from you 💛\n\nJust checking — are you alright?"
-        result = send_whatsapp(phone, body)
+        result = {"status": "disabled", "detail": "WhatsApp sending is disabled."}
 
     if result and result.get("status") in ("sent", "simulated"):
         await mark_reengagement_sent(parent_id)
@@ -684,8 +691,12 @@ async def send_parent_goodbye(parent: Dict[str, Any]) -> Dict[str, Any]:
         return {"status": "skipped", "detail": "no phone"}
     name = parent.get("preferred_name") or parent.get("name") or "there"
     lang = parent.get("language") or "en"
+    parent_id = parent.get("id")
     body = _GOODBYE_TEXT.get(lang, _GOODBYE_TEXT["en"]).format(name=name)
-    return send_whatsapp(phone, body)
+    if parent_id and await is_session_open(parent_id):
+        return send_whatsapp(phone, body)
+    # Outside 24h window — use the goodnight/mood template as closest match
+    return await send_template_for_category(parent, "goodnight", 0, 3)
 
 
 _CHILD_WELCOME_TEXT = {
@@ -730,16 +741,22 @@ def _lang2(language: str | None) -> str:
 
 
 async def send_child_welcome(user: Dict[str, Any]) -> Dict[str, Any]:
-    return {"status": "skipped", "detail": "gated until first parent added"}
+    """Send the child/owner welcome via the durable welcomes queue."""
+    from services.welcomes import queue_child, deliver
+    key = await queue_child(user)
+    if not key:
+        return {"status": "skipped", "detail": "email not verified or consent missing"}
+    return await deliver(key)
 
 
-async def send_plan_change(phone: str, language: str, plan_name: str, direction: str) -> Dict[str, Any]:
-    if not phone:
-        return {"status": "skipped", "detail": "no phone"}
-    lang = _lang2(language)
-    tset = _PLAN_CHANGE_TEXT.get(lang, _PLAN_CHANGE_TEXT["en"])
-    body = tset.get(direction, tset["same"]).format(plan=plan_name)
-    return send_whatsapp(phone, body)
+async def send_plan_change(phone: str, plan_name: str, direction: str, language: str = "en") -> Dict[str, Any]:
+    lang = language if language in ('en', 'te', 'hi') else 'en'
+    body = _PLAN_CHANGE_TEXT.get(lang, _PLAN_CHANGE_TEXT["en"]).get(direction, _PLAN_CHANGE_TEXT["en"]["upgrade"]).format(plan=plan_name)
+    # Try free-form first; if it fails with 131047, log it but don't crash
+    result = send_whatsapp(phone, body)
+    if result.get('error_code') == 131047:
+        logger.info('[plan-change] Free-form failed (24h window closed) for %s — notification skipped (no dedicated template)', phone)
+    return result
 
 
 async def send_parent_removed_child_notice(child_phone: str, language: str, parent_name: str) -> Dict[str, Any]:
@@ -747,7 +764,10 @@ async def send_parent_removed_child_notice(child_phone: str, language: str, pare
         return {"status": "skipped", "detail": "no phone"}
     lang = _lang2(language)
     body = _PARENT_REMOVED_CHILD_TEXT.get(lang, _PARENT_REMOVED_CHILD_TEXT["en"]).format(parent=parent_name or "your parent")
-    return send_whatsapp(child_phone, body)
+    result = send_whatsapp(child_phone, body)
+    if result.get('error_code') == 131047:
+        logger.info('[notification] Free-form failed (24h window closed) for %s — %s notification skipped', child_phone, 'notice_type')
+    return result
 
 
 async def send_member_removed_notice(member_phone: str, language: str = "en") -> Dict[str, Any]:
@@ -755,7 +775,10 @@ async def send_member_removed_notice(member_phone: str, language: str = "en") ->
         return {"status": "skipped", "detail": "no phone"}
     lang = _lang2(language)
     body = _MEMBER_REMOVED_TEXT.get(lang, _MEMBER_REMOVED_TEXT["en"])
-    return send_whatsapp(member_phone, body)
+    result = send_whatsapp(member_phone, body)
+    if result.get('error_code') == 131047:
+        logger.info('[notification] Free-form failed (24h window closed) for %s — %s notification skipped', member_phone, 'notice_type')
+    return result
 
 
 async def send_document_link(to_phone: str, document_link: str, filename: str = "AYANA-Report.pdf", caption: str = "") -> Dict[str, Any]:
@@ -814,13 +837,13 @@ async def send_sibling_added_notice(owner_phone: str, sibling_name: str, languag
         return {"status": "skipped", "detail": "no phone"}
     lang = _lang2(language)
     body = _SIBLING_ADDED_TEXT.get(lang, _SIBLING_ADDED_TEXT["en"]).format(name=sibling_name or "A sibling")
-    return send_whatsapp(owner_phone, body)
+    result = send_whatsapp(owner_phone, body)
+    if result.get('error_code') == 131047:
+        logger.info('[notification] Free-form failed (24h window closed) for %s — %s notification skipped', owner_phone, 'notice_type')
+    return result
 
 
-# ── Cooldown Helper for Scheduler ──────────────────────────────────────────
-async def record_parent_reply_time(parent_id: str):
-    """Set the Redis key so the scheduler skips sending for 15 minutes."""
-    redis_client.set(f"parent:{parent_id}:last_reply", datetime.now(timezone.utc).isoformat(), ex=900)
+
 
 
 # --- ADDED FOR MONTHLY REPORT PDF - CLEAN (no duplicate imports) ---
@@ -869,203 +892,37 @@ async def upload_media_and_send_document(to_phone: str, pdf_bytes: bytes, filena
         return {"status": "failed", "detail": str(e), "to": to_phone, "filename": filename}
 
 # === PERMANENT FIX FOR CHILD 24H WINDOW ===
-# Template with DOCUMENT header works OUTSIDE 24h window, unlike free-form document
+# Compatibility entry point: the approved report template points to the dashboard.
 async def send_report_ready_with_pdf_template(to_phone: str, language: str, parent_display: str, pdf_url: str = None, pdf_media_id: str = None, period: str = "") -> dict:
+    """Send the approved dashboard notification, without inventing a PDF header.
+
+    Legacy callers may still supply PDF arguments. The report remains available
+    in the dashboard; these arguments do not change the approved template shape.
     """
-    Sends ayana_report_ready template WITH document header.
-    Works OUTSIDE 24h window because it's a template, not free-form document.
-    Use this for child/siblings who never reply.
-    """
-    token, phone_id = _creds()
-    if not whatsapp_enabled() or not token or not phone_id:
-        return {"status": "simulated", "to": to_phone, "template": "report_ready_with_pdf"}
-    
-    template_name = _get_template_name("report_ready", language)
-    if not template_name:
-        return {"status": "skipped", "detail": "no template name"}
-    
-    lang_code = TEMPLATE_LANG_CODE_MAP.get(language, language)
-    
-    # Build components: header with document + body with params
-    components = []
-    
-    # Header with document (if pdf available)
-    if pdf_url or pdf_media_id:
-        header_param = {}
-        if pdf_media_id:
-            header_param = {"type": "document", "document": {"id": pdf_media_id, "filename": f"AYANA-{parent_display}-{period}.pdf"}}
-        else:
-            header_param = {"type": "document", "document": {"link": pdf_url, "filename": f"AYANA-{parent_display}-{period}.pdf"}}
-        components.append({"type": "header", "parameters": [header_param]})
-    
-    # Body params: {{1}} = parent name
-    components.append({"type": "body", "parameters": [{"type": "text", "text": parent_display[:100]}]})
-    
-    payload = {
-        "messaging_product": "whatsapp",
-        "to": _meta_phone(to_phone),
-        "type": "template",
-        "template": {
-            "name": template_name,
-            "language": {"code": lang_code},
-            "components": components
-        }
-    }
-    
-    try:
-        resp = httpx.post(_messages_url(phone_id), headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"}, json=payload, timeout=_SEND_TIMEOUT)
-        if resp.status_code >= 400:
-            _log_meta_error(resp, f"report_ready_with_pdf to={to_phone}")
-            # Fallback: if template with doc header fails (template not configured with doc header), try simple template
-            if "document" in resp.text.lower() or "header" in resp.text.lower():
-                logger.warning("[wa] Template with doc header failed, falling back to simple template + link")
-                return await _send_content_template_with_retry(to_phone, template_name, language, {"1": parent_display}, "report_ready")
-        resp.raise_for_status()
-        msg_id = _extract_message_id(resp.json())
-        logger.info("[wa] Report template with PDF sent to %s (works outside 24h window)", to_phone)
-        return {"status": "sent", "sid": msg_id, "template_type": "report_ready_with_pdf"}
-    except Exception as e:
-        logger.error("[wa] Report template with PDF failed: %s", e, exc_info=True)
-        return {"status": "failed", "detail": str(e), "to": to_phone}
+    result = await send_report_ready(to_phone, language, parent_display)
+    return {**result, "report_delivery": "dashboard", "pdf_attached": False}
 
 
 # === FIRST WARNING (2pm) and MAIN WARNING (10pm) TEMPLATES - PERMANENT FIX ===
 # These work OUTSIDE 24h window for child, unlike plain text
 
 async def send_first_warning_to_child(to_phone: str, language: str, parent_display: str) -> dict:
-    """
-    First warning at 2pm: Dad didn't reply morning 6am-2pm
-    Template: ayana_first_warn_child_en / _te / _hi
-    Body: {{1}} = parent name
-    Works outside 24h window because it's a template
-    """
-    token, phone_id = _creds()
-    if not whatsapp_enabled() or not token or not phone_id:
-        return {"status": "simulated", "to": to_phone, "template": "first_warn_child"}
-    
-    # Map to your template names - create these in Meta Dashboard
-    template_map = {
-        "en": "ayana_first_warn_child_en",
-        "te": "ayana_first_warn_child_te",
-        "hi": "ayana_first_warn_child_hi",
-    }
-    template_name = template_map.get(language, template_map["en"])
-    lang_code = TEMPLATE_LANG_CODE_MAP.get(language, language)
-    
-    payload = {
-        "messaging_product": "whatsapp",
-        "to": _meta_phone(to_phone),
-        "type": "template",
-        "template": {
-            "name": template_name,
-            "language": {"code": lang_code},
-            "components": [
-                {"type": "body", "parameters": [{"type": "text", "text": parent_display[:100]}]}
-            ]
-        }
-    }
-    try:
-        resp = httpx.post(_messages_url(phone_id), headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"}, json=payload, timeout=_SEND_TIMEOUT)
-        if resp.status_code >= 400:
-            _log_meta_error(resp, f"first_warn_child to={to_phone}")
-            # Fallback if template not created yet - try generic silence template
-            if "not exist" in resp.text.lower() or "does not exist" in resp.text.lower():
-                logger.warning("[wa] Template %s not found, falling back to plain text", template_name)
-                return {"status": "failed", "detail": "template not found", "fallback": True}
-        resp.raise_for_status()
-        return {"status": "sent", "sid": _extract_message_id(resp.json()), "template_type": "first_warn_child"}
-    except Exception as e:
-        logger.error("[wa] First warn child template failed: %s", e, exc_info=True)
-        return {"status": "failed", "detail": str(e), "to": to_phone}
+    return await _send_content_template_with_retry(
+        to_phone, _get_template_name("first_warn_child", language), language,
+        {"1": parent_display}, "first_warn_child")
+
 
 async def send_main_warning_to_child(to_phone: str, language: str, parent_display: str, missed_count: int) -> dict:
-    """
-    Main warning at 10pm: Dad didn't reply whole day since 6am
-    Template: ayana_main_warn_child_en / _te / _hi
-    Body: {{1}} = parent name, {{2}} = missed count
-    Works outside 24h window because it's a template
-    """
-    token, phone_id = _creds()
-    if not whatsapp_enabled() or not token or not phone_id:
-        return {"status": "simulated", "to": to_phone, "template": "main_warn_child"}
-    
-    template_map = {
-        "en": "ayana_main_warn_child_en",
-        "te": "ayana_main_warn_child_te",
-        "hi": "ayana_main_warn_child_hi",
-    }
-    template_name = template_map.get(language, template_map["en"])
-    lang_code = TEMPLATE_LANG_CODE_MAP.get(language, language)
-    
-    payload = {
-        "messaging_product": "whatsapp",
-        "to": _meta_phone(to_phone),
-        "type": "template",
-        "template": {
-            "name": template_name,
-            "language": {"code": lang_code},
-            "components": [
-                {"type": "body", "parameters": [
-                    {"type": "text", "text": parent_display[:100]},
-                    {"type": "text", "text": str(missed_count)}
-                ]}
-            ]
-        }
-    }
-    try:
-        resp = httpx.post(_messages_url(phone_id), headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"}, json=payload, timeout=_SEND_TIMEOUT)
-        if resp.status_code >= 400:
-            _log_meta_error(resp, f"main_warn_child to={to_phone}")
-            if "not exist" in resp.text.lower() or "does not exist" in resp.text.lower():
-                logger.warning("[wa] Template %s not found, falling back to plain text", template_name)
-                return {"status": "failed", "detail": "template not found", "fallback": True}
-        resp.raise_for_status()
-        return {"status": "sent", "sid": _extract_message_id(resp.json()), "template_type": "main_warn_child"}
-    except Exception as e:
-        logger.error("[wa] Main warn child template failed: %s", e, exc_info=True)
-        return {"status": "failed", "detail": str(e), "to": to_phone}
+    return await _send_content_template_with_retry(
+        to_phone, _get_template_name("main_warn_child", language), language,
+        {"1": parent_display, "2": str(missed_count)}, "main_warn_child")
+
 
 async def send_first_warning_to_parent(to_phone: str, language: str, parent_display: str) -> dict:
-    """
-    Nudge parent at 2pm: we missed you morning
-    Parent is within 24h window (they received morning check-in), so plain text works
-    But using template for consistency
-    """
-    token, phone_id = _creds()
-    if not whatsapp_enabled() or not token or not phone_id:
-        return {"status": "simulated", "to": to_phone, "template": "first_warn_parent"}
-    
-    template_map = {
-        "en": "ayana_first_warn_parent_en",
-        "te": "ayana_first_warn_parent_te",
-        "hi": "ayana_first_warn_parent_hi",
-    }
-    template_name = template_map.get(language, template_map["en"])
-    lang_code = TEMPLATE_LANG_CODE_MAP.get(language, language)
-    
-    payload = {
-        "messaging_product": "whatsapp",
-        "to": _meta_phone(to_phone),
-        "type": "template",
-        "template": {
-            "name": template_name,
-            "language": {"code": lang_code},
-            "components": [
-                {"type": "body", "parameters": [{"type": "text", "text": parent_display[:100]}]}
-            ]
-        }
-    }
-    try:
-        resp = httpx.post(_messages_url(phone_id), headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"}, json=payload, timeout=_SEND_TIMEOUT)
-        if resp.status_code >= 400:
-            _log_meta_error(resp, f"first_warn_parent to={to_phone}")
-        resp.raise_for_status()
-        return {"status": "sent", "sid": _extract_message_id(resp.json()), "template_type": "first_warn_parent"}
-    except Exception as e:
-        logger.error("[wa] First warn parent template failed: %s", e, exc_info=True)
-        return {"status": "failed", "detail": str(e), "to": to_phone}
+    return await _send_content_template_with_retry(
+        to_phone, _get_template_name("first_warn_parent", language), language,
+        {"1": parent_display}, "first_warn_parent")
 
-# === SAFETY & RETURN CHECK-INS (Section 5) - NEW TEMPLATES ===
 
 async def send_safety_checkin(to_phone: str, language: str, parent_display: str, category: str, custom_label: str = "") -> dict:
     """

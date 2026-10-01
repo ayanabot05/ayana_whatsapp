@@ -114,105 +114,7 @@ def _reply_context_line(intent: str | None, pname: str, subj: str, poss: str) ->
     return None
 
 
-async def _notify_family(owner_id, parent, feeling: str | None, is_voice: bool, body: str, keywords: list, ml_flagged: bool = False, media_url: str = None, transcription: str | None = None, stt_confidence: float | None = None, intent: str | None = None, context_id: str | None = None):
-    async with get_pool().acquire() as conn:
-        owner = await conn.fetchrow("select * from users where id = $1::uuid", owner_id)
-        members = await conn.fetch(
-            "select * from users where household_owner_id = $1::uuid and deleted_at is null limit 20", owner_id
-        )
-        # #11: phone-verified care-circle siblings receive the EXACT same
-        # forwarded reply + voice note the account owner gets.
-        siblings = await conn.fetch(
-            "select name, phone, language from care_circle_siblings where owner_id = $1::uuid and verified = true limit 5",
-            owner_id,
-        )
-        last_log = None
-        if parent:
-            # LABEL FIX: tie the reply to the EXACT message the parent tapped.
-            # Meta sends context.id = the wam id of the message being replied
-            # to; our outbound sends store that same id in message_logs.sid.
-            # Resolving by it prevents mislabelling (e.g. a lunch tap showing
-            # as "morning Wish check-in" when several check-ins went out close
-            # together). Falls back to the latest log only if we can't match.
-            if context_id:
-                last_log = await conn.fetchrow(
-                    "select category, msg_type, body from message_logs where parent_id = $1::uuid and sid = $2 order by created_at desc limit 1",
-                    parent["id"], context_id,
-                )
-            if last_log is None:
-                last_log = await conn.fetchrow(
-                    "select category, msg_type, body from message_logs where parent_id = $1::uuid order by created_at desc limit 1",
-                    parent["id"],
-                )
-    recipients = ([owner] if owner else []) + list(members) + list(siblings)
-    pname = parent["name"] if parent else "Your parent"
-    prompt = _prompt_label(last_log)
-    prompt_l = prompt[:1].lower() + prompt[1:]
-    subj, poss = ("He", "his") if parent and (parent.get("relationship") or "") == "father" else ("She", "her")
-    try:
-        tz = ZoneInfo((parent.get("timezone") if parent else None) or "Asia/Kolkata")
-    except Exception:
-        tz = ZoneInfo("Asia/Kolkata")
-    when = datetime.now(timezone.utc).astimezone(tz).strftime("%I:%M %p").lstrip("0")
-    city = (parent.get("city") if parent else "") or ""
-    where = f"{when} · {city}" if city else when
 
-    # --- VOICE FORWARD LOGIC with confidence (Issue #1 + #2) ---
-    if is_voice and media_url:
-        from whatsapp import send_audio_link, download_and_host_voice_note
-        hosted_audio_url = await download_and_host_voice_note(media_url, str(parent["id"]) if parent else "unknown")
-
-        is_clear = bool(transcription and transcription.strip() and transcription.strip() != "[voice note]" and len(transcription.strip()) > 2)
-        conf_label = confidence_label(stt_confidence) if stt_confidence is not None else ("high" if is_clear else "unknown")
-        translated_text = transcription
-
-        # Translate if clear and languages differ
-        if is_clear and owner:
-            child_lang = (owner.get("language") or "en").lower()[:2]
-            parent_lang = (parent.get("language") if parent else "en").lower()[:2]
-            if child_lang != parent_lang:
-                try:
-                    from translation_engine import translate_text
-                    translated_text = await translate_text(transcription, target_language=child_lang, source_language=parent_lang)
-                except Exception as e:
-                    logger.warning(f"[voice] Translation failed: {e}")
-
-        pct = f" (≈{round((stt_confidence or 0) * 100)}% confident)" if stt_confidence is not None else ""
-        for r in recipients:
-            if not r or not r["phone"]:
-                continue
-            if hosted_audio_url:
-                await send_audio_link(r["phone"], hosted_audio_url)
-            if is_clear and conf_label == "high":
-                text = f"🎤 {pname} sent you a voice note · {prompt}\n\nTranscript: “{translated_text}”"
-            elif is_clear and conf_label == "medium":
-                text = f"🎤 {pname} sent you a voice note · {prompt}\n\nWe think {subj.lower()} said{pct} — please listen to confirm:\n“{translated_text}”"
-            elif is_clear:  # low confidence but we got some words
-                text = f"🎤 {pname} sent you a voice note · {prompt}\n\nRough transcription{pct}, may be inaccurate — please listen:\n“{translated_text}”"
-            else:
-                text = f"🎤 {pname} sent you a voice note · {prompt}\n\nWe couldn't transcribe it clearly — please listen 💛"
-            send_whatsapp(r["phone"], text)
-        return
-
-    # --- Text / button replies (Phase 2: emotional, contextual format) ---
-    if keywords:
-        head = f"🚨 {pname} replied to your {prompt_l} — “{body}”\nMay need attention.\n{where}"
-    elif ml_flagged:
-        head = f"💛 {pname} sent you a voice note\nWorth checking in — something in it stood out.\n{where}"
-    elif is_voice:
-        head = f"🎤 {pname} sent you a voice note — transcript: “{body}”\n{where}"
-    elif feeling:
-        f = FEELING_MAP.get(feeling, {})
-        reply_txt = f"{f.get('emoji','')} {f.get('label',{}).get('en', feeling)}".strip()
-        head = f"💛 {pname} replied to your {prompt_l} — “{reply_txt}”\n{where}"
-    else:
-        head = f"💛 {pname} replied to your {prompt_l} — “{body}”\n{where}"
-    ctx = _reply_context_line(intent or (f"feeling:{feeling}" if feeling else None), pname, subj, poss)
-    if ctx:
-        head = f"{head}\n{ctx}"
-    for r in recipients:
-        if r and r["phone"]:
-            send_whatsapp(r["phone"], head)
 
 # ── Generic-payload disambiguation ──────────────────────────────────────
 _GENERIC_REMINDER_PAYLOADS = {
@@ -400,7 +302,63 @@ async def _record_reply(from_number: str, body_text: str, num_media: int = 0, pa
     stt_confidence = None
     intent = None
     if parent is None:
-        logger.warning("[webhook] Inbound from unknown number %s — no matching parent, ignoring", from_number)
+        # ── Issue #0 fix: handle inbound from child/owner/sibling ──────────
+        # The webhook previously only matched `parents`. When the son (user)
+        # or a care-circle sibling sent a message (e.g. "Hi" to unblock Meta
+        # 131049), it was silently dropped.  Now we:
+        #   1. Record the inbound in recipient_sessions (opens 24h window).
+        #   2. Trigger welcome & notification recovery.
+        #   3. Send a friendly acknowledgement.
+        async with get_pool().acquire() as conn:
+            child_user = await conn.fetchrow(
+                """SELECT * FROM users
+                   WHERE deleted_at IS NULL
+                     AND regexp_replace(phone, '\\D', '', 'g') = regexp_replace($1, '\\D', '', 'g')
+                   ORDER BY created_at DESC LIMIT 1""",
+                from_number,
+            )
+            if not child_user:
+                child_user = await conn.fetchrow(
+                    """SELECT s.*, s.owner_id AS user_id FROM care_circle_siblings s
+                       WHERE regexp_replace(s.phone, '\\D', '', 'g') = regexp_replace($1, '\\D', '', 'g')
+                         AND s.verified
+                       ORDER BY s.created_at DESC LIMIT 1""",
+                    from_number,
+                )
+
+        if child_user:
+            raw_stamp = (raw_payload or {}).get('timestamp')
+            stamp = datetime.fromtimestamp(int(raw_stamp), timezone.utc) if raw_stamp and str(raw_stamp).isdigit() else datetime.now(timezone.utc)
+            # Record inbound → opens 24h window + triggers welcome recovery
+            await notifications.record_recipient_inbound(
+                from_number, stamp, context_id,
+                (raw_payload or {}).get('type') in ('button', 'interactive'),
+                wam_id,
+            )
+            # Clear the ecosystem-engagement block so future sends succeed
+            async with get_pool().acquire() as conn:
+                await conn.execute(
+                    "UPDATE users SET needs_inbound_click=false WHERE regexp_replace(phone,'\\D','','g')=regexp_replace($1,'\\D','','g')",
+                    from_number,
+                )
+            logger.info(
+                "[webhook] Inbound from child/owner %s — recorded session & triggered recovery",
+                from_number,
+            )
+            # Send a warm acknowledgement so the bot doesn't appear dead
+            try:
+                child_lang = child_user.get("language") or "en"
+                ack = {
+                    "en": "Hi! 💛 AYANA is here. Your parents' daily check-in replies will come to you on WhatsApp. You can also see everything in your dashboard.",
+                    "te": "హాయ్! 💛 AYANA ఇక్కడ ఉంది. మీ తల్లిదండ్రుల రోజువారీ చెక్-ఇన్ సమాధానాలు WhatsAppలో మీకు వస్తాయి. మీ డ్యాష్‌బోర్డ్‌లో కూడా చూడవచ్చు.",
+                    "hi": "नमस्ते! 💛 AYANA यहाँ है। आपके माता-पिता के दैनिक चेक-इन जवाब WhatsApp पर आपको मिलेंगे। आप अपने डैशबोर्ड में भी सब कुछ देख सकते हैं।",
+                }
+                send_whatsapp(from_number, ack.get(child_lang, ack["en"]))
+            except Exception:
+                pass  # Acknowledgement is best-effort
+            return {"from_phone": from_number, "parent_id": None, "intent": None, "child_inbound": True}
+
+        logger.warning("[webhook] Inbound from unknown number %s — no matching parent or user, ignoring", from_number)
         return {"from_phone": from_number, "parent_id": None, "intent": None, "ignored": True}
     lang = parent["language"] if parent and parent["language"] else "en"
     ml_flagged = False
@@ -480,6 +438,11 @@ async def _record_reply(from_number: str, body_text: str, num_media: int = 0, pa
         if context_id and reply_row['message_log_id']:
             await conn.execute("UPDATE parent_replies SET association_source='context' WHERE id=$1", reply_row['id'])
         await notifications.enqueue_reply(conn, reply_row)
+        try:
+            from escalation import record_parent_reply_time
+            await record_parent_reply_time(parent["id"])
+        except Exception:
+            pass  # Non-critical — don't block reply recording
         if keywords and parent:
             await conn.execute(
                 """
@@ -489,7 +452,7 @@ async def _record_reply(from_number: str, body_text: str, num_media: int = 0, pa
                 owner_id, parent["id"], from_number, body_text, json.dumps(keywords), intent, is_voice,
             )
     await archive_audio(dict(reply_row))
-    await notifications.drain_notifications()
+    asyncio.ensure_future(notifications.drain_notifications())
     # One-sync: invalidate this owner's cached views so the new reply shows up
     # consistently across dashboard / check-ins / replies on the next fetch.
     try:
@@ -868,6 +831,11 @@ async def _process_meta_payload(payload: dict) -> None:
                 elif msg_type == "button":
                     button_payload = message.get("button", {}).get("payload")
                     body_text = message.get("button", {}).get("text", "")
+
+                if msg_type in ('button', 'interactive') and body_text and not button_payload:
+                    # Preserve evidence of a button tap even when Meta supplies
+                    # only its title. Classification still requires exact context.
+                    button_payload = 'template_button'
 
                 logger.info(
                     "[webhook] Inbound from %s | type=%s | payload=%s | media=%s | body=%.60s",

@@ -213,20 +213,25 @@ async def update_parent(parent_id: str, payload: ParentInput, user: dict = Depen
 
 @router.delete("/parents/{parent_id}")
 async def delete_parent(parent_id: str, background_tasks: BackgroundTasks, user: dict = Depends(get_current_user), _csrf: None = Depends(validate_csrf_token)):
-    async with get_pool().acquire() as conn:
+    async with get_pool().acquire() as conn, conn.transaction():
         parent = await conn.fetchrow(
             "select * from parents where id = $1::uuid and user_id = $2 and deleted_at is null",
             parent_id, scope(user),
         )
+        if not parent:
+            raise HTTPException(404, 'Parent not found.')
         activation = await conn.fetchrow("select whatsapp_activated from activation_state where user_id = $1", scope(user))
         await conn.execute(
             "update parents set deleted_at = now() where id = $1::uuid and user_id = $2",
             parent_id, scope(user),
         )
         await conn.execute(
-            "update schedules set deleted_at = now(), active = false where parent_id = $1::uuid",
-            parent_id,
+            "update schedules set deleted_at = now(), active = false where parent_id = $1::uuid and user_id=$2",
+            parent_id, scope(user),
         )
+    await audit(user['id'], 'delete_parent', {'parent_id': parent_id})
+    from services.cache import bump_version
+    await bump_version(scope(user))
     # Warm farewell to the parent (only if they were live), and always let the
     # child know check-ins for this parent have stopped.
     if parent:

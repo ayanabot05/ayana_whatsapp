@@ -1,5 +1,6 @@
 import React from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import '@testing-library/jest-dom';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { CheckinsView } from './CheckinsView';
 import { api } from '@/lib/api';
@@ -38,6 +39,32 @@ function renderView() {
     </QueryClientProvider>
   );
 }
+
+test('shows delivery trouble separately from unanswered check-ins', async () => {
+  api.get.mockResolvedValue({data:{parents:[],alerts:[],delivery_alerts:[{
+    parent_id:'mom-1',day:'2026-02-10',body:'AYANA could not confirm delivery of 2 scheduled messages to Mom. Please check their phone or contact them directly.'
+  }]}});
+  renderView();
+  expect(await screen.findByTestId('delivery-alert')).toHaveTextContent('could not confirm delivery');
+  expect(screen.queryByText('Mark reviewed')).not.toBeInTheDocument();
+});
+
+test('evening reply remains in the morning card', async () => {
+  api.get.mockResolvedValue({data:{parents:[{parent_id:'mom-1',name:'Mom',relationship:'mother',timezone:'Asia/Kolkata',days:[{
+    day_key:'2026-02-10',total:2,replied:1,general_replies:[],late_replies:[],messages:[
+      {id:'morning',time:'08:00 AM IST',category:'morning_wish',body:'Morning check-in',status:'sent',delivery_status:'read',
+        replies:[{id:'late-answer',body:'I am fine, replying now',display_time:'10 Feb, 08:05 PM IST',notifications:[{recipient_id:'child',status:'delivered'}]}]},
+      {id:'evening',time:'08:00 PM IST',category:'goodnight',body:'Evening check-in',status:'sent',delivery_status:'delivered',replies:[]}
+    ]}]}],alerts:[]}});
+  renderView();
+  const morning = await screen.findByTestId('checkin-event-morning');
+  const evening = screen.getByTestId('checkin-event-evening');
+  expect(within(morning).getByText('I am fine, replying now')).toBeInTheDocument();
+  expect(within(morning).getByText(/08:05 PM IST/)).toBeInTheDocument();
+  expect(within(morning).getByTestId('reply-recipient-late-answer-0')).toHaveTextContent('Family update: delivered');
+  expect(within(evening).queryByText('I am fine, replying now')).not.toBeInTheDocument();
+  expect(within(evening).getByText('No reply to this message')).toBeInTheDocument();
+});
 
 test('shows context-linked lunch/reengagement replies while medicine stays unanswered and general is unassigned', async () => {
   api.get.mockResolvedValue({

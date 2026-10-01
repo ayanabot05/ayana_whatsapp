@@ -1,4 +1,5 @@
 import React from "react";
+import '@testing-library/jest-dom';
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ConfirmDialog } from "./ConfirmDialog";
@@ -35,6 +36,22 @@ describe("ConfirmDialog", () => {
     
     fireEvent.click(confirmBtn);
     expect(onConfirmMock).toHaveBeenCalled();
+    await waitFor(() => expect(screen.queryByTestId('confirm-action')).not.toBeInTheDocument());
+  });
+
+  it('submits once while pending and keeps failed actions visible', async () => {
+    let reject;
+    const onConfirm = jest.fn(() => new Promise((resolve, fail) => { reject = fail; }));
+    render(<ConfirmDialog trigger={<button>Delete</button>} onConfirm={onConfirm} />);
+    fireEvent.click(screen.getByText('Delete'));
+    const confirm = await screen.findByTestId('confirm-action');
+    fireEvent.click(confirm);
+    fireEvent.click(confirm);
+    expect(onConfirm).toHaveBeenCalledTimes(1);
+    expect(confirm).toBeDisabled();
+    reject(new Error('Failed request'));
+    expect(await screen.findByRole('alert')).toHaveTextContent('could not be completed');
+    expect(screen.getByTestId('confirm-action')).toBeEnabled();
   });
 
   it("closes dialog when cancel is clicked", async () => {

@@ -36,6 +36,7 @@ export const CheckinsView = ({ parents = [], catByKey = {} }) => {
     </div>
     {isLoading && <p role="status" data-testid="checkins-loading">Loading check-ins…</p>}
     {error && <p role="alert" className="text-red-700" data-testid="checkins-error">{formatAxiosError(error)}</p>}
+    {(data?.delivery_alerts || []).map(a => <div key={`${a.parent_id}-${a.day}`} role="alert" className="border-l-4 border-amber-500 py-3 px-4 text-sm" data-testid="delivery-alert"><strong>{a.day}: </strong>{a.body}</div>)}
     {(data?.alerts || []).map(a => <div key={a.event_id} role="alert" className="border-l-4 border-red-500 py-3 px-4 text-sm" data-testid={`care-alert-${a.event_id}`}>{a.body}<Button className="ml-3" variant="outline" size="sm" data-testid={`care-alert-review-${a.event_id}`} onClick={async () => { await api.put(`/emergency-events/${a.event_id}`, { status: 'reviewed' }); refetch(); }}>Mark reviewed</Button></div>)}
     <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
       {(data?.parents || []).map(p => {

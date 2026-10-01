@@ -18,6 +18,12 @@ def parent_zone(name):
     return ZoneInfo(name or 'Asia/Kolkata')
 
 
+# Categories where replies must be evidence-based only (button tap or quoted message).
+# Free-text replies to these are never auto-linked because confirming medication
+# intake requires explicit user action.
+_STRICT_CATEGORIES = frozenset(('medicine', 'bp_check', 'sugar_check', 'health_check', 'water'))
+
+
 def linked_replies(logs, replies):
     by_sid = {(str(l['parent_id']), l.get('sid')): str(l['id']) for l in logs if l.get('sid')}
     by_id = {str(l['id']): str(l['parent_id']) for l in logs}
@@ -35,6 +41,7 @@ def linked_replies(logs, replies):
             linked[log_id].append(reply)
         else:
             general.append(reply)
+
     return dict(linked), general
 
 
@@ -50,7 +57,7 @@ def response_state(replies):
 
 
 def public_reply(reply, zone):
-    fields = ('id', 'parent_id', 'body', 'transcription', 'is_voice', 'intent', 'read_at', 'created_at')
+    fields = ('id', 'parent_id', 'body', 'transcription', 'is_voice', 'intent', 'feeling', 'read_at', 'created_at')
     result = {k: reply.get(k) for k in fields}
     result['id'], result['parent_id'] = str(reply['id']), str(reply['parent_id'])
     result['created_at'] = utc(reply['created_at']).isoformat()
@@ -93,3 +100,21 @@ def build_parent_days(parent, logs, replies):
     for reply in general:
         day_for(reply['created_at'])['general_replies'].append(public_reply(reply, zone))
     return [days[k] for k in sorted(days, reverse=True)]
+
+
+def summarize_days(days):
+    """The same counters for dashboard reports, API responses and PDF exports."""
+    messages = [m for day in days for m in day['messages']]
+    total = len(messages)
+    replied = sum(bool(m['replied']) for m in messages)
+    return {
+        'total': total, 'replied': replied,
+        'accepted': sum(m['status'] == 'sent' for m in messages),
+        'delivered': sum(m.get('delivery_status') in ('delivered', 'read') for m in messages),
+        'failed': sum(m['status'] in ('failed', 'configuration_error') for m in messages),
+        'skipped': sum(m['reply_status'] == 'skip' for m in messages),
+        'voice': sum(bool(r.get('is_voice')) for m in messages for r in m['replies']),
+        'medicine_taken': sum(m['category'] == 'medicine' and m['reply_status'] == 'done' for m in messages),
+        'medicine_skipped': sum(m['category'] == 'medicine' and m['reply_status'] == 'skip' for m in messages),
+        'completion': round(replied / total * 100) if total else 0,
+    }

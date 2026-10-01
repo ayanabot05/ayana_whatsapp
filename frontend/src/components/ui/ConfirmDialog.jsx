@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -32,18 +32,26 @@ export function ConfirmDialog({
   variant = "danger",  // "danger" | "primary"
 }) {
   const [busy, setBusy] = useState(false);
+  const [open, setOpen] = useState(false);
+  const [error, setError] = useState('');
+  const pending = useRef(false);
   const actionCls = variant === "danger"
     ? "bg-red-600 hover:bg-red-700 text-white"
     : "bg-ayana-primary hover:bg-ayana-primary-hover text-white";
 
   return (
-    <AlertDialog>
+    <AlertDialog open={open} onOpenChange={(next) => {
+      if (pending.current) return;
+      setError('');
+      setOpen(next);
+    }}>
       <AlertDialogTrigger asChild>{trigger}</AlertDialogTrigger>
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>{title}</AlertDialogTitle>
           <AlertDialogDescription>{description}</AlertDialogDescription>
         </AlertDialogHeader>
+        {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
         <AlertDialogFooter>
           <AlertDialogCancel data-testid="confirm-cancel" disabled={busy}>Cancel</AlertDialogCancel>
           <AlertDialogAction
@@ -52,8 +60,19 @@ export function ConfirmDialog({
             className={actionCls}
             onClick={async (e) => {
               e.preventDefault();
+              if (pending.current) return;
+              pending.current = true;
+              setError('');
               setBusy(true);
-              try { await onConfirm(); } finally { setBusy(false); }
+              try {
+                await onConfirm();
+                setOpen(false);
+              } catch {
+                setError('The action could not be completed. Please try again.');
+              } finally {
+                pending.current = false;
+                setBusy(false);
+              }
             }}
           >
             {busy && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
