@@ -16,8 +16,10 @@ const label = value => STATUS_LABELS[value] || (value || '').replace(/_/g, ' ');
 export const CheckinsView = ({ parents = [], catByKey = {} }) => {
   const [params, setParams] = useSearchParams();
   const [date, setDate] = useState(() => params.get('date') || dateAt(parents[0]?.timezone));
-  const parentId = params.get('parent') || '';
+  const rawParentId = params.get('parent') || '';
+  const parentId = parents.some(p => p.id === rawParentId) ? rawParentId : '';
   const focused = params.get('reply');
+
   useEffect(() => { if (params.get('date')) setDate(params.get('date')); }, [params]);
   const { data, isLoading, error, refetch, isFetching } = useQuery({
     queryKey: ['checkins', date, parentId],

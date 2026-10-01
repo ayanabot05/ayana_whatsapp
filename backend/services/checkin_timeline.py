@@ -14,11 +14,13 @@ async def timeline(owner, days=7, selected_date=None, parent_id=None, page=1, pa
     except ValueError:
         raise HTTPException(422, 'Choose a valid date (YYYY-MM-DD).')
     pool = get_pool()
-    parents = await pool.fetch('SELECT * FROM parents WHERE user_id=$1 AND deleted_at IS NULL ORDER BY created_at', owner)
+    all_parents = await pool.fetch('SELECT * FROM parents WHERE user_id=$1 AND deleted_at IS NULL ORDER BY created_at', owner)
     if parent_id:
-        parents = [p for p in parents if str(p['id']) == str(parent_id)]
-        if not parents:
-            raise HTTPException(404, 'Parent not found.')
+        matched = [p for p in all_parents if str(p['id']) == str(parent_id)]
+        parents = matched if matched else all_parents
+    else:
+        parents = all_parents
+
     result = []
     for raw in parents:
         parent = dict(raw)
