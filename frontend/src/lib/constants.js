@@ -76,5 +76,17 @@ export const COUNTRY_CODES = [
   { code: "+20", flag: "🇪🇬", name: "Egypt" },
   { code: "+94", flag: "🇱🇰", name: "Sri Lanka" },
   { code: "+92", flag: "🇵🇰", name: "Pakistan" },
-  { code: "+880", flag: "🇧🇩", name: "Bangladesh" },
+];
+
+export const COUNTRIES = [
+  { code: "IN", name: "India", defaultTz: "Asia/Kolkata", cities: ["Hyderabad", "Visakhapatnam", "Vijayawada", "Bengaluru", "Chennai", "Mumbai", "Delhi", "Kolkata", "Pune", "Ahmedabad", "Jaipur", "Tirupati", "Guntur", "Warangal", "Other"] },
+  { code: "US", name: "United States", defaultTz: "America/New_York", cities: ["New York", "San Jose / Bay Area", "Dallas / Fort Worth", "Chicago", "Atlanta", "Seattle", "Los Angeles", "Houston", "Austin", "Other"] },
+  { code: "AE", name: "UAE", defaultTz: "Asia/Dubai", cities: ["Dubai", "Abu Dhabi", "Sharjah", "Ajman", "Other"] },
+  { code: "GB", name: "United Kingdom", defaultTz: "Europe/London", cities: ["London", "Manchester", "Birmingham", "Leeds", "Glasgow", "Other"] },
+  { code: "SG", name: "Singapore", defaultTz: "Asia/Singapore", cities: ["Singapore", "Other"] },
+  { code: "AU", name: "Australia", defaultTz: "Australia/Sydney", cities: ["Sydney", "Melbourne", "Brisbane", "Perth", "Adelaide", "Other"] },
+  { code: "CA", name: "Canada", defaultTz: "America/Toronto", cities: ["Toronto", "Vancouver", "Calgary", "Ottawa", "Montreal", "Other"] },
+  { code: "DE", name: "Germany", defaultTz: "Europe/Berlin", cities: ["Berlin", "Munich", "Frankfurt", "Hamburg", "Other"] },
+  { code: "MY", name: "Malaysia", defaultTz: "Asia/Kolkata", cities: ["Kuala Lumpur", "Penang", "Johor Bahru", "Other"] },
+  { code: "OTHER", name: "Other Country", defaultTz: "Asia/Kolkata", cities: ["Other"] },
 ];

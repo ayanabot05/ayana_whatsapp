@@ -15,6 +15,7 @@ from rate_limit import api_rate_limit_dependency
 from routes.account import require_email
 from services import billing_access, checkout, razorpay_gateway as gateway
 from services import subscription_gateway as sub_gateway
+from services import dodo_gateway
 
 router = APIRouter(prefix='/api', tags=['Checkout'])
 
@@ -70,6 +71,8 @@ async def payment_config():
         'currencies': checkout.currencies(),
         'auto_renews': True,
         'checkout_script': 'https://checkout.razorpay.com/v1/checkout.js',
+        'dodo_enabled': dodo_gateway.enabled(),
+        'dodo_environment': dodo_gateway.environment(),
     }
 
 
@@ -143,6 +146,37 @@ async def create_subscription(payload: SubscribeInput, user=Depends(get_current_
     amount = int((Decimal(str(price_float)) * 100).quantize(Decimal('1'), rounding=ROUND_HALF_UP))
     if amount < 100:
         raise HTTPException(400, 'The subscription amount is below the minimum supported.')
+
+    # Razorpay Subscriptions (e-mandate) only supports INR for Indian merchants.
+    # For international currencies (USD, GBP, EUR, etc.), activate the 7-day free trial directly.
+    if payload.currency != 'INR':
+        if payload.trial:
+            now = datetime.now(timezone.utc)
+            trial_ends = now + timedelta(days=7)
+            async with get_pool().acquire() as conn, conn.transaction():
+                await conn.execute(
+                    """INSERT INTO payment_state (user_id, status, plan, billing, billing_managed, trial_started_at, trial_ends_at)
+                       VALUES ($1, 'trial', $2, $3, false, $4, $5)
+                       ON CONFLICT (user_id) DO UPDATE
+                           SET status='trial', plan=EXCLUDED.plan, billing=EXCLUDED.billing,
+                               trial_started_at=COALESCE(payment_state.trial_started_at, EXCLUDED.trial_started_at),
+                               trial_ends_at=COALESCE(payment_state.trial_ends_at, EXCLUDED.trial_ends_at),
+                               updated_at=now()""",
+                    user['id'], payload.plan, payload.billing, now, trial_ends,
+                )
+                await conn.execute('UPDATE users SET onboarding_step=greatest(onboarding_step,2) WHERE id=$1', user['id'])
+            return {
+                'status': 'authenticated',
+                'plan': payload.plan,
+                'billing': payload.billing,
+                'currency': payload.currency,
+                'amount': amount,
+                'trial': True,
+                'international_trial': True,
+                'message': '7-day free trial activated! International plan selected.',
+            }
+        else:
+            raise HTTPException(400, 'Recurring auto-renewal mandates are only supported in INR by Razorpay. Please use standard card payment for international currencies.')
 
     # Prevent creating a new subscription if one is already active for this plan+billing
     now = datetime.now(timezone.utc)
@@ -390,3 +424,93 @@ async def webhook(request: Request):
 
     from services.subscription_events import ingest
     return await ingest(event, request.headers.get('x-razorpay-event-id'))
+
+
+# ── Dodo Payments (International Recurring Autopay) ───────────────────────────
+
+class DodoCheckoutInput(BaseModel):
+    plan: str
+    billing: str = 'month'
+    return_url: str | None = None
+
+
+@router.post('/payment/dodo/checkout', dependencies=[Depends(validate_csrf_token), Depends(api_rate_limit_dependency)])
+async def create_dodo_checkout(payload: DodoCheckoutInput, user=Depends(get_current_user)):
+    """Creates a Dodo Payments checkout session with 7-day trial and returns checkout_url."""
+    owner_only(user)
+    if not dodo_gateway.enabled():
+        raise HTTPException(503, 'International card checkout is not enabled on the server.')
+    return_url = payload.return_url or f"{os.environ.get('APP_URL', 'https://www.ayanabott.com')}/dashboard?tab=plan&dodo_session_id={{CHECKOUT_SESSION_ID}}&plan={payload.plan}"
+    session = dodo_gateway.create_checkout_session(payload.plan, user, return_url)
+    return session
+
+
+@router.post('/payment/dodo/verify', dependencies=[Depends(validate_csrf_token), Depends(api_rate_limit_dependency)])
+async def verify_dodo_session(payload: dict, user=Depends(get_current_user)):
+    """Called after customer completes Dodo checkout to instantly provision trial / active access."""
+    owner_only(user)
+    plan = payload.get('plan') or 'nitya'
+    now = datetime.now(timezone.utc)
+    trial_ends = now + timedelta(days=7)
+    async with get_pool().acquire() as conn, conn.transaction():
+        await conn.execute(
+            """INSERT INTO payment_state (user_id, status, plan, billing, billing_managed, trial_started_at, trial_ends_at)
+               VALUES ($1, 'active', $2, 'month', true, $3, $4)
+               ON CONFLICT (user_id) DO UPDATE
+                   SET status='active', plan=EXCLUDED.plan, billing=EXCLUDED.billing,
+                       billing_managed=true, updated_at=now()""",
+            user['id'], plan, now, trial_ends
+        )
+        await conn.execute('UPDATE users SET onboarding_step=greatest(onboarding_step, 2) WHERE id=$1', user['id'])
+    return {'ok': True, 'status': 'active', 'plan': plan}
+
+
+@router.post('/webhook/dodo')
+async def dodo_webhook(request: Request):
+    """Processes verified webhooks from Dodo Payments (subscription.active, payment.succeeded, etc.)."""
+    raw_bytes = await request.body()
+    if os.environ.get('DODO_PAYMENTS_WEBHOOK_KEY'):
+        if not dodo_gateway.verify_webhook(raw_bytes, dict(request.headers)):
+            raise HTTPException(400, "Invalid Dodo webhook signature.")
+
+    try:
+        event = json.loads(raw_bytes.decode('utf-8'))
+    except Exception:
+        raise HTTPException(400, "Invalid JSON body.")
+
+    event_type = event.get('type') or event.get('event_type') or ''
+    data = event.get('data') or {}
+    metadata = data.get('metadata') or {}
+    user_id = metadata.get('user_id')
+    plan = metadata.get('plan') or 'nitya'
+
+    if event_type in ('subscription.active', 'payment.succeeded') and user_id:
+        now = datetime.now(timezone.utc)
+        trial_ends = now + timedelta(days=7)
+        async with get_pool().acquire() as conn, conn.transaction():
+            await conn.execute(
+                """INSERT INTO payment_state (user_id, status, plan, billing, billing_managed, trial_started_at, trial_ends_at)
+                   VALUES ($1::uuid, 'active', $2, 'month', true, $3, $4)
+                   ON CONFLICT (user_id) DO UPDATE
+                       SET status='active', plan=EXCLUDED.plan, billing=EXCLUDED.billing,
+                           billing_managed=true, updated_at=now()""",
+                user_id, plan, now, trial_ends
+            )
+            await conn.execute('UPDATE users SET onboarding_step=greatest(onboarding_step, 2) WHERE id=$1::uuid', user_id)
+
+    elif event_type in ('subscription.cancelled', 'subscription.canceled') and user_id:
+        async with get_pool().acquire() as conn:
+            await conn.execute("UPDATE payment_state SET billing_managed=false, updated_at=now() WHERE user_id=$1::uuid", user_id)
+
+    return {'ok': True}
+
+
+root_webhook_router = APIRouter(tags=['Webhooks'])
+
+@root_webhook_router.post('/webhook/razorpay')
+async def root_razorpay_webhook(request: Request):
+    return await webhook(request)
+
+@root_webhook_router.post('/webhook/dodo')
+async def root_dodo_webhook(request: Request):
+    return await dodo_webhook(request)

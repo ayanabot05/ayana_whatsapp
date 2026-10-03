@@ -24,7 +24,11 @@ logger = logging.getLogger(__name__)
 
 
 def currencies():
-    return [value.strip() for value in os.environ.get('RAZORPAY_CURRENCIES','').split(',') if value.strip()]
+    env_currencies = [value.strip() for value in os.environ.get('RAZORPAY_CURRENCIES','').split(',') if value.strip()]
+    if env_currencies:
+        return env_currencies
+    from pricing import CURRENCIES
+    return [c['code'] for c in CURRENCIES]
 
 
 async def quote(conn,user,plan,billing,currency,code='',lock=False):

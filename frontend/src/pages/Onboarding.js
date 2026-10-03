@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, useCallback, useRef } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Loader2, ArrowRight, ArrowLeft, Check, MessageCircle, Sparkles, Plus, Trash2, Pencil,
@@ -24,6 +24,7 @@ const STEPS = ["Welcome", "Your plan", "Your parents", "Activate"];
 export default function Onboarding() {
   const { user, config, refreshUser } = useAuth();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [step, setStep] = useState(() => {
     const s = user?.onboarding_step ?? 0;
     return Math.min(Math.max(s, 0), 3);
@@ -84,6 +85,28 @@ export default function Onboarding() {
       }));
     }
   }, [user, user?.onboarding_complete, user?.onboarding_step, user?.name, user?.phone, user?.city, user?.timezone]);
+
+  useEffect(() => {
+    const dodoSessionId = searchParams.get('dodo_session_id');
+    const planParam = searchParams.get('plan');
+    if (dodoSessionId) {
+      api.post('/payment/dodo/verify', { session_id: dodoSessionId, plan: planParam })
+        .then(async () => {
+          toast.success("International Care Circle subscription activated successfully!");
+          await refreshUser?.();
+          setStep(2);
+        })
+        .catch(async () => {
+          await refreshUser?.();
+          setStep(2);
+        })
+        .finally(() => {
+          const next = new URLSearchParams(searchParams);
+          next.delete('dodo_session_id');
+          setSearchParams(next, { replace: true });
+        });
+    }
+  }, [searchParams, setSearchParams, refreshUser]);
 
   useEffect(() => {
     api.get("/payment/state").then(({ data }) => {
@@ -166,12 +189,14 @@ export default function Onboarding() {
         relationship: p.relationship || "mother",
         phone: p.phone || "+91",
         language: p.language || "en",
+        country: p.country || "IN",
+        city: p.city || "",
         timezone: p.timezone || 'Asia/Kolkata',
         notes: p.notes || "",
         preferred_name: p.preferred_name || "",
         nicknames: p.nicknames || [],
-        city: p.city || "",
         other_parent_name: p.other_parent_name || "",
+        special_dates: p.special_dates || [],
         medicine_list: p.medicine_list || [],
         habits: p.habits || blankParentForm().habits,
         messages: messages,

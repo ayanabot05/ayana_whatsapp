@@ -49,6 +49,12 @@ _CATEGORY_TEMPLATE_NAME = {
     "shopping_return": "ayana_shopping_return",
     "temple_return": "ayana_temple_return",
     "outing_return": "ayana_outing_return",
+    # Step (vi): sent to Parent 1 asking about the other parent (Mom/Dad).
+    "partner_return": "ayana_partner_return",
+    # Step (v): events & special dates.
+    "birthday_wish": "ayana_birthday_wish",
+    "anniversary_wish": "ayana_anniversary_wish",
+    "special_day": "ayana_special_day",
     "first_warn_child": "ayana_first_warn_child",
     "main_warn_child": "ayana_main_warn_child",
     "first_warn_parent": "ayana_first_warn_parent",
@@ -359,16 +365,43 @@ def _build_approved_template_vars(template_key: str, category: str, preferred: s
     return {"1": preferred}
 
 
-async def send_template_for_category(parent: Dict[str, Any], category: str, day_index: int, variants_per_slot: int, medicine_name: str = "", force_template: bool = False, location_label: str = "") -> Dict[str, Any]:
+_SAFETY_CATEGORIES = ('office_return', 'market_return', 'shopping_return', 'temple_return', 'outing_return')
+_SAFETY_PLACE = {
+    'office_return': {'en': 'work', 'te': 'ఆఫీసు', 'hi': 'काम'},
+    'market_return': {'en': 'the market', 'te': 'మార్కెట్', 'hi': 'बाज़ार'},
+    'shopping_return': {'en': 'shopping', 'te': 'షాపింగ్', 'hi': 'शॉपिंग'},
+    'temple_return': {'en': 'the temple', 'te': 'గుడి', 'hi': 'मंदिर'},
+    'outing_return': {'en': 'their outing', 'te': 'బయటి పని', 'hi': 'बाहर'},
+}
+
+
+def _safety_place(category: str, language: str, location_label: str = "") -> str:
+    return (location_label or "").strip() or _SAFETY_PLACE.get(category, {}).get(language) or _SAFETY_PLACE.get(category, {}).get('en', 'outside')
+
+
+def partner_return_body(language: str, preferred: str, about_name: str, category: str, location_label: str = "") -> str:
+    """Step (vi): asked to Parent 1 - "Did Dad reach home?"."""
+    place = _safety_place(category, language, location_label)
+    return {
+        'en': f"Hi {preferred} 💛 Did {about_name} reach home safely from {place}? 🏠 Just tap below so the family knows.",
+        'te': f"నమస్తే {preferred} 💛 {about_name} {place} నుండి ఇంటికి క్షేమంగా చేరుకున్నారా? 🏠 కుటుంబానికి తెలిసేలా కింద నొక్కండి.",
+        'hi': f"नमस्ते {preferred} 💛 क्या {about_name} {place} से सुरक्षित घर पहुँच गए? 🏠 परिवार को बताने के लिए नीचे दबाएँ।",
+    }.get(language) or f"Hi {preferred} 💛 Did {about_name} reach home safely from {place}? 🏠"
+
+
+async def send_template_for_category(parent: Dict[str, Any], category: str, day_index: int, variants_per_slot: int, medicine_name: str = "", force_template: bool = False, location_label: str = "", about_name: str = "") -> Dict[str, Any]:
     parent_id = parent["id"]
     phone = parent.get("phone", "")
     language = parent.get("language", "en")
     preferred = parent.get("preferred_name") or parent.get("name", "") or "Amma"
 
     if not force_template and await is_session_open(parent_id):
-        return await send_dynamic_checkin(parent, category, day_index, variants_per_slot, medicine_name, location_label=location_label)
+        return await send_dynamic_checkin(parent, category, day_index, variants_per_slot, medicine_name, location_label=location_label, about_name=about_name)
 
-    if category in ('office_return','market_return','shopping_return','temple_return','outing_return'):
+    if category in _SAFETY_CATEGORIES and about_name:
+        variables = {'1': preferred, '2': about_name, '3': _safety_place(category, language, location_label)}
+        return await _send_content_template_with_retry(phone, _get_template_name('partner_return', language), language, variables, 'partner_return')
+    if category in _SAFETY_CATEGORIES:
         variables = {'1': preferred}
         if category == 'shopping_return':
             variables['2'] = location_label.strip() or {'en':'your usual','te':'మీ సాధారణ','hi':'आपकी नियमित'}.get(language, 'your usual')
@@ -407,26 +440,103 @@ async def send_mood_template(parent, category: str = "goodnight", day_index: int
     return await send_template_for_category(parent, category, day_index, variants_per_slot)
 
 
-async def send_dynamic_checkin(parent: Dict[str, Any], category: str, day_index: int, variants_per_slot: int, medicine_name: str = "", location_label: str = "") -> Dict[str, Any]:
+async def send_dynamic_checkin(parent: Dict[str, Any], category: str, day_index: int, variants_per_slot: int, medicine_name: str = "", location_label: str = "", about_name: str = "") -> Dict[str, Any]:
     parent_id = parent["id"]
     phone = parent.get("phone", "")
     language = parent.get("language", "en")
 
     if not await is_session_open(parent_id):
-        return await send_template_for_category(parent, category, day_index, variants_per_slot, medicine_name, force_template=True, location_label=location_label)
+        return await send_template_for_category(parent, category, day_index, variants_per_slot, medicine_name, force_template=True, location_label=location_label, about_name=about_name)
 
     body = await render_slot_body_async(category, language, parent, day_index, medicine_name or _language_native_medicine_placeholder(language), variants_per_slot)
     if category == 'shopping_return' and location_label.strip():
         from services.template_content import snapshot
         preferred = parent.get('preferred_name') or parent.get('name') or 'Amma'
         body = snapshot('shopping_return', language, {'1': preferred, '2': location_label.strip()})
+    if category in _SAFETY_CATEGORIES and about_name:
+        preferred = parent.get('preferred_name') or parent.get('name') or 'Amma'
+        body = partner_return_body(language, preferred, about_name, category, location_label)
     buttons = render_slot_buttons(category, language)
     result = await _send_quick_reply(phone, body, buttons, context=category, language=language)
     if result.get('error_code') == 131047:
         await get_pool().execute("UPDATE wa_sessions SET last_inbound_at=now()-interval '25 hours' WHERE parent_id=$1",parent_id)
-        return await send_template_for_category(parent, category, day_index, variants_per_slot, medicine_name, force_template=True, location_label=location_label)
+        return await send_template_for_category(parent, category, day_index, variants_per_slot, medicine_name, force_template=True, location_label=location_label, about_name=about_name)
     result['body'] = body
     return result
+
+
+def other_parent_display(parent: Dict[str, Any], language: str = "en") -> str:
+    """Name used for the other parent (Mom/Dad) in messages to this parent."""
+    name = (parent.get("other_parent_name") or "").strip()
+    if name:
+        return name
+    is_mother = parent.get("relationship") == "mother"
+    return {
+        "en": "Dad" if is_mother else "Mom",
+        "te": "నాన్న" if is_mother else "అమ్మ",
+        "hi": "पापा" if is_mother else "मम्मी",
+    }.get(language, "Dad" if is_mother else "Mom")
+
+
+def special_date_body(kind: str, language: str, preferred: str, sender: str, title: str = "", note: str = "", other_parent: str = "") -> str:
+    """Step (v): free-form wish used inside the 24h session window."""
+    note_line = f"\n\n💌 {sender}: \"{note}\"" if note else ""
+    if kind == "birthday":
+        text = {
+            "en": f"🎂 Happy Birthday {preferred}! 🎉 Wishing you a day full of love, laughter and good health. {sender} and the whole family are thinking of you today 💛",
+            "te": f"🎂 పుట్టినరోజు శుభాకాంక్షలు {preferred}! 🎉 ఈ రోజు మీకు ప్రేమ, ఆనందం, ఆరోగ్యం నిండాలి. {sender} మరియు కుటుంబం అంతా ఈ రోజు మిమ్మల్ని తలుచుకుంటున్నారు 💛",
+            "hi": f"🎂 जन्मदिन मुबारक {preferred}! 🎉 आपका दिन प्यार, हँसी और अच्छी सेहत से भरा रहे। {sender} और पूरा परिवार आज आपको याद कर रहा है 💛",
+        }
+    elif kind == "anniversary":
+        text = {
+            "en": f"💐 Happy Anniversary {preferred} & {other_parent}! 💑 Another beautiful year together. {sender} sends all the love today 💛",
+            "te": f"💐 పెళ్లి రోజు శుభాకాంక్షలు {preferred} & {other_parent}! 💑 కలిసి మరో అందమైన సంవత్సరం. {sender} ఈ రోజు ప్రేమతో శుభాకాంక్షలు పంపుతున్నారు 💛",
+            "hi": f"💐 शादी की सालगिरह मुबारक {preferred} और {other_parent}! 💑 साथ में एक और खूबसूरत साल। {sender} आज ढेर सारा प्यार भेज रहे हैं 💛",
+        }
+    else:
+        text = {
+            "en": f"✨ {preferred}, today is a special day: {title}! 💛 {sender} remembered and is sending you love.",
+            "te": f"✨ {preferred}, ఈ రోజు ప్రత్యేకమైన రోజు: {title}! 💛 {sender} గుర్తుపెట్టుకుని ప్రేమతో శుభాకాంక్షలు పంపుతున్నారు.",
+            "hi": f"✨ {preferred}, आज एक खास दिन है: {title}! 💛 {sender} ने याद रखा और आपको प्यार भेजा है।",
+        }
+    return (text.get(language) or text["en"]) + note_line
+
+
+async def send_special_date(parent: Dict[str, Any], special: Dict[str, Any], sender: str = "") -> Dict[str, Any]:
+    """Send a birthday / anniversary / special-day wish to the parent.
+
+    Inside the 24h window a warm free-form text is sent; otherwise the
+    matching template (ayana_birthday_wish / ayana_anniversary_wish /
+    ayana_special_day) is used once Meta approves it.
+    """
+    phone = parent.get("phone", "")
+    language = parent.get("language", "en")
+    preferred = parent.get("preferred_name") or parent.get("name", "") or "Amma"
+    sender = (sender or "").strip() or {"en": "Your family", "te": "మీ కుటుంబం", "hi": "आपका परिवार"}.get(language, "Your family")
+    kind = special.get("kind", "special")
+    title = (special.get("title") or "").strip()
+    note = (special.get("note") or "").strip()
+    other = other_parent_display(parent, language)
+
+    if await is_session_open(parent["id"]):
+        body = special_date_body(kind, language, preferred, sender, title, note, other)
+        result = await asyncio.to_thread(send_whatsapp, phone, body)
+        if result.get("status") in ("sent", "simulated"):
+            result["body"] = body
+            return result
+
+    no_note = {"en": "With all our love 💛", "te": "ప్రేమతో 💛", "hi": "ढेर सारे प्यार के साथ 💛"}.get(language, "With all our love 💛")
+    if kind == "birthday":
+        key, variables = "birthday_wish", {"1": preferred, "2": sender, "3": note or no_note}
+    elif kind == "anniversary":
+        key, variables = "anniversary_wish", {"1": preferred, "2": other, "3": sender, "4": note or no_note}
+    else:
+        key, variables = "special_day", {"1": preferred, "2": title or "-", "3": sender, "4": note or no_note}
+    result = await _send_content_template_with_retry(phone, _get_template_name(key, language), language, variables, key)
+    if result and result.get("status") in ("sent", "simulated"):
+        await mark_opener_sent(parent["id"], key)
+        result.setdefault("body", special_date_body(kind, language, preferred, sender, title, note, other))
+    return result or {"status": "failed", "detail": "No result from template send"}
 
 
 async def send_reengagement(parent: Dict[str, Any], reengagement_hours: int = 4) -> Dict[str, Any]:

@@ -12,7 +12,7 @@ import hashlib
 from io import BytesIO
 from PIL import Image
 from database import get_pool
-from models import ParentInput, EmergencyContactsInput, MomentInput, VacationInput, EmergencyEventUpdate
+from models import ParentInput, EmergencyContactsInput, MomentInput, EmergencyEventUpdate
 from storage import put_object, get_object, signed_url as storage_signed_url, is_enabled as storage_enabled, APP_NAME as STORAGE_APP_NAME
 from validation import normalize_phone as _normalize_phone
 from services.welcomes import welcome_parent_and_child
@@ -29,12 +29,57 @@ router = APIRouter()
 
 # ---------------- Parents ----------------
 _PARENT_FIELDS = [
-    "name", "preferred_name", "relationship", "language", "city", "timezone",
-    "birthday", "other_parent_name", "phone", "nicknames", "habits", "stories",
+    "name", "preferred_name", "relationship", "language", "country", "city", "timezone",
+    "birthday", "other_parent_name", "notes", "phone", "nicknames", "habits",
     "medicine_list", "emergency_contacts", "activity_window_start", "activity_window_end",
-    "auto_activity_detection", "vacation_start", "vacation_end",
+    "auto_activity_detection",
 ]
-_PARENT_JSONB_FIELDS = {"nicknames", "habits", "stories", "medicine_list", "emergency_contacts"}
+_PARENT_JSONB_FIELDS = {"nicknames", "habits", "medicine_list", "emergency_contacts"}
+_SPECIAL_DATE_COLS = "id, kind, title, month, day, note, send_time, active, last_sent_year"
+
+
+async def _save_special_dates(conn, parent_id, user_id, special_dates) -> None:
+    """Replace a parent's events & special dates (step v). None = untouched."""
+    if special_dates is None:
+        return
+    # Keep "already sent this year" so re-saving the form never re-sends a wish.
+    sent = {
+        (r["kind"], r["month"], r["day"], r["title"] or ""): r["last_sent_year"]
+        for r in await conn.fetch(
+            "select kind, month, day, title, last_sent_year from parent_special_dates where parent_id = $1::uuid",
+            str(parent_id),
+        )
+    }
+    await conn.execute("delete from parent_special_dates where parent_id = $1::uuid", str(parent_id))
+    for item in special_dates:
+        d = item.model_dump() if hasattr(item, "model_dump") else dict(item)
+        await conn.execute(
+            """
+            insert into parent_special_dates (parent_id, user_id, kind, title, month, day, note, send_time, active, last_sent_year)
+            values ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8, $9, $10)
+            """,
+            str(parent_id), str(user_id), d["kind"], d.get("title"), d["month"], d["day"],
+            d.get("note"), d.get("send_time") or "09:00", d.get("active", True),
+            sent.get((d["kind"], d["month"], d["day"], d.get("title") or "")),
+        )
+
+
+async def _special_dates_by_parent(conn, parent_ids) -> dict:
+    ids = [str(p) for p in parent_ids]
+    if not ids:
+        return {}
+    rows = await conn.fetch(
+        f"select parent_id, {_SPECIAL_DATE_COLS} from parent_special_dates "
+        "where parent_id = any($1::uuid[]) order by month, day",
+        ids,
+    )
+    out: dict = {}
+    for r in rows:
+        item = dict(r)
+        pid = str(item.pop("parent_id"))
+        item["id"] = str(item["id"])
+        out.setdefault(pid, []).append(item)
+    return out
 
 
 def _parent_insert_values(doc: dict) -> tuple[list, str, str]:
@@ -114,7 +159,8 @@ async def list_parents(user: dict = Depends(get_current_user)):
         docs = await conn.fetch(
             "select * from parents where user_id = $1 and deleted_at is null limit 50", scope(user)
         )
-    return [serialize(d) for d in docs]
+        dates = await _special_dates_by_parent(conn, [d["id"] for d in docs])
+    return [{**serialize(d), "special_dates": dates.get(str(d["id"]), [])} for d in docs]
 
 @router.post("/parents")
 async def create_parent(payload: ParentInput, background_tasks: BackgroundTasks, user: dict = Depends(get_current_user), _csrf: None = Depends(validate_csrf_token)):
@@ -150,6 +196,8 @@ async def create_parent(payload: ParentInput, background_tasks: BackgroundTasks,
             )
         except asyncpg.UniqueViolationError as e:
             _raise_if_phone_unique_violation(e)
+        await _save_special_dates(conn, row["id"], uid, payload.special_dates)
+        dates = await _special_dates_by_parent(conn, [row["id"]])
         await conn.execute(
             "update users set onboarding_step = greatest(onboarding_step, 3) where id = $1", user["id"]
         )
@@ -162,6 +210,7 @@ async def create_parent(payload: ParentInput, background_tasks: BackgroundTasks,
     background_tasks.add_task(welcome_parent_and_child, dict(row), dict(user), True)
 
     out = serialize(row)
+    out["special_dates"] = dates.get(str(row["id"]), [])
     out["welcome_sent"] = False
     out["welcome_status"] = 'awaiting_activation'
     return out
@@ -204,9 +253,12 @@ async def update_parent(parent_id: str, payload: ParentInput, user: dict = Depen
                 user, parent_id, [m.model_dump() for m in (payload.medicine_list or [])]
             )
 
+        await _save_special_dates(conn, parent_id, parent["user_id"], payload.special_dates)
         updated = await conn.fetchrow("select * from parents where id = $1::uuid", parent_id)
+        dates = await _special_dates_by_parent(conn, [parent_id])
 
     out = serialize(updated)
+    out["special_dates"] = dates.get(str(parent_id), [])
     if sync_result and sync_result.get("dropped"):
         out["medicine_reminders_dropped"] = sync_result["dropped"]
     return out
@@ -241,33 +293,6 @@ async def delete_parent(parent_id: str, background_tasks: BackgroundTasks, user:
             background_tasks.add_task(send_parent_removed_child_notice, user.get("phone"), "en", parent["name"])
     return {"ok": True}
 
-
-# ── #9 Vacation / holiday mode ──────────────────────────────────────────────
-
-
-
-@router.put("/parents/{parent_id}/vacation")
-async def set_vacation(parent_id: str, payload: VacationInput, user: dict = Depends(get_current_user), _csrf: None = Depends(validate_csrf_token)):
-    """Pause (or clear) daily sends for a date range. The scheduler skips all
-    sends while today (parent-local) is within [start, end] and auto-resumes."""
-    start, end = payload.start, payload.end
-    if bool(start) != bool(end):
-        raise HTTPException(status_code=400, detail="Set both a start and end date, or clear both.")
-    if start and end and start > end:
-        raise HTTPException(status_code=400, detail="Vacation start date must be on or before the end date.")
-    async with get_pool().acquire() as conn:
-        parent = await conn.fetchrow(
-            "select * from parents where id = $1::uuid and user_id = $2 and deleted_at is null",
-            parent_id, scope(user),
-        )
-        if not parent:
-            raise HTTPException(status_code=404, detail="Parent not found")
-        await conn.execute(
-            "update parents set vacation_start = $1, vacation_end = $2 where id = $3::uuid",
-            start, end, parent_id,
-        )
-    await audit(user["id"], "set_vacation", {"parent_id": parent_id, "start": start, "end": end})
-    return {"ok": True, "vacation_start": start, "vacation_end": end}
 
 # ---------------- Emergency contacts (distinct from Care Circle) ----------------
 @router.get("/parents/{parent_id}/emergency-contacts")

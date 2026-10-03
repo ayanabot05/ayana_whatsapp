@@ -50,4 +50,4 @@ async def care_status(parent_id: UUID,user=Depends(get_current_user)):
             candidate = day.replace(hour=hour,minute=minute,second=0,microsecond=0)
             if candidate > max(now,parent['created_at'],activation['activated_at'] or datetime.min.replace(tzinfo=timezone.utc)) and eligible(parent,candidate,schedule):
                 return {**result,'state':'scheduled','next_at':candidate.isoformat(),'next_label':candidate.strftime('%d %b, %I:%M %p %Z'),'message':'Next configured check-in'}
-    return {**result,'state':'held','message':'No upcoming slot fits the current quiet hours or vacation dates.'}
+    return {**result,'state':'held','message':'No upcoming slot fits the current quiet hours.'}

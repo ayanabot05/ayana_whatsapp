@@ -791,6 +791,7 @@ CREATE TABLE public.parents (
     phone text NOT NULL,
     language text DEFAULT 'en'::text NOT NULL,
     timezone text DEFAULT 'Asia/Kolkata'::text NOT NULL,
+    country text DEFAULT 'IN'::text NOT NULL,
     city text,
     other_parent_name text,
     notes text,
@@ -798,7 +799,6 @@ CREATE TABLE public.parents (
     nicknames jsonb DEFAULT '[]'::jsonb NOT NULL,
     habits jsonb,
     medicine_list jsonb DEFAULT '[]'::jsonb NOT NULL,
-    stories jsonb DEFAULT '[]'::jsonb NOT NULL,
     activity_window_start text DEFAULT '06:00'::text,
     activity_window_end text DEFAULT '22:00'::text,
     auto_activity_detection boolean DEFAULT false NOT NULL,
@@ -808,15 +808,36 @@ CREATE TABLE public.parents (
     emergency_contacts jsonb DEFAULT '[]'::jsonb NOT NULL,
     recovery_mode boolean DEFAULT false NOT NULL,
     recovery_until timestamp with time zone,
-    vacation_start text,
-    vacation_end text,
     opted_out_at timestamp with time zone,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     deleted_at timestamp with time zone,
-    CONSTRAINT chk_vacation_format CHECK ((((vacation_start IS NULL) OR (vacation_start ~ '^\d{4}-\d{2}-\d{2}$'::text)) AND ((vacation_end IS NULL) OR (vacation_end ~ '^\d{4}-\d{2}-\d{2}$'::text)))),
+    CONSTRAINT chk_parents_country CHECK (country ~ '^[A-Z]{2}$'),
     CONSTRAINT chk_window_format CHECK ((((activity_window_start IS NULL) OR (activity_window_start ~ '^[0-2][0-9]:[0-5][0-9]$'::text)) AND ((activity_window_end IS NULL) OR (activity_window_end ~ '^[0-2][0-9]:[0-5][0-9]$'::text)))),
     CONSTRAINT chk_window_width CHECK (((activity_window_start IS NULL) OR (activity_window_end IS NULL) OR (activity_window_start <> activity_window_end))),
     CONSTRAINT parents_relationship_check CHECK ((relationship = ANY (ARRAY['mother'::text, 'father'::text])))
+);
+
+CREATE TABLE public.parent_special_dates (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    parent_id uuid NOT NULL,
+    user_id uuid NOT NULL,
+    kind text NOT NULL,
+    title text,
+    month smallint NOT NULL,
+    day smallint NOT NULL,
+    note text,
+    send_time text DEFAULT '09:00'::text NOT NULL,
+    active boolean DEFAULT true NOT NULL,
+    last_sent_year integer,
+    last_sent_at timestamp with time zone,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT chk_special_kind CHECK (kind IN ('birthday', 'anniversary', 'special')),
+    CONSTRAINT chk_special_month CHECK (month BETWEEN 1 AND 12),
+    CONSTRAINT chk_special_day CHECK (day BETWEEN 1 AND 31),
+    CONSTRAINT chk_special_title CHECK (title IS NULL OR char_length(title) <= 60),
+    CONSTRAINT chk_special_note CHECK (note IS NULL OR char_length(note) <= 300),
+    CONSTRAINT chk_special_time CHECK (send_time ~ '^([01][0-9]|2[0-3]):[0-5][0-9]$')
 );
 
 

@@ -1,756 +1,821 @@
-ayana_opener_en • English - Hi {{1}}! This is AYANA checking in for {{2}}. I'm here for check-ins, reminders, and updates. 💛
-
-ayana_opener_te • Telugu - నమస్తే {{1}}! AYANA {{2}} కోసం చెక్-ఇన్ చేస్తోంది. ఈరోజు మీరు ఎలా ఉన్నారు?
-
-ayana_opener_hi • Hindi - नमस्ते {{1}}! AYANA {{2}} के लिए चेक-इन कर रही है। आज आप कैसा महसूस कर रहे हैं?
-
-
-ayana_mood_te • Telugu - 💬 {{1}} ఈరోజు ఎలా ఉన్నారు?
-ayana_mood_en • English - 💬 {{1}} How are you feeling right now? 💛
-ayana_mood_hi • Hindi - 💬 {{1}} आज कैसा महसूस कर रहे हैं?
-
-
-ayana_meal_en • English - 🍽 {{1}}, have you eaten? Eat well and rest for some time.
-ayana_meal_hi · Hindi - 🍽 {{1}}, खाने का समय! 🍽 अच्छे से खाना, फिर थोड़ा आराम करना।
-ayana_meal_te • Telugu - 🍽️ {{1}}, భోజనం చేశారా?
-
-
-
-ayana_medicine_hi · Hindi - ⏰ {{1}}, दवाई का समय हो गया है। अपनी {{2}} की टैबलेट खा लीजिए, भूलना मत!
-ayana_medicine_te • Telugu - ⏰{{1}}, మందుల టైం మీ {{2}}  టాబ్లెట్ 💊 వేసుకోండి, మర్చిపోకండి!
-ayana_medicine_en · English - 💊 {{1}} Time for a {{2}} tablet.
-
-
-ayana_reengagement_en: Hi {{1}}, I haven't heard from you today. Everything okay? Reply whenever you can. — Sample: {{1}}=Amma
-ayana_reengagement_te: హలో {{1}}, ఈరోజు మీ నుండి రిప్లై రాలేదు. అంతా బాగానే ఉందా? వీలున్నప్పుడు రిప్లై ఇవ్వండి.
-ayana_reengagement_hi: नमस्ते {{1}}, आज आपसे जवाब नहीं मिला। सब ठीक तो है? जब समय हो जवाब दें।
-
-ayana_report_ready_en · English - 📋 {{1}}'s monthly wellness report is ready. Open the AYANA BOT dashboard to view check-ins, mood trends, and medicine adherence.
-ayana_report_ready_hi · Hindi - 📋 {{1}} की मासिक वेलनेस रिपोर्ट तैयार है। चेक-इन, मूड ट्रेंड और दवा अनुपालन देखने के लिए AYANA BOT डैशबोर्ड खोलें।
-ayana_report_ready_te · Telugu - 📋 {{1}} యొక్క నెలవారీ వెల్‌నెస్ రిపోర్ట్ సిద్ధంగా ఉంది. చెక్-ఇన్‌లు, మూడ్ ట్రెండ్‌లు, మందుల వినియోగం చూడటానికి AYANA BOT డాష్‌బోర్డ్ తెరవండి.
-
-template naming - ayana_template name_language - ayana_opener_en
-ayana_opener_en
-ayana_opener_te
-ayana_opener_hi
-ayana_mood_en
-ayana_mood_te
-ayana_mood_hi
-ayana_medicine_en
-ayana_medicine_te
-ayana_medicine_hi
-ayana_reengagement_en
-ayana_reengagement_te
-ayana_reengagement_hi
-ayana_report_ready_en
-ayana_report_ready_te
-ayana_report_ready_hi
-
-
-# AYANA - ALL WHATSAPP TEMPLATES - 3 Languages (English, Telugu, Hindi)
-# Ready to submit to Meta Dashboard
-# Category: Utility
-# Why templates needed: WhatsApp only allows free-form text within 24h of user's last message.
-# Outside 24h window, you MUST use approved template. Child warnings and safety returns often outside window → need templates.
-
-# =============================================================================
-# SECTION 5: SAFETY & RETURN CHECK-INS (5 categories × 3 langs = 15 templates)
-# =============================================================================
-
-# 1. OFFICE/WORK RETURN - ayana_office_return_en / _te / _hi
-
-Template Name: ayana_office_return_en
-Language: en
-Category: Utility
-Body: Hi {{1}}, did you reach home from office/work? 💼 How was your day? Did you come back safely? 💛
-Variables: {{1}} = Parent name (e.g., Amma, Nanna)
-Buttons: [Reached home 🏡] [On the way 🚶] [Yes safe 💛]
-
-Template Name: ayana_office_return_te
-Language: te
-Category: Utility
-Body: హాయ్ {{1}}, ఆఫీస్/పని నుండి ఇంటికి వచ్చారా? 💼 ఈరోజు పని ఎలా ఉంది? సురక్షితంగా వచ్చారా? 💛
-Variables: {{1}} = పేరు
-Buttons: [ఇంటికి వచ్చా 🏡] [దారిలో 🚶] [సేఫ్ 💛]
-
-Template Name: ayana_office_return_hi
-Language: hi
-Category: Utility
-Body: हाय {{1}}, क्या आप ऑफिस/काम से घर आ गए? 💼 आज काम कैसा रहा? सुरक्षित पहुँचे? 💛
-Variables: {{1}} = नाम
-Buttons: [घर पहुँचा 🏡] [रास्ते में 🚶] [सुरक्षित 💛]
-
-# 2. MARKET RETURN - ayana_market_return_en / _te / _hi
-
-Template Name: ayana_market_return_en
-Language: en
-Category: Utility
-Body: Hi {{1}}, did you come back from market safely? 🛒 Did you reach home? How was market? 💛
-Variables: {{1}} = Parent name
-Buttons: [Reached 🏡] [Shopping done 🛒] [Yes safe 💛]
-
-Template Name: ayana_market_return_te
-Language: te
-Category: Utility
-Body: హాయ్ {{1}}, మార్కెట్ నుండి సురక్షితంగా వచ్చారా? 🛒 ఇంటికి చేరారా? మార్కెట్ ఎలా ఉంది? 💛
-Variables: {{1}} = పేరు
-Buttons: [వచ్చా 🏡] [షాపింగ్ అయ్యింది 🛒] [సేఫ్ 💛]
-
-Template Name: ayana_market_return_hi
-Language: hi
-Category: Utility
-Body: हाय {{1}}, क्या आप बाजार से सुरक्षित आ गए? 🛒 घर पहुँचे? बाजार कैसा रहा? 💛
-Variables: {{1}} = नाम
-Buttons: [पहुँचा 🏡] [शॉपिंग हो गई 🛒] [सुरक्षित 💛]
-
-# 3. SHOPPING RETURN - ayana_shopping_return_en / _te / _hi
-# Has 2 variables: name + custom label (Dmart, etc.)
-
-Template Name: ayana_shopping_return_en
-Language: en
-Category: Utility
-Body: Hi {{1}}, did you come back from {{2}} shopping? 🛍️ How was your shopping? Are you home safely? 💛
-Variables: {{1}} = Parent name, {{2}} = Custom label (e.g., Dmart, Wednesday Market)
-Buttons: [Done 🛍️] [Reached home 🏡] [Yes safe]
-
-Template Name: ayana_shopping_return_te
-Language: te
-Category: Utility
-Body: హాయ్ {{1}}, {{2}} షాపింగ్ నుండి తిరిగి వచ్చారా? 🛍️ షాపింగ్ ఎలా జరిగింది? సురక్షితంగా ఇంటికి చేరారా? 💛
-Variables: {{1}} = పేరు, {{2}} = కస్టమ్ లేబుల్
-Buttons: [అయ్యింది 🛍️] [ఇంటికి వచ్చా 🏡] [సేఫ్]
-
-Template Name: ayana_shopping_return_hi
-Language: hi
-Category: Utility
-Body: हाय {{1}}, क्या आप {{2}} शॉपिंग से वापस आ गए? 🛍️ शॉपिंग कैसी रही? सुरक्षित घर पहुँचे? 💛
-Variables: {{1}} = नाम, {{2}} = कस्टम लेबल
-Buttons: [हो गई 🛍️] [घर पहुँचा 🏡] [सुरक्षित]
-
-# 4. TEMPLE RETURN - ayana_temple_return_en / _te / _hi
-
-Template Name: ayana_temple_return_en
-Language: en
-Category: Utility
-Body: Hi {{1}}, did you come back from temple? 🛕 How was darshan? Reached home safely? 💛
-Variables: {{1}} = Parent name
-Buttons: [Darshan done 🛕] [Reached 🏡] [Yes]
-
-Template Name: ayana_temple_return_te
-Language: te
-Category: Utility
-Body: హాయ్ {{1}}, గుడి నుండి తిరిగి వచ్చారా? 🛕 దర్శనం ఎలా జరిగింది? సురక్షితంగా ఇంటికి చేరారా? 💛
-Variables: {{1}} = పేరు
-Buttons: [దర్శనం అయ్యింది 🛕] [వచ్చా 🏡] [అవును]
-
-Template Name: ayana_temple_return_hi
-Language: hi
-Category: Utility
-Body: हाय {{1}}, क्या आप मंदिर से वापस आ गए? 🛕 दर्शन कैसा रहा? सुरक्षित घर पहुँचे? 💛
-Variables: {{1}} = नाम
-Buttons: [दर्शन हो गया 🛕] [पहुँचा 🏡] [हाँ]
-
-# 5. OUTING RETURN - ayana_outing_return_en / _te / _hi (Generic safe return)
-
-Template Name: ayana_outing_return_en
-Language: en
-Category: Utility
-Body: Hi {{1}}, did you reach home safely? 🏡 Are you back? How was your outing? 💛
-Variables: {{1}} = Parent name
-Buttons: [Home safe 🏡] [Reached 💛] [Yes]
-
-Template Name: ayana_outing_return_te
-Language: te
-Category: Utility
-Body: హాయ్ {{1}}, సురక్షితంగా ఇంటికి చేరారా? 🏡 ఇంటికి తిరిగి వచ్చారా? బయటకు వెళ్లడం ఎలా ఉంది? 💛
-Variables: {{1}} = పేరు
-Buttons: [సేఫ్ గా ఇంట్లో 🏡] [వచ్చా 💛] [అవును]
-
-Template Name: ayana_outing_return_hi
-Language: hi
-Category: Utility
-Body: हाय {{1}}, क्या आप सुरक्षित घर पहुँच गए? 🏡 वापस आ गए? बाहर जाना कैसा रहा? 💛
-Variables: {{1}} = नाम
-Buttons: [घर सुरक्षित 🏡] [पहुँचा 💛] [हाँ]
-
-# =============================================================================
-# WARNINGS (Section 2-window logic) - 3 categories × 3 langs = 9 templates
-# These MUST be templates because child is often outside 24h window
-# =============================================================================
-
-# 6. FIRST WARNING TO CHILD at 2pm (6am-2pm no reply) - ayana_first_warn_child_en / _te / _hi
-
-Template Name: ayana_first_warn_child_en
-Language: en
-Category: Utility
-Body: 💛 {{1}} didn't reply this morning (6am-2pm). We just sent another check-in. We'll update you at 10pm if still no reply.
-Variables: {{1}} = Parent name (e.g., Amma, Dad)
-Buttons: [Call now 📞] [Okay 👍]
-
-Template Name: ayana_first_warn_child_te
-Language: te
-Category: Utility
-Body: 💛 {{1}} ఈ ఉదయం (6am-2pm) స్పందించలేదు. మేము మళ్ళీ చెక్-ఇన్ పంపాము. 10pm వరకు స్పందన లేకపోతే మీకు తెలియజేస్తాము.
-Variables: {{1}} = పేరు
-Buttons: [కాల్ చేయి 📞] [సరే 👍]
-
-Template Name: ayana_first_warn_child_hi
-Language: hi
-Category: Utility
-Body: 💛 {{1}} ने आज सुबह (6am-2pm) जवाब नहीं दिया। हमने दोबारा चेक-इन भेजा है। रात 10 बजे तक जवाब नहीं आया तो आपको बताएंगे।
-Variables: {{1}} = नाम
-Buttons: [कॉल करो 📞] [ठीक है 👍]
-
-# 7. MAIN WARNING TO CHILD at 10pm (no reply whole day) - ayana_main_warn_child_en / _te / _hi
-# Has 2 variables: name + missed count
-
-Template Name: ayana_main_warn_child_en
-Language: en
-Category: Utility
-Body: ⚠️ {{1}} didn't reply at all today (since morning 6am). Please consider calling. Missed {{2}} check-ins.
-Variables: {{1}} = Parent name, {{2}} = Missed count (e.g., 4)
-Buttons: [Call now 📞] [Okay, will call]
-
-Template Name: ayana_main_warn_child_te
-Language: te
-Category: Utility
-Body: ⚠️ {{1}} ఈరోజు ఉదయం 6గంటల నుండి అస్సలు స్పందించలేదు. దయచేసి కాల్ చేయండి. {{2}} చెక్-ఇన్లు మిస్ అయ్యాయి.
-Variables: {{1}} = పేరు, {{2}} = మిస్ కౌంట్
-Buttons: [కాల్ చేయి 📞] [కాల్ చేస్తా]
-
-Template Name: ayana_main_warn_child_hi
-Language: hi
-Category: Utility
-Body: ⚠️ {{1}} ने आज सुबह 6 बजे से बिल्कुल जवाब नहीं दिया। कृपया कॉल करें। {{2}} चेक-इन मिस हुए।
-Variables: {{1}} = नाम, {{2}} = मिस काउंट
-Buttons: [कॉल करो 📞] [कॉल करता हूँ]
-
-# 8. FIRST WARNING TO PARENT at 2pm (nudge) - ayana_first_warn_parent_en / _te / _hi
-
-Template Name: ayana_first_warn_parent_en
-Language: en
-Category: Utility
-Body: {{1}}, we missed you this morning. Just checking in again 💛 Are you okay?
-Variables: {{1}} = Parent name
-Buttons: [Yes, okay 💛] [Slept well 😴] [Not well 😟]
-
-Template Name: ayana_first_warn_parent_te
-Language: te
-Category: Utility
-Body: {{1}}, ఈ ఉదయం మీ నుండి వార్త లేదు. మళ్ళీ చెక్ చేస్తున్నాం 💛 బాగున్నారా?
-Variables: {{1}} = పేరు
-Buttons: [బాగున్నా 💛] [నిద్ర బాగా 😴] [బాగోలేదు 😟]
-
-Template Name: ayana_first_warn_parent_hi
-Language: hi
-Category: Utility
-Body: {{1}}, आज सुबह आपसे बात नहीं हुई। फिर से चेक कर रहे हैं 💛 आप ठीक हैं?
-Variables: {{1}} = नाम
-Buttons: [ठीक हूँ 💛] [अच्छी नींद 😴] [ठीक नहीं 😟]
-
-
-9. Parent text/button reply notification
-This template lets the child see the actual reply without opening the dashboard, including when their WhatsApp window is closed.
-
-English
-Name: ayana_parent_reply_en
-Language: English — en
-
-Body:
-
-AYANA care update: {{1}} replied to the {{2}} check-in.
-
-Their reply: {{3}}
-Received at: {{4}}
-
-You can view this update and recent check-ins in your AYANA dashboard.
-Buttons:
-
-Website: View reply
-Quick reply: Send full reply
-Example variables:
-
-Amma
-lunch
-Yes, I have eaten.
-18 September, 1:30 PM IST
-
-Telugu
-Name: ayana_parent_reply_te
-Language: Telugu — te
-
-Body:
-
-AYANA సమాచారం: {{1}} {{2}} చెక్-ఇన్‌కు సమాధానం ఇచ్చారు.
-
-వారి సమాధానం: {{3}}
-అందిన సమయం: {{4}}
-
-ఈ సమాధానాన్ని, ఇటీవలి చెక్-ఇన్‌లను మీ AYANA డ్యాష్‌బోర్డ్‌లో చూడవచ్చు.
-Buttons:
-
-Website: సమాధానం చూడండి
-Quick reply: పూర్తి సమాధానం
-Example variables:
-
-అమ్మ
-మధ్యాహ్న భోజనం
-తిన్నాను.
-సెప్టెంబర్ 18, మధ్యాహ్నం 1:30 IST
-
-Hindi
-Name: ayana_parent_reply_hi
-Language: Hindi — hi
-
-Body:
-
-AYANA अपडेट: {{1}} ने {{2}} चेक-इन का जवाब दिया है।
-
-उनका जवाब: {{3}}
-जवाब मिलने का समय: {{4}}
-
-यह जवाब और हाल के चेक-इन अपने AYANA डैशबोर्ड में देखें।
-Buttons:
-
-Website: जवाब देखें
-Quick reply: पूरा जवाब भेजें
-Example variables:
-
-माँ
-दोपहर के भोजन
-हाँ, खाना खा लिया।
-18 सितंबर, दोपहर 1:30 IST
-
-
-10. Parent voice-note notification
-A standard template cannot simply attach an audio header. This notification offers two paths: listen in the dashboard, or request the audio in WhatsApp.
-
-English
-Name: ayana_parent_voice_en
-Language: English — en
-
-Body:
-
-AYANA care update: {{1}} sent a voice note in response to the {{2}} check-in.
-
-Received at: {{3}}
-
-Listen in your AYANA dashboard, or tap “Send voice note” to request the audio here.
-Buttons:
-
-Website: Open dashboard
-Quick reply: Send voice note
-
-Telugu
-Name: ayana_parent_voice_te
-Language: Telugu — te
-
-Body:
-
-AYANA సమాచారం: {{1}} {{2}} చెక్-ఇన్‌కు వాయిస్ మెసేజ్ పంపారు.
-
-అందిన సమయం: {{3}}
-
-మీ AYANA డ్యాష్‌బోర్డ్‌లో వినండి. ఇక్కడ వినాలంటే “వాయిస్ పంపండి” బటన్‌ను నొక్కండి.
-Buttons:
-
-Website: డ్యాష్‌బోర్డ్ చూడండి
-Quick reply: వాయిస్ పంపండి
-
-Hindi
-Name: ayana_parent_voice_hi
-Language: Hindi — hi
-
-Body:
-
-AYANA अपडेट: {{1}} ने {{2}} चेक-इन के जवाब में एक वॉइस मैसेज भेजा है।
-
-मिलने का समय: {{3}} ,   Amma ने morning check-in  08:01 am 
-
-अपने AYANA डैशबोर्ड में सुनें, या यहाँ ऑडियो पाने के लिए “वॉइस भेजें” बटन दबाएँ।
-Buttons: वॉइस भेजें
-
-
-Website: डैशबोर्ड खोलें
-Quick reply: वॉइस भेजें
-Example variables: parent’s display name, check-in description, and date/time with timezone.
-
-Important implementation detail: tapping a quick-reply button sends an inbound WhatsApp message and opens the child’s service window. We then send the specific requested reply or voice note. Clicking the dashboard URL does not open that WhatsApp window.
-
-The child-button handlers still need to be implemented; template approval alone will not make these actions work.
-
-10. Child welcome after email verification
-These avoid using a parent check-in template as an account welcome.
-
-English
-Name: ayana_child_welcome_en
-Language: English — en
-
-Hi {{1}}, your email is verified and your AYANA account is ready.
-
-Add your parent's details and choose their check-in times in your dashboard. AYANA will use your selected WhatsApp number for care updates.
-Buttons:
-
-Website: Open dashboard
-Quick reply: Enable updates
-Telugu
-Name: ayana_child_welcome_te
-Language: Telugu — te
-
-నమస్తే {{1}}, మీ ఇమెయిల్ ధృవీకరణ పూర్తయింది. మీ AYANA ఖాతా సిద్ధంగా ఉంది.
-
-డ్యాష్‌బోర్డ్‌లో మీ తల్లిదండ్రుల వివరాలు, చెక్-ఇన్ సమయాలను నమోదు చేయండి. మీరు ఎంచుకున్న WhatsApp నంబర్‌కు AYANA సంరక్షణ సమాచారాన్ని పంపుతుంది.
-Buttons:
-
-Website: డ్యాష్‌బోర్డ్ చూడండి
-Quick reply: అప్‌డేట్లు కావాలి
-Hindi
-Name: ayana_child_welcome_hi
-Language: Hindi — hi
-
-नमस्ते {{1}}, आपका ईमेल सत्यापित हो गया है और आपका AYANA खाता तैयार है।
-
-डैशबोर्ड में अपने माता-पिता की जानकारी और चेक-इन का समय जोड़ें। AYANA आपके चुने हुए WhatsApp नंबर पर देखभाल से जुड़े अपडेट भेजेगा।
-Buttons:
-
-Website: डैशबोर्ड खोलें
-Quick reply: अपडेट शुरू करें
-Variable: {{1}} = child’s first name.
-
-
-# =============================================================================
-# 1. MORNING GREETING - ayana_morning_wish_en / _te / _hi
-# =============================================================================
- 
-Template Name: ayana_morning_wish_en
-Language: en
-Category: Utility
-Body: Good morning, {{1}}! ☀️ Wishing you a healthy and peaceful day. AYANA is here for you. 💛
-Variables: {{1}} = Parent name
-Sample: {{1}} = Amma
-Buttons: [Good morning 🌞] [Not feeling well 😟]
- 
-Template Name: ayana_morning_wish_te
-Language: te
-Category: Utility
-Body: శుభోదయం {{1}}! ☀️ మీకు ఆరోగ్యకరమైన, ప్రశాంతమైన రోజు కావాలని కోరుకుంటున్నాం. AYANA మీ కోసం ఉంది. 💛
-Variables: {{1}} = పేరు
-Sample: {{1}} = అమ్మ
-Buttons: [శుభోదయం 🌞] [బాగోలేదు 😟]
- 
-Template Name: ayana_morning_wish_hi
-Language: hi
-Category: Utility
-Body: सुप्रभात {{1}}! ☀️ आपका दिन स्वस्थ और शांत रहे। AYANA आपके साथ है। 💛
-Variables: {{1}} = नाम
-Sample: {{1}} = माँ
-Buttons: [सुप्रभात 🌞] [ठीक नहीं 😟]
- 
-# =============================================================================
-# 2. AFTERNOON CHECK-IN - ayana_afternoon_checkin_en / _te / _hi
-# =============================================================================
- 
-Template Name: ayana_afternoon_checkin_en
-Language: en
-Category: Utility
-Body: Good afternoon, {{1}}! 🌤️ How is your day going so far? Reply whenever you can. 💛
-Variables: {{1}} = Parent name
-Sample: {{1}} = Amma
-Buttons: [All good 👍] [Resting 😴] [Not well 😟]
- 
-Template Name: ayana_afternoon_checkin_te
-Language: te
-Category: Utility
-Body: శుభ మధ్యాహ్నం {{1}}! 🌤️ ఈరోజు ఎలా గడుస్తోంది? వీలున్నప్పుడు రిప్లై ఇవ్వండి. 💛
-Variables: {{1}} = పేరు
-Sample: {{1}} = అమ్మ
-Buttons: [బాగుంది 👍] [విశ్రాంతి తీసుకుంటున్నాను 😴] [బాగోలేదు 😟]
- 
-Template Name: ayana_afternoon_checkin_hi
-Language: hi
-Category: Utility
-Body: नमस्ते {{1}}! 🌤️ आज का दिन कैसा चल रहा है? जब समय हो जवाब दें। 💛
-Variables: {{1}} = नाम
-Sample: {{1}} = माँ
-Buttons: [सब ठीक है👍] [आराम कर रहा हूँ 😴] [ठीक नहीं 😟]
- 
-# =============================================================================
-# 3. WALK - ayana_walk_check_en / _te / _hi
-# =============================================================================
- 
-Template Name: ayana_walk_check_en
-Language: en
-Category: Utility
-Body: Hi {{1}}, have you gone for your walk today? 🚶 A short walk keeps the body active and the mind fresh. 💛
-Variables: {{1}} = Parent name
-Sample: {{1}} = Amma
-Buttons: [Walked 🚶] [Will go later] [Not today]
- 
-Template Name: ayana_walk_check_te
-Language: te
-Category: Utility
-Body: హాయ్ {{1}}, ఈరోజు నడకకు వెళ్లారా? 🚶 కొద్దిసేపు నడిస్తే శరీరం చురుగ్గా, మనసు ప్రశాంతంగా ఉంటుంది. 💛
-Variables: {{1}} = పేరు
-Sample: {{1}} = అమ్మ
-Buttons: [నడిచాను 🚶] [తర్వాత వెళ్తా] [ఈరోజు లేదు]
- 
-Template Name: ayana_walk_check_hi
-Language: hi
-Category: Utility
-Body: हाय {{1}}, क्या आप आज टहलने गए? 🚶 थोड़ी देर टहलने से शरीर सक्रिय और मन तरोताज़ा रहता है। 💛
-Variables: {{1}} = नाम
-Sample: {{1}} = माँ
-Buttons: [टहल लिया 🚶] [बाद में] [आज नहीं]
- 
-# =============================================================================
-# 4. TEA / COFFEE - ayana_tea_check_en / _te / _hi
-# =============================================================================
- 
-Template Name: ayana_tea_check_en
-Language: en
-Category: Utility
-Body: Hi {{1}}, is it time for your tea or coffee? ☕ Enjoy it slowly and rest for a little while. 💛
-Variables: {{1}} = Parent name
-Sample: {{1}} = Amma
-Buttons: [Had it ☕] [Later] [Skip today]
- 
-Template Name: ayana_tea_check_te
-Language: te
-Category: Utility
-Body: హాయ్ {{1}}, టీ లేదా కాఫీ తాగే సమయం అయ్యింది ☕ నెమ్మదిగా తాగి కొద్దిసేపు విశ్రాంతి తీసుకోండి. 💛
-Variables: {{1}} = పేరు
-Sample: {{1}} = అమ్మ
-Buttons: [తాగాను ☕] [తర్వాత తాగుతున్న] [వద్దు]
- 
-Template Name: ayana_tea_check_hi
-Language: hi
-Category: Utility
-Body: हाय {{1}}, चाय या कॉफ़ी का समय हो गया है ☕ इत्मीनान से पीजिए और थोड़ी देर आराम कीजिए। 💛
-Variables: {{1}} = नाम
-Sample: {{1}} = माँ
-Buttons: [पी ली ☕] [बाद में] [आज नहीं]
- 
-# =============================================================================
-# 5. WATER - ayana_water_en / _te / _hi
-# =============================================================================
- 
-Template Name: ayana_water_en
-Language: en
-Category: Utility
-Body: Hi {{1}}, have you had water recently? 💧 Please drink a glass of water now. Staying hydrated keeps you well. 💛
-Variables: {{1}} = Parent name
-Sample: {{1}} = Amma
-Buttons: [Drank 💧] [Will drink now]
- 
-Template Name: ayana_water_te
-Language: te
-Category: Utility
-Body: హాయ్ {{1}}, ఇటీవల నీళ్లు తాగారా? 💧 ఇప్పుడు ఒక గ్లాసు నీళ్లు తాగండి. తగినన్ని నీళ్లు తాగితే ఆరోగ్యంగా ఉంటారు. 💛
-Variables: {{1}} = పేరు
-Sample: {{1}} = అమ్మ
-Buttons: [తాగాను 💧] [ఇప్పుడు తాగుతా]
- 
-Template Name: ayana_water_hi
-Language: hi
-Category: Utility
-Body: हाय {{1}}, क्या आपने अभी पानी पिया? 💧 कृपया एक गिलास पानी पी लीजिए। पर्याप्त पानी पीने से सेहत ठीक रहती है। 💛
-Variables: {{1}} = नाम
-Sample: {{1}} = माँ
-Buttons: [पी लिया 💧] [थोड़ी देर में]
- 
-# =============================================================================
-# 6. BLOOD PRESSURE - ayana_bp_check_en / _te / _hi
-# =============================================================================
- 
-Template Name: ayana_bp_check_en
-Language: en
-Category: Utility
-Body: Hi {{1}}, it's time to check your blood pressure. 🩺 Please reply with your reading, or tap a button below. 💛
-Variables: {{1}} = Parent name
-Sample: {{1}} = Amma
-Buttons: [Checked ✅] [Will check later] [Feeling unwell 😟]
- 
-Template Name: ayana_bp_check_te
-Language: te
-Category: Utility
-Body: హాయ్ {{1}}, బీపీ చెక్ చేసుకునే సమయం అయ్యింది. 🩺 మీ రీడింగ్‌ను రిప్లైగా పంపండి లేదా కింది బటన్ నొక్కండి. 💛
-Variables: {{1}} = పేరు
-Sample: {{1}} = అమ్మ
-Buttons: [చెక్ చేశాను ✅] [తర్వాత చేస్తా] [బాగోలేదు 😟]
- 
-Template Name: ayana_bp_check_hi
-Language: hi
-Category: Utility
-Body: हाय {{1}}, ब्लड प्रेशर जाँचने का समय हो गया है। 🩺 अपनी रीडिंग भेजें या नीचे दिया बटन दबाएँ। 💛
-Variables: {{1}} = नाम
-Sample: {{1}} = माँ
-Buttons: [जाँच लिया ✅] [बाद में] [ठीक नहीं 😟]
- 
-# =============================================================================
-# 7. BLOOD SUGAR - ayana_sugar_check_en / _te / _hi
-# =============================================================================
- 
-Template Name: ayana_sugar_check_en
-Language: en
-Category: Utility
-Body: Hi {{1}}, it's time to check your blood sugar. 🩸 Please reply with your reading, or tap a button below. 💛
-Variables: {{1}} = Parent name
-Sample: {{1}} = Amma
-Buttons: [Checked ✅] [Will check later] [Feeling unwell 😟]
- 
-Template Name: ayana_sugar_check_te
-Language: te
-Category: Utility
-Body: హాయ్ {{1}}, షుగర్ చెక్ చేసుకునే సమయం అయ్యింది. 🩸 మీ రీడింగ్‌ను రిప్లైగా పంపండి లేదా కింది బటన్ నొక్కండి. 💛
-Variables: {{1}} = పేరు
-Sample: {{1}} = అమ్మ
-Buttons: [చెక్ చేశాను ✅] [తర్వాత చేస్తా] [బాగోలేదు 😟]
- 
-Template Name: ayana_sugar_check_hi
-Language: hi
-Category: Utility
-Body: हाय {{1}}, ब्लड शुगर जाँचने का समय हो गया है। 🩸 अपनी रीडिंग भेजें या नीचे दिया बटन दबाएँ। 💛
-Variables: {{1}} = नाम
-Sample: {{1}} = माँ
-Buttons: [जाँच लिया ✅] [बाद में] [ठीक नहीं  है😟]
- 
-# =============================================================================
-# 8. GENERAL HEALTH - ayana_health_check_en / _te / _hi
-# =============================================================================
- 
-Template Name: ayana_health_check_en
-Language: en
-Category: Utility
-Body: Hi {{1}}, how is your health today? 💛 Any pain, dizziness or discomfort? Please let us know.
-Variables: {{1}} = Parent name
-Sample: {{1}} = Amma
-Buttons: [All fine 👍] [Mild discomfort] [Need help 🆘]
- 
-Template Name: ayana_health_check_te
-Language: te
-Category: Utility
-Body: హాయ్ {{1}}, ఈరోజు మీ ఆరోగ్యం ఎలా ఉంది? 💛 నొప్పి, తలతిరుగుడు లేదా ఇబ్బంది ఏమైనా ఉందా? దయచేసి చెప్పండి.
-Variables: {{1}} = పేరు
-Sample: {{1}} = అమ్మ
-Buttons: [బాగున్నా 👍] [కొంచెం ఇబ్బంది] [సహాయం కావాలి 🆘]
- 
-Template Name: ayana_health_check_hi
-Language: hi
-Category: Utility
-Body: हाय {{1}}, आज आपकी सेहत कैसी है? 💛 कोई दर्द, चक्कर या परेशानी तो नहीं? कृपया बताइए।
-Variables: {{1}} = नाम
-Sample: {{1}} = माँ
-Buttons: [ठीक हूँ 👍] [थोड़ी परेशानी] [मदद चाहिए 🆘]
- 
-# =============================================================================
-# 9. GOOD NIGHT - ayana_goodnight_en / _te / _hi
-# =============================================================================
- 
-Template Name: ayana_goodnight_en
-Language: en
-Category: Utility
-Body: Good night, {{1}}! 🌙 Rest well and sleep peacefully. AYANA will check in with you again tomorrow. 💛
-Variables: {{1}} = Parent name
-Sample: {{1}} = Amma
-Buttons: [Good night 🌙] [Had a good day] [Not feeling well 😟]
- 
-Template Name: ayana_goodnight_te
-Language: te
-Category: Utility
-Body: శుభ రాత్రి {{1}}! 🌙 హాయిగా నిద్రపోండి. రేపు AYANA మళ్ళీ మిమ్మల్ని పలకరిస్తుంది. 💛
-Variables: {{1}} = పేరు
-Sample: {{1}} = అమ్మ
-Buttons: [శుభ రాత్రి 🌙] [మంచి రోజు] [బాగోలేదు 😟]
- 
-Template Name: ayana_goodnight_hi
-Language: hi
-Category: Utility
-Body: शुभ रात्रि {{1}}! 🌙 आराम से सोइए। कल AYANA फिर आपसे बात करेगी। 💛
-Variables: {{1}} = नाम
-Sample: {{1}} = माँ
-Buttons: [शुभ रात्रि 🌙] [ दिन अच्छा रहा] [ठीक नहीं 😟]
- 
-# =============================================================================
-# 10. LOVE NOTE - ayana_love_note_en / _te / _hi
-# Has 2 variables: parent name + child name
-# =============================================================================
- 
-Template Name: ayana_love_note_en
-Language: en
-Category: Utility
-Body: Hi {{1}}, {{2}} was thinking of you today and sends you lots of love. 🤗 You are very special to us. 💛
-Variables: {{1}} = Parent name, {{2}} = Child name
-Sample: {{1}} = Amma, {{2}} = Naveen
-Buttons: [Love you too 💛] [Thank you 🙏]
- 
-Template Name: ayana_love_note_te
-Language: te
-Category: Utility
-Body: హాయ్ {{1}}, {{2}} ఈరోజు మిమ్మల్ని గుర్తు చేసుకున్నారు, చాలా ప్రేమ పంపుతున్నారు. 🤗 మీరు మాకెంతో ప్రత్యేకం. 💛
-Variables: {{1}} = పేరు, {{2}} = పిల్లల పేరు
-Sample: {{1}} = అమ్మ, {{2}} = నవీన్
-Buttons: [లవ్ యూ టూ 💛] [ధన్యవాదాలు 🙏]
- 
-Template Name: ayana_love_note_hi
-Language: hi
-Category: Utility
-Body: हाय {{1}}, {{2}} की तरफ़ से ढेर सारा प्यार! 🤗 आज उन्होंने आपको बहुत याद किया। आप हमारे लिए बहुत खास हैं। 💛
-Variables: {{1}} = नाम, {{2}} = बच्चे का नाम
-Sample: {{1}} = माँ, {{2}} =  गुणा
-Buttons: [आपको भी प्यार 💛] [धन्यवाद 🙏]
- 
-# =============================================================================
-# TEMPLATE NAME LIST (for code / Meta dashboard)
-# =============================================================================
-ayana_morning_wish_en
-ayana_morning_wish_te
-ayana_morning_wish_hi
-ayana_afternoon_checkin_en
-ayana_afternoon_checkin_te
-ayana_afternoon_checkin_hi
-ayana_walk_check_en
-ayana_walk_check_te
-ayana_walk_check_hi
-ayana_tea_check_en
-ayana_tea_check_te
-ayana_tea_check_hi
-ayana_water_en
-ayana_water_te
-ayana_water_hi
-ayana_bp_check_en
-ayana_bp_check_te
-ayana_bp_check_hi
-ayana_sugar_check_en
-ayana_sugar_check_te
-ayana_sugar_check_hi
-ayana_health_check_en
-ayana_health_check_te
-ayana_health_check_hi
-ayana_goodnight_en
-ayana_goodnight_te
-ayana_goodnight_hi
-ayana_love_note_en
-ayana_love_note_te
-ayana_love_note_hi
-
-Send this once at the appropriate verified-and-consented onboarding step—not on every login.
-# =============================================================================
-# WHY NOT WRITE WITHOUT TEMPLATES? EXPLANATION
-# =============================================================================
-
-# WhatsApp Rule:
-# - Within 24h of user's last message: You can send FREE-FORM text (send_whatsapp)
-# - Outside 24h: You MUST use APPROVED TEMPLATE, free-form fails with error:
-#   "Failed to send message: Outside allowed window"
-
-# Example:
-# Morning: You send check-in at 8am (template, opens 24h window)
-# Parent replies at 8:05am (window extended to next day 8:05am)
-#
-# Case 1: Safety check at 7pm same day (within 24h) -> free-form WORKS (no template needed)
-# Case 2: Parent didn't reply morning, safety check at 7pm next day (outside 24h) -> free-form FAILS, need template
-# Case 3: Child warnings at 2pm/10pm - child rarely replies -> always outside 24h -> MUST need template
-
-# Code already handles both:
-# - Tries template first (works outside window)
-# - If template not found (not approved yet), falls back to free-form (works only within window)
+# AYANA – WhatsApp Templates v2 FINAL (bodies + buttons + footer)   ---- Amma / అమ్మ / माँ
+
+Languages: English (`en`), Telugu (`te`), Hindi (`hi`). Names: `ayana_<name>_v2_<lang>`.
+Category: **UTILITY** for everything except the love note (Marketing).
+
+## Footer (parent-facing templates with buttons)
+Same footer on every template marked "Footer: yes". Footers are plain text, max 60 characters, no variables.
+
+- en: `👇 Tap below or 🎙️ send a voice note`
+- te: `👇 కింద ఆప్షన్‌ను నొక్కండి లేదా 🎙️ వాయిస్ నోట్ పంపండి`
+- hi: `👇 नीचे दिए गए विकल्प टैप करें या 🎙️ वॉइस नोट भेजें`
+
+Child-facing alerts and notifications have no footer (the voice-note footer would make no sense there).
+The longer alternate footer from your notes ("hold mic to send voice note") is over 60 characters in Telugu and Hindi, so it can't be used as a footer.
+
+## Quick reference
+- Parent-facing = variable {{1}} is the parent's display name (Amma / Nanna / Papa / Maa etc.).
+- Quick-reply buttons carry your wording; max 25 characters each.
+- Hindi buttons are gender-neutral ("घर पर हूँ", "सही-सलामत हूँ") because the same template is used for Maa and Papa.
+- Variable values must not contain newlines, tabs or 4+ consecutive spaces (sanitize parent reply text in code).
+
+---
+
+## 1. Opener (first check-in) – `ayana_opener_v2_en / _te / _hi`
+Category: UTILITY · Footer: yes
+Variables: {{1}} = parent name, {{2}} = child name
+Samples: en: Amma, Naveen | te: అమ్మ, నవీన్ | hi: माँ, नवीन
+
+**en**
+```
+BODY:   AYANA check-in service (set up by {{2}}): Hello {{1}}, how are you feeling today? Please choose an option.
+FOOTER: 👇 Tap below or 🎙️ send a voice note
+BUTTON (quick reply): Good
+BUTTON (quick reply): Okay
+BUTTON (quick reply): Not well
+```
+**te**
+```
+BODY:   AYANA చెక్-ఇన్ సేవ ({{2}} ఏర్పాటు చేశారు): నమస్తే {{1}}, ఈరోజు మీరు ఎలా ఉన్నారు? దయచేసి ఒక ఆప్షన్ ఎంచుకోండి.
+FOOTER: 👇 కింద ఆప్షన్‌ను నొక్కండి లేదా 🎙️ వాయిస్ నోట్ పంపండి
+BUTTON (quick reply): బాగున్నాను
+BUTTON (quick reply): పరవాలేదు
+BUTTON (quick reply): బాగోలేదు
+```
+**hi**
+```
+BODY:   AYANA चेक-इन सेवा ({{2}} द्वारा शुरू की गई): नमस्ते {{1}}, आज आप कैसा महसूस कर रहे हैं? कृपया एक विकल्प चुनें।
+FOOTER: 👇 नीचे दिए गए विकल्प टैप करें या 🎙️ वॉइस नोट भेजें
+BUTTON (quick reply): अच्छा
+BUTTON (quick reply): ठीक है
+BUTTON (quick reply): ठीक नहीं हूँ
+```
+
+## 2. Mood check – `ayana_mood_v2_en / _te / _hi`
+Category: UTILITY · Footer: yes
+Variables: {{1}} = parent name
+Samples: en: Amma | te: అమ్మ | hi: माँ
+
+**en**
+```
+BODY:   AYANA scheduled check-in: {{1}}, how are you feeling right now? Please choose an option or send a voice note.
+FOOTER: 👇 Tap below or 🎙️ send a voice note
+BUTTON (quick reply): Good
+BUTTON (quick reply): Okay
+BUTTON (quick reply): Not well
+```
+**te**
+```
+BODY:   AYANA చెక్-ఇన్: {{1}}, ఇప్పుడు మీరు ఎలా ఉన్నారు? ఒక ఆప్షన్ ఎంచుకోండి లేదా వాయిస్ నోట్ పంపండి.
+FOOTER: 👇 కింద ఆప్షన్‌ను నొక్కండి లేదా 🎙️ వాయిస్ నోట్ పంపండి
+BUTTON (quick reply): బాగున్నాను
+BUTTON (quick reply): పరవాలేదు
+BUTTON (quick reply): బాగోలేదు
+```
+**hi**
+```
+BODY:   AYANA निर्धारित चेक-इन: {{1}}, आप अभी कैसा महसूस कर रहे हैं? कृपया एक विकल्प चुनें या वॉइस नोट भेजें।
+FOOTER: 👇 नीचे दिए गए विकल्प टैप करें या 🎙️ वॉइस नोट भेजें
+BUTTON (quick reply): अच्छा
+BUTTON (quick reply): ठीक है
+BUTTON (quick reply): ठीक नहीं हूँ
+```
+
+## 3. Meal check – `ayana_meal_v2_en / _te / _hi`
+Category: UTILITY · Footer: yes
+Variables: {{1}} = parent name
+Samples: en: Amma | te: అమ్మ | hi: माँ
+
+**en**
+```
+BODY:   AYANA scheduled meal check: {{1}}, have you had your meal? Please choose an option.
+FOOTER: 👇 Tap below or 🎙️ send a voice note
+BUTTON (quick reply): Yes
+BUTTON (quick reply): Not yet
+BUTTON (quick reply): Skip
+```
+**te**
+```
+BODY:   AYANA భోజన చెక్-ఇన్: {{1}}, భోజనం చేశారా? దయచేసి ఒక ఆప్షన్ ఎంచుకోండి.
+FOOTER: 👇 కింద ఆప్షన్‌ను నొక్కండి లేదా 🎙️ వాయిస్ నోట్ పంపండి
+BUTTON (quick reply): తిన్నాను
+BUTTON (quick reply): తింటాను
+BUTTON (quick reply): తినను
+```
+**hi**
+```
+BODY:   AYANA भोजन चेक-इन: {{1}}, क्या आपने खाना खा लिया? कृपया एक विकल्प चुनें।
+FOOTER: 👇 नीचे दिए गए विकल्प टैप करें या 🎙️ वॉइस नोट भेजें
+BUTTON (quick reply): मैंने खा लिया
+BUTTON (quick reply): खा लेंगे
+BUTTON (quick reply): नहीं खाना
+```
+
+## 4. Medicine reminder – `ayana_medicine_v2_en / _te / _hi`
+Category: UTILITY · Footer: yes
+Variables: {{1}} = parent name, {{2}} = medicine name
+Samples: en: Amma, BP | te: అమ్మ, బీపీ | hi: माँ, बीपी
+
+**en**
+```
+BODY:   AYANA medicine reminder: {{1}}, it is time for your {{2}} tablet. Please confirm once you have taken it.
+FOOTER: 👇 Tap below or 🎙️ send a voice note
+BUTTON (quick reply): Taken
+BUTTON (quick reply): Not yet
+BUTTON (quick reply): Skipped
+```
+**te**
+```
+BODY:   AYANA మందుల రిమైండర్: {{1}}, మీ {{2}} టాబ్లెట్ వేసుకునే సమయం అయ్యింది. వేసుకున్న తర్వాత నిర్ధారించండి.
+FOOTER: 👇 కింద ఆప్షన్‌ను నొక్కండి లేదా 🎙️ వాయిస్ నోట్ పంపండి
+BUTTON (quick reply): వేసుకున్నా
+BUTTON (quick reply): ఇంకా లేదు
+BUTTON (quick reply): వేసుకోలేదు
+```
+**hi**
+```
+BODY:   AYANA दवाई रिमाइंडर: {{1}}, आपकी {{2}} की टैबलेट लेने का समय हो गया है। लेने के बाद कृपया पुष्टि करें।
+FOOTER: 👇 नीचे दिए गए विकल्प टैप करें या 🎙️ वॉइस नोट भेजें
+BUTTON (quick reply): ले लिया
+BUTTON (quick reply): अभी नहीं
+BUTTON (quick reply): छोड़ दिया
+```
+
+## 5. Pending check-in follow-up – `ayana_reengagement_v2_en / _te / _hi`
+Category: UTILITY · Footer: yes
+Variables: {{1}} = parent name
+Samples: en: Amma | te: అమ్మ | hi: माँ
+
+**en**
+```
+BODY:   AYANA check-in follow-up: {{1}}, your reply to today's check-in has not been received. Please reply to confirm that you are okay.
+FOOTER: 👇 Tap below or 🎙️ send a voice note
+BUTTON (quick reply): I'm fine
+BUTTON (quick reply): Need help
+BUTTON (quick reply): Call me
+```
+**te**
+```
+BODY:   AYANA చెక్-ఇన్ ఫాలో-అప్: {{1}}, ఈరోజు చెక్-ఇన్‌కు మీ రిప్లై అందలేదు. మీరు బాగున్నారని నిర్ధారించడానికి రిప్లై ఇవ్వండి.
+FOOTER: 👇 కింద ఆప్షన్‌ను నొక్కండి లేదా 🎙️ వాయిస్ నోట్ పంపండి
+BUTTON (quick reply): నేను బాగున్నాను
+BUTTON (quick reply): నాకు సహాయం కావాలి
+BUTTON (quick reply): నాకు కాల్ చేయండి
+```
+**hi**
+```
+BODY:   AYANA चेक-इन फ़ॉलो-अप: {{1}}, आज के चेक-इन पर आपका जवाब नहीं मिला। आप ठीक हैं, यह बताने के लिए कृपया जवाब दें।
+FOOTER: 👇 नीचे दिए गए विकल्प टैप करें या 🎙️ वॉइस नोट भेजें
+BUTTON (quick reply): मैं ठीक हूँ
+BUTTON (quick reply): मुझे मदद चाहिए
+BUTTON (quick reply): मुझे कॉल कीजिए
+```
+
+## 6. Monthly report ready (to child) – `ayana_report_ready_v2_en / _te / _hi`
+Category: UTILITY · Footer: no
+Variables: {{1}} = parent name
+Samples: en: Amma | te: అమ్మ | hi: माँ
+
+**en**
+```
+BODY:   AYANA account update: the monthly wellness report for {{1}} is now available in your AYANA dashboard.
+BUTTON (website): View report  -> your dashboard URL
+```
+**te**
+```
+BODY:   AYANA ఖాతా అప్‌డేట్: {{1}} నెలవారీ వెల్‌నెస్ రిపోర్ట్ మీ AYANA డ్యాష్‌బోర్డ్‌లో అందుబాటులో ఉంది.
+BUTTON (website): రిపోర్ట్ చూడండి  -> your dashboard URL
+```
+**hi**
+```
+BODY:   AYANA खाता अपडेट: {{1}} की मासिक वेलनेस रिपोर्ट आपके AYANA डैशबोर्ड में उपलब्ध है।
+BUTTON (website): रिपोर्ट देखें  -> your dashboard URL
+```
+
+## 7. Safe-return: office/work – `ayana_office_return_v2_en / _te / _hi`
+Category: UTILITY · Footer: yes
+Variables: {{1}} = parent name
+Samples: en: Amma | te: అమ్మ | hi: माँ
+
+**en**
+```
+BODY:   AYANA safe-return check: {{1}}, have you reached home from office/work? Please choose an option.
+FOOTER: 👇 Tap below or 🎙️ send a voice note
+BUTTON (quick reply): Reached home
+BUTTON (quick reply): On the way
+BUTTON (quick reply): Had a good day
+```
+**te**
+```
+BODY:   AYANA సురక్షిత రాక చెక్: {{1}}, ఆఫీస్/పని నుండి ఇంటికి చేరారా? దయచేసి ఒక ఆప్షన్ ఎంచుకోండి.
+FOOTER: 👇 కింద ఆప్షన్‌ను నొక్కండి లేదా 🎙️ వాయిస్ నోట్ పంపండి
+BUTTON (quick reply): సురక్షితంగా చేరుకున్నాను
+BUTTON (quick reply): దారిలో ఉన్నాను
+BUTTON (quick reply): ఈరోజు బాగా గడిచింది
+```
+**hi**
+```
+BODY:   AYANA सुरक्षित वापसी चेक: {{1}}, क्या आप ऑफ़िस/काम से घर पहुँच गए? कृपया एक विकल्प चुनें।
+FOOTER: 👇 नीचे दिए गए विकल्प टैप करें या 🎙️ वॉइस नोट भेजें
+BUTTON (quick reply): सुरक्षित घर पर हूँ
+BUTTON (quick reply): रास्ते में हूँ
+BUTTON (quick reply): आज का दिन अच्छा रहा
+```
+
+## 8. Safe-return: market – `ayana_market_return_v2_en / _te / _hi`
+Category: UTILITY · Footer: yes
+Variables: {{1}} = parent name
+Samples: en: Amma | te: అమ్మ | hi: माँ
+
+**en**
+```
+BODY:   AYANA safe-return check: {{1}}, have you reached home from the market? Please choose an option.
+FOOTER: 👇 Tap below or 🎙️ send a voice note
+BUTTON (quick reply): Reached home
+BUTTON (quick reply): Shopping done
+BUTTON (quick reply): Still in market
+```
+**te**
+```
+BODY:   AYANA సురక్షిత రాక చెక్: {{1}}, మార్కెట్ నుండి ఇంటికి చేరారా? దయచేసి ఒక ఆప్షన్ ఎంచుకోండి.
+FOOTER: 👇 కింద ఆప్షన్‌ను నొక్కండి లేదా 🎙️ వాయిస్ నోట్ పంపండి
+BUTTON (quick reply): ఇంటికి వచ్చాను
+BUTTON (quick reply): షాపింగ్ అయ్యింది
+BUTTON (quick reply): ఇంకా మార్కెట్‌లో ఉన్నా
+```
+**hi**
+```
+BODY:   AYANA सुरक्षित वापसी चेक: {{1}}, क्या आप बाज़ार से घर पहुँच गए? कृपया एक विकल्प चुनें।
+FOOTER: 👇 नीचे दिए गए विकल्प टैप करें या 🎙️ वॉइस नोट भेजें
+BUTTON (quick reply): घर पर हूँ
+BUTTON (quick reply): शॉपिंग हो गई
+BUTTON (quick reply): अभी बाज़ार में हूँ
+```
+
+## 9. Safe-return: shopping (custom label) – `ayana_shopping_return_v2_en / _te / _hi`
+Category: UTILITY · Footer: yes
+Variables: {{1}} = parent name, {{2}} = place label (e.g. Dmart)
+Samples: en: Amma, Dmart | te: అమ్మ, డీమార్ట్ | hi: माँ, डीमार्ट
+
+**en**
+```
+BODY:   AYANA safe-return check: {{1}}, have you reached home from {{2}} shopping? Please choose an option.
+FOOTER: 👇 Tap below or 🎙️ send a voice note
+BUTTON (quick reply): Reached home
+BUTTON (quick reply): Shopping done
+BUTTON (quick reply): Yes safe
+```
+**te**
+```
+BODY:   AYANA సురక్షిత రాక చెక్: {{1}}, {{2}} షాపింగ్ నుండి ఇంటికి చేరారా? దయచేసి ఒక ఆప్షన్ ఎంచుకోండి.
+FOOTER: 👇 కింద ఆప్షన్‌ను నొక్కండి లేదా 🎙️ వాయిస్ నోట్ పంపండి
+BUTTON (quick reply): ఇంటికి వచ్చా
+BUTTON (quick reply): షాపింగ్ అయ్యింది
+BUTTON (quick reply): సేఫ్ గా వచ్చాను
+```
+**hi**
+```
+BODY:   AYANA सुरक्षित वापसी चेक: {{1}}, क्या आप {{2}} शॉपिंग से घर पहुँच गए? कृपया एक विकल्प चुनें।
+FOOTER: 👇 नीचे दिए गए विकल्प टैप करें या 🎙️ वॉइस नोट भेजें
+BUTTON (quick reply): घर पर हूँ
+BUTTON (quick reply): शॉपिंग हो गई
+BUTTON (quick reply): सही-सलामत हूँ
+```
+
+## 10. Safe-return: temple – `ayana_temple_return_v2_en / _te / _hi`
+Category: UTILITY · Footer: yes
+Variables: {{1}} = parent name
+Samples: en: Amma | te: అమ్మ | hi: माँ
+
+**en**
+```
+BODY:   AYANA safe-return check: {{1}}, have you reached home from the temple? Please choose an option.
+FOOTER: 👇 Tap below or 🎙️ send a voice note
+BUTTON (quick reply): Reached home
+BUTTON (quick reply): Nicely done
+BUTTON (quick reply): Still in temple
+```
+**te**
+```
+BODY:   AYANA సురక్షిత రాక చెక్: {{1}}, గుడి నుండి ఇంటికి చేరారా? దయచేసి ఒక ఆప్షన్ ఎంచుకోండి.
+FOOTER: 👇 కింద ఆప్షన్‌ను నొక్కండి లేదా 🎙️ వాయిస్ నోట్ పంపండి
+BUTTON (quick reply): ఇంటికి వచ్చా
+BUTTON (quick reply): దర్శనం బాగా జరిగింది
+BUTTON (quick reply): ఇంకా గుడిలో ఉన్నా
+```
+**hi**
+```
+BODY:   AYANA सुरक्षित वापसी चेक: {{1}}, क्या आप मंदिर से घर पहुँच गए? कृपया एक विकल्प चुनें।
+FOOTER: 👇 नीचे दिए गए विकल्प टैप करें या 🎙️ वॉइस नोट भेजें
+BUTTON (quick reply): घर पर हूँ
+BUTTON (quick reply): दर्शन अच्छे से हुआ
+BUTTON (quick reply): अभी भी मंदिर में हूँ
+```
+
+## 11. Safe-return: general outing – `ayana_outing_return_v2_en / _te / _hi`
+Category: UTILITY · Footer: yes
+Variables: {{1}} = parent name
+Samples: en: Amma | te: అమ్మ | hi: माँ
+
+**en**
+```
+BODY:   AYANA safe-return check: {{1}}, have you reached home safely from your outing? Please choose an option.
+FOOTER: 👇 Tap below or 🎙️ send a voice note
+BUTTON (quick reply): Reached home
+BUTTON (quick reply): Enjoyed outing
+BUTTON (quick reply): On the way
+```
+**te**
+```
+BODY:   AYANA సురక్షిత రాక చెక్: {{1}}, బయటకు వెళ్లి సురక్షితంగా ఇంటికి చేరారా? దయచేసి ఒక ఆప్షన్ ఎంచుకోండి.
+FOOTER: 👇 కింద ఆప్షన్‌ను నొక్కండి లేదా 🎙️ వాయిస్ నోట్ పంపండి
+BUTTON (quick reply): ఇంటికి చేరుకున్నాను
+BUTTON (quick reply): షికారు చాలా బాగుంది
+BUTTON (quick reply): దారిలో ఉన్నాను
+```
+**hi**
+```
+BODY:   AYANA सुरक्षित वापसी चेक: {{1}}, क्या आप बाहर से सुरक्षित घर पहुँच गए? कृपया एक विकल्प चुनें।
+FOOTER: 👇 नीचे दिए गए विकल्प टैप करें या 🎙️ वॉइस नोट भेजें
+BUTTON (quick reply): घर पर हूँ
+BUTTON (quick reply): आउटिंग में मज़ा आया
+BUTTON (quick reply): रास्ते में हूँ
+```
+
+## 12. First alert to child (2 PM) – `ayana_first_warn_child_v2_en / _te / _hi`
+Category: UTILITY · Footer: no
+Variables: {{1}} = parent name
+Samples: en: Amma | te: అమ్మ | hi: माँ
+
+**en**
+```
+BODY:   AYANA alert: {{1}} has not replied to check-ins between 6 AM and 2 PM today. A follow-up check-in has been sent. You will receive another update at 10 PM if there is still no reply.
+BUTTON (quick reply): Got it
+BUTTON (quick reply): I will call
+```
+**te**
+```
+BODY:   AYANA అలర్ట్: {{1}} ఈరోజు ఉదయం 6 నుండి మధ్యాహ్నం 2 మధ్య చెక్-ఇన్‌లకు రిప్లై ఇవ్వలేదు. మళ్లీ చెక్-ఇన్ పంపాము. రాత్రి 10 వరకు రిప్లై రాకపోతే మరో అప్‌డేట్ పంపుతాము.
+BUTTON (quick reply): అర్థమైంది
+BUTTON (quick reply): కాల్ చేస్తాను
+```
+**hi**
+```
+BODY:   AYANA अलर्ट: {{1}} ने आज सुबह 6 से दोपहर 2 बजे के बीच चेक-इन का जवाब नहीं दिया। दोबारा चेक-इन भेजा गया है। रात 10 बजे तक जवाब न आने पर एक और अपडेट भेजा जाएगा।
+BUTTON (quick reply): समझ गया
+BUTTON (quick reply): मैं कॉल करूँगा
+```
+
+## 13. Main alert to child (10 PM) – `ayana_main_warn_child_v2_en / _te / _hi`
+Category: UTILITY · Footer: no
+Variables: {{1}} = parent name, {{2}} = missed check-in count
+Samples: en: Amma, 4 | te: అమ్మ, 4 | hi: माँ, 4
+
+**en**
+```
+BODY:   AYANA alert: {{1}} has not replied to any check-in since 6 AM today. Missed check-ins: {{2}}. Please contact them directly.
+BUTTON (quick reply): I will call
+BUTTON (quick reply): Got it
+```
+**te**
+```
+BODY:   AYANA అలర్ట్: {{1}} ఈరోజు ఉదయం 6 నుండి ఏ చెక్-ఇన్‌కూ రిప్లై ఇవ్వలేదు. మిస్ అయిన చెక్-ఇన్‌లు: {{2}}. దయచేసి నేరుగా సంప్రదించండి.
+BUTTON (quick reply): కాల్ చేస్తాను
+BUTTON (quick reply): అర్థమైంది
+```
+**hi**
+```
+BODY:   AYANA अलर्ट: {{1}} ने आज सुबह 6 बजे से किसी चेक-इन का जवाब नहीं दिया। छूटे हुए चेक-इन: {{2}}। कृपया सीधे संपर्क करें।
+BUTTON (quick reply): मैं कॉल करूँगा
+BUTTON (quick reply): समझ गया
+```
+
+## 14. First nudge to parent (2 PM) – `ayana_first_warn_parent_v2_en / _te / _hi`
+Category: UTILITY · Footer: yes
+Variables: {{1}} = parent name
+Samples: en: Amma | te: అమ్మ | hi: माँ
+
+**en**
+```
+BODY:   AYANA check-in follow-up: {{1}}, your reply to this morning's check-in has not been received. Please let us know how you are.
+FOOTER: 👇 Tap below or 🎙️ send a voice note
+BUTTON (quick reply): I'm fine
+BUTTON (quick reply): Resting
+BUTTON (quick reply): Not well
+```
+**te**
+```
+BODY:   AYANA చెక్-ఇన్ ఫాలో-అప్: {{1}}, ఈ ఉదయం చెక్-ఇన్‌కు మీ రిప్లై అందలేదు. మీరు ఎలా ఉన్నారో తెలియజేయండి.
+FOOTER: 👇 కింద ఆప్షన్‌ను నొక్కండి లేదా 🎙️ వాయిస్ నోట్ పంపండి
+BUTTON (quick reply): బాగున్నాను
+BUTTON (quick reply): విశ్రాంతిలో ఉన్నాను
+BUTTON (quick reply): బాగోలేదు
+```
+**hi**
+```
+BODY:   AYANA चेक-इन फ़ॉलो-अप: {{1}}, आज सुबह के चेक-इन पर आपका जवाब नहीं मिला। कृपया बताएँ कि आप कैसे हैं।
+FOOTER: 👇 नीचे दिए गए विकल्प टैप करें या 🎙️ वॉइस नोट भेजें
+BUTTON (quick reply): मैं ठीक हूँ
+BUTTON (quick reply): आराम में हूँ
+BUTTON (quick reply): ठीक नहीं हूँ
+```
+
+## 15. Parent reply notification (to child) – `ayana_parent_reply_v2_en / _te / _hi`
+Category: UTILITY · Footer: no
+Variables: {{1}} = parent name, {{2}} = check-in type, {{3}} = reply text (no newlines), {{4}} = received time
+Samples: en: Amma, lunch, Yes, I have eaten., 18 September, 1:30 PM IST | te: అమ్మ, మధ్యాహ్న భోజనం, తిన్నాను., సెప్టెంబర్ 18, మధ్యాహ్నం 1:30 IST | hi: माँ, दोपहर के भोजन, हाँ, खाना खा लिया।, 18 सितंबर, दोपहर 1:30 IST
+
+**en**
+```
+BODY:   AYANA update: {{1}} replied to the {{2}} check-in.
+        
+        Reply: {{3}}
+        Received: {{4}}
+        
+        Recent check-ins are available in your AYANA dashboard.
+BUTTON (quick reply): Send full reply
+BUTTON (website): View dashboard  -> your dashboard URL
+```
+**te**
+```
+BODY:   AYANA అప్‌డేట్: {{1}} {{2}} చెక్-ఇన్‌కు సమాధానం ఇచ్చారు.
+        
+        సమాధానం: {{3}}
+        అందిన సమయం: {{4}}
+        
+        ఇటీవలి చెక్-ఇన్‌లు మీ AYANA డ్యాష్‌బోర్డ్‌లో అందుబాటులో ఉన్నాయి.
+BUTTON (quick reply): పూర్తి సమాధానం
+BUTTON (website): డ్యాష్‌బోర్డ్ చూడండి  -> your dashboard URL
+```
+**hi**
+```
+BODY:   AYANA अपडेट: {{1}} ने {{2}} चेक-इन का जवाब दिया है।
+        
+        जवाब: {{3}}
+        प्राप्त समय: {{4}}
+        
+        हाल के चेक-इन आपके AYANA डैशबोर्ड में उपलब्ध हैं।
+BUTTON (quick reply): पूरा जवाब भेजें
+BUTTON (website): डैशबोर्ड खोलें  -> your dashboard URL
+```
+
+## 16. Parent voice-note notification (to child) – `ayana_parent_voice_v2_en / _te / _hi`
+Category: UTILITY · Footer: no
+Variables: {{1}} = parent name, {{2}} = check-in type, {{3}} = received time
+Samples: en: Amma, morning, 18 September, 8:01 AM IST | te: అమ్మ, ఉదయం, సెప్టెంబర్ 18, ఉదయం 8:01 IST | hi: माँ, सुबह के, 18 सितंबर, सुबह 8:01 IST
+
+**en**
+```
+BODY:   AYANA update: {{1}} sent a voice note in response to the {{2}} check-in.
+        
+        Received: {{3}}
+        
+        Listen in your AYANA dashboard, or tap "Send voice note" to receive the audio here.
+BUTTON (quick reply): Send voice note
+BUTTON (website): Open dashboard  -> your dashboard URL
+```
+**te**
+```
+BODY:   AYANA అప్‌డేట్: {{1}} {{2}} చెక్-ఇన్‌కు వాయిస్ మెసేజ్ పంపారు.
+        
+        అందిన సమయం: {{3}}
+        
+        మీ AYANA డ్యాష్‌బోర్డ్‌లో వినండి, లేదా ఇక్కడే వినడానికి "వాయిస్ పంపండి" నొక్కండి.
+BUTTON (quick reply): వాయిస్ పంపండి
+BUTTON (website): డ్యాష్‌బోర్డ్ చూడండి  -> your dashboard URL
+```
+**hi**
+```
+BODY:   AYANA अपडेट: {{1}} ने {{2}} चेक-इन के जवाब में वॉइस मैसेज भेजा है।
+        
+        प्राप्त समय: {{3}}
+        
+        अपने AYANA डैशबोर्ड में सुनें, या यहाँ ऑडियो पाने के लिए "वॉइस भेजें" दबाएँ।
+BUTTON (quick reply): वॉइस भेजें
+BUTTON (website): डैशबोर्ड खोलें  -> your dashboard URL
+```
+
+## 17. Child account confirmation (after email verification) – `ayana_child_welcome_v2_en / _te / _hi`
+Category: UTILITY · Footer: no
+Variables: {{1}} = child first name
+Samples: en: Naveen | te: నవీన్ | hi: नवीन
+
+**en**
+```
+BODY:   AYANA account update: Hi {{1}}, your email is verified and your AYANA account is active. Add your parent's details and check-in times in the dashboard. Care updates will be sent to this WhatsApp number once you enable updates.
+BUTTON (quick reply): Enable updates
+BUTTON (website): Open dashboard  -> your dashboard URL
+```
+**te**
+```
+BODY:   AYANA ఖాతా అప్‌డేట్: నమస్తే {{1}}, మీ ఇమెయిల్ ధృవీకరణ పూర్తయింది, AYANA ఖాతా యాక్టివ్‌గా ఉంది. డ్యాష్‌బోర్డ్‌లో మీ తల్లిదండ్రుల వివరాలు, చెక్-ఇన్ సమయాలు జోడించండి. అప్‌డేట్లు ప్రారంభిస్తే సంరక్షణ అప్‌డేట్లు ఈ WhatsApp నంబర్‌కు వస్తాయి.
+BUTTON (quick reply): అప్‌డేట్లు ప్రారంభించండి
+BUTTON (website): డ్యాష్‌బోర్డ్ చూడండి  -> your dashboard URL
+```
+**hi**
+```
+BODY:   AYANA खाता अपडेट: नमस्ते {{1}}, आपका ईमेल सत्यापित हो गया है और आपका AYANA खाता सक्रिय है। डैशबोर्ड में अपने माता-पिता की जानकारी और चेक-इन का समय जोड़ें। अपडेट शुरू करने पर देखभाल से जुड़े अपडेट इसी WhatsApp नंबर पर भेजे जाएँगे।
+BUTTON (quick reply): अपडेट शुरू करें
+BUTTON (website): डैशबोर्ड खोलें  -> your dashboard URL
+```
+
+## 18. Morning check-in (name kept for code mapping) – `ayana_morning_wish_v2_en / _te / _hi`
+Category: UTILITY · Footer: yes
+Variables: {{1}} = parent name
+Samples: en: Amma | te: అమ్మ | hi: माँ
+
+**en**
+```
+BODY:   AYANA morning check-in: {{1}}, how are you feeling today? Please choose an option.
+FOOTER: 👇 Tap below or 🎙️ send a voice note
+BUTTON (quick reply): Good
+BUTTON (quick reply): Not well
+```
+**te**
+```
+BODY:   AYANA ఉదయం చెక్-ఇన్: {{1}}, ఈరోజు మీ ఆరోగ్యం ఎలా ఉంది? దయచేసి ఒక ఆప్షన్ ఎంచుకోండి.
+FOOTER: 👇 కింద ఆప్షన్‌ను నొక్కండి లేదా 🎙️ వాయిస్ నోట్ పంపండి
+BUTTON (quick reply): బాగున్నాను
+BUTTON (quick reply): బాగోలేదు
+```
+**hi**
+```
+BODY:   AYANA सुबह का चेक-इन: {{1}}, आज आप कैसा महसूस कर रहे हैं? कृपया एक विकल्प चुनें।
+FOOTER: 👇 नीचे दिए गए विकल्प टैप करें या 🎙️ वॉइस नोट भेजें
+BUTTON (quick reply): अच्छा
+BUTTON (quick reply): ठीक नहीं हूँ
+```
+
+## 19. Afternoon check-in – `ayana_afternoon_checkin_v2_en / _te / _hi`
+Category: UTILITY · Footer: yes
+Variables: {{1}} = parent name
+Samples: en: Amma | te: అమ్మ | hi: माँ
+
+**en**
+```
+BODY:   AYANA afternoon check-in: {{1}}, how is your day going so far? Please choose an option.
+FOOTER: 👇 Tap below or 🎙️ send a voice note
+BUTTON (quick reply): All good
+BUTTON (quick reply): Resting
+BUTTON (quick reply): Not well
+```
+**te**
+```
+BODY:   AYANA మధ్యాహ్నం చెక్-ఇన్: {{1}}, ఈరోజు ఎలా గడుస్తోంది? దయచేసి ఒక ఆప్షన్ ఎంచుకోండి.
+FOOTER: 👇 కింద ఆప్షన్‌ను నొక్కండి లేదా 🎙️ వాయిస్ నోట్ పంపండి
+BUTTON (quick reply): అంతా బాగుంది
+BUTTON (quick reply): విశ్రాంతిలో ఉన్నాను
+BUTTON (quick reply): బాగోలేదు
+```
+**hi**
+```
+BODY:   AYANA दोपहर का चेक-इन: {{1}}, आज का दिन कैसा चल रहा है? कृपया एक विकल्प चुनें।
+FOOTER: 👇 नीचे दिए गए विकल्प टैप करें या 🎙️ वॉइस नोट भेजें
+BUTTON (quick reply): सब ठीक है
+BUTTON (quick reply): आराम में हूँ
+BUTTON (quick reply): ठीक नहीं हूँ
+```
+
+## 20. Walk reminder – `ayana_walk_check_v2_en / _te / _hi`
+Category: UTILITY · Footer: yes
+Variables: {{1}} = parent name
+Samples: en: Amma | te: అమ్మ | hi: माँ
+
+**en**
+```
+BODY:   AYANA scheduled reminder: {{1}}, have you gone for your walk today? Please choose an option.
+FOOTER: 👇 Tap below or 🎙️ send a voice note
+BUTTON (quick reply): Walked
+BUTTON (quick reply): Will go later
+BUTTON (quick reply): Not today
+```
+**te**
+```
+BODY:   AYANA రిమైండర్: {{1}}, ఈరోజు నడకకు వెళ్లారా? దయచేసి ఒక ఆప్షన్ ఎంచుకోండి.
+FOOTER: 👇 కింద ఆప్షన్‌ను నొక్కండి లేదా 🎙️ వాయిస్ నోట్ పంపండి
+BUTTON (quick reply): నడిచాను
+BUTTON (quick reply): తర్వాత వెళ్తాను
+BUTTON (quick reply): ఈరోజు లేదు
+```
+**hi**
+```
+BODY:   AYANA रिमाइंडर: {{1}}, क्या आप आज टहलने गए? कृपया एक विकल्प चुनें।
+FOOTER: 👇 नीचे दिए गए विकल्प टैप करें या 🎙️ वॉइस नोट भेजें
+BUTTON (quick reply): टहल लिया
+BUTTON (quick reply): बाद में
+BUTTON (quick reply): आज नहीं
+```
+
+## 21. Tea / coffee reminder – `ayana_tea_check_v2_en / _te / _hi`
+Category: UTILITY · Footer: yes
+Variables: {{1}} = parent name
+Samples: en: Amma | te: అమ్మ | hi: माँ
+
+**en**
+```
+BODY:   AYANA scheduled reminder: {{1}}, it is your tea or coffee time. Please confirm once done.
+FOOTER: 👇 Tap below or 🎙️ send a voice note
+BUTTON (quick reply): Done
+BUTTON (quick reply): Later
+BUTTON (quick reply): Skip today
+```
+**te**
+```
+BODY:   AYANA రిమైండర్: {{1}}, టీ లేదా కాఫీ తాగే సమయం అయ్యింది. తాగిన తర్వాత నిర్ధారించండి.
+FOOTER: 👇 కింద ఆప్షన్‌ను నొక్కండి లేదా 🎙️ వాయిస్ నోట్ పంపండి
+BUTTON (quick reply): తాగాను
+BUTTON (quick reply): తర్వాత
+BUTTON (quick reply): ఈరోజు వద్దు
+```
+**hi**
+```
+BODY:   AYANA रिमाइंडर: {{1}}, चाय या कॉफ़ी का समय हो गया है। पीने के बाद पुष्टि करें।
+FOOTER: 👇 नीचे दिए गए विकल्प टैप करें या 🎙️ वॉइस नोट भेजें
+BUTTON (quick reply): पी ली
+BUTTON (quick reply): बाद में
+BUTTON (quick reply): आज नहीं
+```
+
+## 22. Water reminder – `ayana_water_v2_en / _te / _hi`
+Category: UTILITY · Footer: yes
+Variables: {{1}} = parent name
+Samples: en: Amma | te: అమ్మ | hi: माँ
+
+**en**
+```
+BODY:   AYANA scheduled reminder: {{1}}, please drink a glass of water now and confirm below.
+FOOTER: 👇 Tap below or 🎙️ send a voice note
+BUTTON (quick reply): Drank water
+BUTTON (quick reply): Will drink soon
+```
+**te**
+```
+BODY:   AYANA రిమైండర్: {{1}}, దయచేసి ఇప్పుడు ఒక గ్లాసు నీళ్లు తాగి నిర్ధారించండి.
+FOOTER: 👇 కింద ఆప్షన్‌ను నొక్కండి లేదా 🎙️ వాయిస్ నోట్ పంపండి
+BUTTON (quick reply): తాగాను
+BUTTON (quick reply): కొంచెం సేపటిలో
+```
+**hi**
+```
+BODY:   AYANA रिमाइंडर: {{1}}, कृपया अभी एक गिलास पानी पीकर पुष्टि करें।
+FOOTER: 👇 नीचे दिए गए विकल्प टैप करें या 🎙️ वॉइस नोट भेजें
+BUTTON (quick reply): पी लिया
+BUTTON (quick reply): थोड़ी देर में
+```
+
+## 23. Blood pressure reminder – `ayana_bp_check_v2_en / _te / _hi`
+Category: UTILITY · Footer: yes
+Variables: {{1}} = parent name
+Samples: en: Amma | te: అమ్మ | hi: माँ
+
+**en**
+```
+BODY:   AYANA health reminder: {{1}}, it is time to check your blood pressure. Please reply with your reading or choose an option.
+FOOTER: 👇 Tap below or 🎙️ send a voice note
+BUTTON (quick reply): Checked
+BUTTON (quick reply): Will check later
+BUTTON (quick reply): Not well
+```
+**te**
+```
+BODY:   AYANA ఆరోగ్య రిమైండర్: {{1}}, బీపీ చెక్ చేసుకునే సమయం అయ్యింది. మీ రీడింగ్‌ను రిప్లైగా పంపండి లేదా ఒక ఆప్షన్ ఎంచుకోండి.
+FOOTER: 👇 కింద ఆప్షన్‌ను నొక్కండి లేదా 🎙️ వాయిస్ నోట్ పంపండి
+BUTTON (quick reply): చెక్ చేశాను
+BUTTON (quick reply): తర్వాత చేస్తాను
+BUTTON (quick reply): బాగోలేదు
+```
+**hi**
+```
+BODY:   AYANA स्वास्थ्य रिमाइंडर: {{1}}, ब्लड प्रेशर जाँचने का समय हो गया है। अपनी रीडिंग भेजें या एक विकल्प चुनें।
+FOOTER: 👇 नीचे दिए गए विकल्प टैप करें या 🎙️ वॉइस नोट भेजें
+BUTTON (quick reply): जाँच ली
+BUTTON (quick reply): बाद में
+BUTTON (quick reply): ठीक नहीं हूँ
+```
+
+## 24. Blood sugar reminder – `ayana_sugar_check_v2_en / _te / _hi`
+Category: UTILITY · Footer: yes
+Variables: {{1}} = parent name
+Samples: en: Amma | te: అమ్మ | hi: माँ
+
+**en**
+```
+BODY:   AYANA health reminder: {{1}}, it is time to check your blood sugar. Please reply with your reading or choose an option.
+FOOTER: 👇 Tap below or 🎙️ send a voice note
+BUTTON (quick reply): Checked
+BUTTON (quick reply): Will check later
+BUTTON (quick reply): Not well
+```
+**te**
+```
+BODY:   AYANA ఆరోగ్య రిమైండర్: {{1}}, షుగర్ చెక్ చేసుకునే సమయం అయ్యింది. మీ రీడింగ్‌ను రిప్లైగా పంపండి లేదా ఒక ఆప్షన్ ఎంచుకోండి.
+FOOTER: 👇 కింద ఆప్షన్‌ను నొక్కండి లేదా 🎙️ వాయిస్ నోట్ పంపండి
+BUTTON (quick reply): చెక్ చేశాను
+BUTTON (quick reply): తర్వాత చేస్తాను
+BUTTON (quick reply): బాగోలేదు
+```
+**hi**
+```
+BODY:   AYANA स्वास्थ्य रिमाइंडर: {{1}}, ब्लड शुगर जाँचने का समय हो गया है। अपनी रीडिंग भेजें या एक विकल्प चुनें।
+FOOTER: 👇 नीचे दिए गए विकल्प टैप करें या 🎙️ वॉइस नोट भेजें
+BUTTON (quick reply): जाँच ली
+BUTTON (quick reply): बाद में
+BUTTON (quick reply): ठीक नहीं हूँ
+```
+
+## 25. General health check – `ayana_health_check_v2_en / _te / _hi`
+Category: UTILITY · Footer: yes
+Variables: {{1}} = parent name
+Samples: en: Amma | te: అమ్మ | hi: माँ
+
+**en**
+```
+BODY:   AYANA health check-in: {{1}}, do you have any pain, dizziness or discomfort today? Please choose an option.
+FOOTER: 👇 Tap below or 🎙️ send a voice note
+BUTTON (quick reply): None
+BUTTON (quick reply): Mild discomfort
+BUTTON (quick reply): Need help
+```
+**te**
+```
+BODY:   AYANA ఆరోగ్య చెక్-ఇన్: {{1}}, ఈరోజు మీకు నొప్పి, తలతిరుగుడు లేదా ఇబ్బంది ఏమైనా ఉందా? దయచేసి ఒక ఆప్షన్ ఎంచుకోండి.
+FOOTER: 👇 కింద ఆప్షన్‌ను నొక్కండి లేదా 🎙️ వాయిస్ నోట్ పంపండి
+BUTTON (quick reply): ఏమీ లేదు
+BUTTON (quick reply): కొంచెం ఇబ్బంది
+BUTTON (quick reply): సహాయం కావాలి
+```
+**hi**
+```
+BODY:   AYANA स्वास्थ्य चेक-इन: {{1}}, क्या आज आपको कोई दर्द, चक्कर या परेशानी है? कृपया एक विकल्प चुनें।
+FOOTER: 👇 नीचे दिए गए विकल्प टैप करें या 🎙️ वॉइस नोट भेजें
+BUTTON (quick reply): कोई परेशानी नहीं
+BUTTON (quick reply): थोड़ी परेशानी
+BUTTON (quick reply): मदद चाहिए
+```
+
+## 26. Night check-in (name kept for code mapping) – `ayana_goodnight_v2_en / _te / _hi`
+Category: UTILITY · Footer: yes
+Variables: {{1}} = parent name
+Samples: en: Amma | te: అమ్మ | hi: माँ
+
+**en**
+```
+BODY:   AYANA night check-in: {{1}}, how are you feeling before you rest for the night? Please choose an option.
+FOOTER: 👇 Tap below or 🎙️ send a voice note
+BUTTON (quick reply): Fine
+BUTTON (quick reply): Not well
+```
+**te**
+```
+BODY:   AYANA రాత్రి చెక్-ఇన్: {{1}}, నిద్రపోయే ముందు మీరు ఎలా ఉన్నారు? దయచేసి ఒక ఆప్షన్ ఎంచుకోండి.
+FOOTER: 👇 కింద ఆప్షన్‌ను నొక్కండి లేదా 🎙️ వాయిస్ నోట్ పంపండి
+BUTTON (quick reply): బాగున్నాను
+BUTTON (quick reply): బాగోలేదు
+```
+**hi**
+```
+BODY:   AYANA रात का चेक-इन: {{1}}, सोने से पहले आप कैसा महसूस कर रहे हैं? कृपया एक विकल्प चुनें।
+FOOTER: 👇 नीचे दिए गए विकल्प टैप करें या 🎙️ वॉइस नोट भेजें
+BUTTON (quick reply): ठीक हूँ
+BUTTON (quick reply): ठीक नहीं हूँ
+```
+
+## 27. Love note (MARKETING, original wording) – `ayana_love_note_v2_en / _te / _hi`
+Category: MARKETING · Footer: no
+Variables: {{1}} = parent name, {{2}} = child name
+Samples: en: Amma, Naveen | te: అమ్మ, నవీన్ | hi: माँ, नवीन
+Note: Affection message, so it cannot pass as Utility. Do not send to US +1 numbers; or send free-form inside the 24h window instead.
+
+**en**
+```
+BODY:   Hi {{1}}, {{2}} was thinking of you today and sends you lots of love. 🤗 You are very special to us. 💛
+BUTTON (quick reply): Love you too
+BUTTON (quick reply): Thank you
+```
+**te**
+```
+BODY:   హాయ్ {{1}}, {{2}} ఈరోజు మిమ్మల్ని గుర్తు చేసుకున్నారు, చాలా ప్రేమ పంపుతున్నారు. 🤗 మీరు మాకెంతో ప్రత్యేకం. 💛
+BUTTON (quick reply): లవ్ యూ టూ
+BUTTON (quick reply): ధన్యవాదాలు
+```
+**hi**
+```
+BODY:   हाय {{1}}, {{2}} की तरफ़ से ढेर सारा प्यार! 🤗 आज उन्होंने आपको बहुत याद किया। आप हमारे लिए बहुत खास हैं। 💛
+BUTTON (quick reply): आपको भी प्यार
+BUTTON (quick reply): धन्यवाद
+```
+
+---
+
+## Authentication (OTP) – `ayana_otp_v2_en / _te / _hi`
+Category: AUTHENTICATION. Meta generates the body text itself ("<code> is your verification code") per language; you do not write it.
+Create each with: body `add_security_recommendation: true`, footer `code_expiration_minutes: 10`, one button of type OTP (copy code). Footer text for authentication templates is fixed by Meta, so the voice-note footer does not apply.
+Authentication is the right category for login/verification codes only. Don't use it for anything else.
+
+## Submission checklist
+- Submit via API with `"allow_category_change": false`, so a misclassification returns as a rejection you can see.
+- Use the samples above for every variable. Parent-facing samples are names (Amma / అమ్మ / माँ).
+- Don't resubmit rejected names; bump to `_v3`.
+- Update the template-name map in your code to the `_v2_` names.
+- Record WhatsApp opt-in for parent and child at signup.
+- Marketing templates (love note) never go to US +1 numbers.

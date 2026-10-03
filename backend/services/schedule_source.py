@@ -20,8 +20,6 @@ def eligible(parent, local, schedule=None, check_hours=True):
     if schedule and (not schedule.get('active') or schedule.get('deleted_at')):
         return False
     today, clock = local.strftime('%Y-%m-%d'), local.strftime('%H:%M')
-    if parent.get('vacation_start') and parent.get('vacation_end') and parent['vacation_start'] <= today <= parent['vacation_end']:
-        return False
     start, end = parent.get('activity_window_start'), parent.get('activity_window_end')
     if check_hours and start and end:
         return start <= clock <= end if start <= end else clock >= start or clock <= end
@@ -35,6 +33,8 @@ def local_now(parent, now=None):
 
 def event_key(parent_id, day, item):
     identity = f"{item['category']}|{item['time']}|{item.get('medicine_id') or item.get('medicine_name','')}"
+    if item.get('about') == 'other_parent':
+        identity += '|other_parent'
     return f"{parent_id}:{day}:{hashlib.sha256(identity.encode()).hexdigest()[:24]}"
 
 
