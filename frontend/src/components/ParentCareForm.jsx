@@ -49,13 +49,12 @@ export const ParentCareForm = ({ form, setForm, config, limits, idPrefix = 'pd' 
   const cities = selectedCountry.cities || [];
   const [customCity, setCustomCity] = useState(!cities.includes(form.city || '') && !!form.city);
 
-  const [nicknamesText, setNicknamesText] = useState(() => (form.nicknames || []).join(', '));
+  const [nicknamesText, setNicknamesText] = useState(() =>
+    (form.nicknames || []).join(', ')
+  );
+
   useEffect(() => {
-    const currentParsed = nicknamesText.split(',').map(s => s.trim()).filter(Boolean).slice(0, 3);
-    const formArr = form.nicknames || [];
-    if (JSON.stringify(currentParsed) !== JSON.stringify(formArr)) {
-      setNicknamesText(formArr.join(', '));
-    }
+    setNicknamesText((form.nicknames || []).join(', '));
   }, [form.nicknames]);
 
   const textField = (key, label, required = false) => (
@@ -274,4 +273,4 @@ export const ParentCareForm = ({ form, setForm, config, limits, idPrefix = 'pd' 
       </section>
     </div>
   );
-};
+};
