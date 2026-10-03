@@ -187,6 +187,33 @@ VALID_CATEGORIES = {
 }
 
 
+class SpecialDateInput(BaseModel):
+    """Events & special dates (step v). Sent to the parent on that day."""
+    kind: str = Field(..., pattern="^(birthday|anniversary|special)$")
+    title: Optional[str] = Field(None, max_length=60)
+    month: int = Field(..., ge=1, le=12)
+    day: int = Field(..., ge=1, le=31)
+    note: Optional[str] = Field(None, max_length=300)
+    send_time: str = Field("09:00", pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
+    active: bool = True
+
+    @field_validator("title", "note", mode="before")
+    @classmethod
+    def blank_text_to_none(cls, v):
+        if v is None or (isinstance(v, str) and not v.strip()):
+            return None
+        return v.strip()
+
+    @model_validator(mode="after")
+    def valid_calendar_day(self):
+        max_day = {2: 29, 4: 30, 6: 30, 9: 30, 11: 30}.get(self.month, 31)
+        if self.day > max_day:
+            raise ValueError(f"Day {self.day} does not exist in month {self.month}.")
+        if self.kind == "special" and not self.title:
+            raise ValueError("Give the special date a name, e.g. 'Housewarming day'.")
+        return self
+
+
 class ParentInput(BaseModel):
     name: str = Field(..., min_length=1, max_length=80)
     preferred_name: Optional[str] = Field(None, max_length=40)
@@ -195,6 +222,7 @@ class ParentInput(BaseModel):
     language: str = Field(..., min_length=2, max_length=8)
     timezone: str = Field(..., min_length=2, max_length=64)
     _valid_timezone = field_validator('timezone')(_iana_timezone)
+    country: str = Field("IN", pattern=r"^[A-Z]{2}$")
     city: str = Field(..., min_length=1, max_length=80)
     @field_validator('city')
     @classmethod
@@ -202,22 +230,27 @@ class ParentInput(BaseModel):
         if not value.strip():
             raise ValueError('Parent city is required.')
         return value.strip()
+    # The other parent (Dad when this is Mom, Mom when this is Dad). Used in
+    # messages and in "Did Dad reach home?" safety checks asked to this parent.
     other_parent_name: Optional[str] = Field(None, max_length=40)
     notes: Optional[str] = Field(None, max_length=300)
+    # Legacy MM-DD mirror of the birthday special date (kept for templates).
     birthday: Optional[str] = Field(None, pattern=r"^(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$")
 
     nicknames: List[str] = Field(default_factory=list)
     habits: Optional[HabitsInput] = None
     medicine_list: Optional[List[MedicineItem]] = Field(default_factory=list)
-    stories: Optional[List[str]] = Field(default_factory=list, max_length=5)
-    # Activity window — auto-learned from historical reply patterns.
-    # When set, outbound messages are deferred if sent outside this window.
+    # None = leave existing special dates untouched; [] = clear them all.
+    special_dates: Optional[List[SpecialDateInput]] = Field(None, max_length=8)
+    # Quiet hours - outbound messages are held outside this window.
     activity_window_start: Optional[str] = Field(None, pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
     activity_window_end: Optional[str] = Field(None, pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
     auto_activity_detection: bool = False
-    # #9 Vacation / holiday mode — paused date range (YYYY-MM-DD, parent-local).
-    vacation_start: Optional[str] = Field(None, pattern=r"^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$")
-    vacation_end: Optional[str] = Field(None, pattern=r"^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$")
+
+    @field_validator("country", mode="before")
+    @classmethod
+    def upper_country(cls, v):
+        return (v or "IN").strip().upper()
 
     @field_validator("phone")
     @classmethod
@@ -238,10 +271,15 @@ class ParentInput(BaseModel):
             raise ValueError("Max 3 nicknames — plan-level limit is enforced separately")
         return [n.strip() for n in v if n.strip()]
 
-    @field_validator("stories")
+    @field_validator("special_dates")
     @classmethod
-    def limit_stories(cls, v):
-        return [s.strip() for s in (v or []) if s.strip()][:5]
+    def one_birthday_one_anniversary(cls, v):
+        if v is None:
+            return v
+        for kind in ("birthday", "anniversary"):
+            if sum(1 for d in v if d.kind == kind) > 1:
+                raise ValueError(f"Only one {kind} per parent.")
+        return v
 
     @field_validator("birthday", mode="before")
     @classmethod
@@ -254,7 +292,7 @@ class ParentInput(BaseModel):
             return None
         return v
 
-    @field_validator("activity_window_start", "activity_window_end", "vacation_start", "vacation_end", mode="before")
+    @field_validator("activity_window_start", "activity_window_end", mode="before")
     @classmethod
     def blank_activity_window_to_none(cls, v):
         # Same fix as birthday above — the DND start/end time pickers send
@@ -264,6 +302,13 @@ class ParentInput(BaseModel):
         if v is None or (isinstance(v, str) and not v.strip()):
             return None
         return v
+
+    @model_validator(mode="after")
+    def mirror_birthday(self):
+        if self.special_dates is not None:
+            bday = next((d for d in self.special_dates if d.kind == "birthday"), None)
+            self.birthday = f"{bday.month:02d}-{bday.day:02d}" if bday else None
+        return self
 
 
 # ---------- Schedule ----------
@@ -277,6 +322,18 @@ class ScheduleMessage(BaseModel):
     medicine_id: Optional[str] = Field(None, max_length=80)
     weekdays: List[int] = Field(default_factory=lambda: list(range(7)), min_length=1, max_length=7)
     location_label: Optional[str] = Field(None, max_length=80)
+    # Safety only: 'self' = "Did you reach home?"; 'other_parent' = the
+    # check is sent to THIS parent asking whether the other parent is home.
+    about: Optional[str] = Field(None, pattern="^(self|other_parent)$")
+
+    @model_validator(mode='after')
+    def about_only_for_safety(self):
+        from templates_data import category_type
+        if category_type(self.category) != 'safety':
+            self.about = None
+        elif not self.about:
+            self.about = 'self'
+        return self
 
     @field_validator('weekdays')
     @classmethod
@@ -309,10 +366,10 @@ class ScheduleInput(BaseModel):
         if not self.messages:
             raise ValueError("Add at least 1 daily check-in")
         extra = limits.get('recovery_extra_reminders', 0) if self.recovery_mode and limits.get('recovery_mode') else 0
-        budgets = {'checkin': limits['checkins'], 'reminder': limits['reminders'] + extra, 'activity': limits.get('activities', 0), 'safety': 1, 'water': 1}
+        budgets = {'checkin': limits['checkins'], 'reminder': limits['reminders'] + extra, 'activity': limits.get('activities', 0), 'safety': 1, 'safety_other': 1, 'water': 1}
         seen = set()
         for m in self.messages:
-            identity = (m.category, m.time, m.medicine_id, tuple(m.weekdays))
+            identity = (m.category, m.time, m.medicine_id, tuple(m.weekdays), m.about or 'self')
             if identity in seen:
                 raise ValueError('Remove the duplicate reminder at the same time.')
             seen.add(identity)
@@ -320,9 +377,14 @@ class ScheduleInput(BaseModel):
             counts = dict.fromkeys(budgets, 0)
             for m in self.messages:
                 if m.active and day in m.weekdays:
-                    counts['water' if m.category == 'water' else category_type(m.category)] += 1
+                    kind = 'water' if m.category == 'water' else category_type(m.category)
+                    if kind == 'safety' and m.about == 'other_parent':
+                        kind = 'safety_other'
+                    counts[kind] += 1
             for kind, count in counts.items():
                 if count > budgets[kind]:
+                    if kind == 'safety_other':
+                        raise ValueError('Only one return check about the other parent per day.')
                     raise ValueError(f'This plan allows {budgets[kind]} {kind} reminders per day. Every saved reminder must fit.')
         return self
 
@@ -402,18 +464,6 @@ class AnalyticsEventInput(BaseModel):
     page: Optional[str] = None
     path: Optional[str] = None
 
-
-
-class VacationInput(BaseModel):
-    start: Optional[str] = Field(None, pattern=r"^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$")
-    end: Optional[str] = Field(None, pattern=r"^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$")
-
-    @field_validator("start", "end", mode="before")
-    @classmethod
-    def blank_to_none(cls, v):
-        if v is None or (isinstance(v, str) and not v.strip()):
-            return None
-        return v
 
 
 class EmergencyEventUpdate(BaseModel):

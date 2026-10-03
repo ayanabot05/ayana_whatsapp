@@ -10,8 +10,8 @@ from database import get_pool
 from pricing import plan_limits, resolve_plan_id
 from services.schedule_source import eligible, local_now, load_schedule, event_key
 from services import inbox, notifications, receipts, welcomes, subscription_events, reply_media
-from services import monthly_jobs, family_delivery, delivery_watch
-from whatsapp import send_dynamic_checkin, send_reengagement, whatsapp_enabled
+from services import monthly_jobs, family_delivery, delivery_watch, special_dates
+from whatsapp import send_dynamic_checkin, send_reengagement, whatsapp_enabled, other_parent_display
 from escalation import run_care_watch_impl
 
 logger = logging.getLogger(__name__)
@@ -88,14 +88,17 @@ async def _deliver_parent(parent, now):
             else:
                 limit_key = {'checkin':'checkins','reminder':'reminders','activity':'activities','safety':'safety'}[kind]
                 count = await conn.fetchval("SELECT count(*) FROM message_logs WHERE parent_id=$1 AND day_key=$2 AND msg_type=$3 AND category<>'water' AND status='sent'",parent['id'],day,kind)
-                if count >= (1 if kind == 'safety' else limits.get(limit_key,0)):
+                # Safety: one check about the parent + one about the other parent (step vi).
+                safety_cap = 2 if any(i.get('about') == 'other_parent' for i in items if i['type'] == 'safety') else 1
+                if count >= (safety_cap if kind == 'safety' else limits.get(limit_key,0)):
                     continue
             # Separate committed claim survives a crash during the provider call.
             won = await get_pool().fetchval("INSERT INTO care_send_claims(event_key,parent_id) VALUES($1,$2) ON CONFLICT(event_key) DO UPDATE SET status='sending' WHERE care_send_claims.status='failed' RETURNING event_key",key,parent['id'])
             if not won:
                 continue
+            about_name = other_parent_display(parent, parent.get('language', 'en')) if item.get('about') == 'other_parent' else ''
             try:
-                result = await send_dynamic_checkin(parent,item['category'],local.timetuple().tm_yday,limits.get('variants_per_slot',3),medicine_name=item.get('medicine_name',''),location_label=item.get('location_label') or '')
+                result = await send_dynamic_checkin(parent,item['category'],local.timetuple().tm_yday,limits.get('variants_per_slot',3),medicine_name=item.get('medicine_name',''),location_label=item.get('location_label') or '',about_name=about_name)
             except Exception:
                 result = {'status':'uncertain','detail':'Submission interrupted. Inspect provider receipts before retrying.'}
             state = result.get('status','failed')
@@ -144,6 +147,7 @@ def start_scheduler():
     _scheduler.add_job(monthly_jobs.drain,'interval',minutes=15,id='ayana_monthly_reports',max_instances=1,coalesce=True)
     _scheduler.add_job(family_delivery.drain,'interval',minutes=1,id='ayana_family_delivery',max_instances=1,coalesce=True)
     _scheduler.add_job(delivery_watch.drain,'interval',minutes=5,id='ayana_delivery_watch',max_instances=1,coalesce=True)
+    _scheduler.add_job(special_dates.drain,'interval',minutes=15,id='ayana_special_dates',max_instances=1,coalesce=True)
     for fn, minutes, job in [(_deliver_due_messages,1,'delivery'),(_check_reengagement,5,'followups'),(_run_care_watch,5,'care_watch'),(inbox.drain,1,'inbox'),(notifications.drain_notifications,1,'notifications'),(receipts.drain,1,'receipts'),(welcomes.drain,1,'welcomes'),(subscription_events.drain,1,'billing'),(reply_media.recover_pending,5,'reply_media')]:
         _scheduler.add_job(fn,'interval',minutes=minutes,id='ayana_'+job,max_instances=1,coalesce=True)
     _scheduler.start()

@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   MessageCircle, Globe, ShieldCheck, ArrowRight, Check, Mic, Clock, Languages,
-  PlayCircle, Heart, ArrowUpRight, AlertTriangle, Sparkles, Gift, Users, X,
+  PlayCircle, Heart, ArrowUpRight, AlertTriangle, Sparkles, Gift, Users, X, Menu,
 } from "lucide-react";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { HighlightText } from "@/components/HighlightText";
@@ -201,6 +201,7 @@ export default function Landing() {
   const [modalOpen, setModalOpen] = useState(false);
   const [demoLang, setDemoLang] = useState("en");
   const [videoOpen, setVideoOpen] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const steps        = t("how.steps");
   const faqItems     = t("faq.items");
@@ -215,13 +216,24 @@ export default function Landing() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const navLinks = [
+    ["#how", t("nav.how")],
+    ["#what-they-see", t("nav.see")],
+    ["#safety", t("nav.safety")],
+    ["#trust", t("nav.trust")],
+    ["#pricing", t("nav.pricing")],
+    ["#faq", t("nav.faq")],
+  ];
+
   return (
     <div data-lang={lang} className="relative min-h-screen overflow-x-hidden bg-warm-cream text-ayana-text">
 
       {/* HEADER */}
-      <header className="sticky top-0 z-50 border-b border-ayana-line/60 backdrop-blur-xl" style={{ background: "rgba(251,246,236,0.8)" }}>
-        <div className="max-w-7xl mx-auto px-5 sm:px-8 h-16 flex items-center justify-between">
-          <Link to="/" data-testid="nav-logo"><Logo size={62} showWord={false} /></Link>
+      <header className="sticky top-0 z-50 border-b border-ayana-line/60 backdrop-blur-xl" style={{ background: "rgba(251,246,236,0.9)" }}>
+        <div className="max-w-7xl mx-auto px-4 sm:px-8 h-16 flex items-center justify-between">
+          <Link to="/" data-testid="nav-logo" className="shrink-0 flex items-center">
+            <Logo size={48} showWord={false} />
+          </Link>
           <nav
             className={`hidden lg:flex items-center gap-9 text-ayana-secondary ${
               lang === "en"
@@ -229,16 +241,72 @@ export default function Landing() {
                 : "text-[15px] tracking-normal"
             }`}
           >
-            {[["#how", t("nav.how")], ["#what-they-see", t("nav.see")], ["#safety", t("nav.safety")], ["#trust", t("nav.trust")], ["#pricing", t("nav.pricing")], ["#faq", t("nav.faq")]].map(([href, label]) => (
+            {navLinks.map(([href, label]) => (
               <a key={href} href={href} className="hover:text-ayana-gold transition-colors">{label}</a>
             ))}
           </nav>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 sm:gap-3">
             <LangSwitch lang={lang} setLang={setLang} />
             <Link to="/login" data-testid="nav-login" className="hidden sm:inline text-sm font-semibold text-ayana-secondary hover:text-ayana-text transition-colors">{t("nav.login")}</Link>
-            <Link to="/signup" data-testid="nav-signup" className="btn-saffron text-sm font-semibold px-5 py-2 rounded-full">{t("nav.signup")}</Link>
+            <button
+              type="button"
+              data-testid="nav-signup"
+              onClick={() => {
+                trackEvent("cta_click", { id: "header" });
+                setModalOpen(true);
+              }}
+              className="btn-saffron text-xs sm:text-sm font-semibold px-3.5 py-1.5 sm:px-5 sm:py-2 rounded-full whitespace-nowrap shadow-sm hover:opacity-95 transition-opacity"
+            >
+              {t("nav.signup")}
+            </button>
+            {/* Mobile menu trigger */}
+            <button
+              type="button"
+              className="lg:hidden p-1.5 rounded-lg text-ayana-text hover:bg-black/5 transition-colors"
+              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+              aria-label="Toggle navigation menu"
+            >
+              {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+            </button>
           </div>
         </div>
+
+        {/* Mobile Dropdown Menu */}
+        {mobileMenuOpen && (
+          <div className="lg:hidden border-t border-ayana-line/60 bg-warm-cream/98 px-5 py-4 space-y-3 shadow-lg animate-fade-down">
+            <div className="flex flex-col gap-2.5 text-sm font-medium text-ayana-text">
+              {navLinks.map(([href, label]) => (
+                <a
+                  key={href}
+                  href={href}
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="py-1.5 hover:text-ayana-gold transition-colors border-b border-ayana-line/30"
+                >
+                  {label}
+                </a>
+              ))}
+            </div>
+            <div className="pt-2 flex items-center justify-between">
+              <Link
+                to="/login"
+                onClick={() => setMobileMenuOpen(false)}
+                className="text-sm font-semibold text-ayana-secondary hover:text-ayana-text"
+              >
+                {t("nav.login")}
+              </Link>
+              <button
+                type="button"
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  setModalOpen(true);
+                }}
+                className="btn-saffron text-xs font-semibold px-4 py-2 rounded-full"
+              >
+                {t("nav.signup")}
+              </button>
+            </div>
+          </div>
+        )}
       </header>
 
       <main className="relative z-10">
@@ -250,22 +318,22 @@ export default function Landing() {
             <div className="absolute bottom-0 -left-24 w-[440px] h-[440px] rounded-full blur-3xl" style={{ background: "rgba(232,89,12,0.07)" }} />
           </div>
 
-          <div className="relative max-w-7xl mx-auto px-5 sm:px-8 pt-14 pb-24 lg:pt-20 lg:pb-32 grid lg:grid-cols-[1.05fr_0.95fr] gap-12 lg:gap-8 items-center">
+          <div className="relative max-w-7xl mx-auto px-4 sm:px-8 pt-8 pb-16 sm:pt-14 sm:pb-24 lg:pt-20 lg:pb-32 grid lg:grid-cols-[1.05fr_0.95fr] gap-8 lg:gap-8 items-center">
             <div>
               <Eyebrow>{t("hero.badge")}</Eyebrow>
 
-              <h1 data-testid="landing-title" className="font-display font-black leading-[0.98] text-ayana-text text-[2.65rem] sm:text-6xl lg:text-[4.6rem]">
+              <h1 data-testid="landing-title" className="font-display font-black leading-[1.05] text-ayana-text text-3xl sm:text-5xl lg:text-[4.4rem]">
                 <HighlightText text={t("hero.title")} ranges={[[0, 0.32]]} colors={["text-gradient-gold"]} />
               </h1>
-              <div className="mt-5 h-px w-28 bg-gradient-to-r from-ayana-gold via-ayana-accent to-transparent" />
+              <div className="mt-4 sm:mt-5 h-px w-24 sm:w-28 bg-gradient-to-r from-ayana-gold via-ayana-accent to-transparent" />
 
-              <p className="font-serif text-2xl sm:text-[1.7rem] leading-snug text-ayana-secondary mt-6 max-w-xl">
+              <p className="font-serif text-lg sm:text-2xl lg:text-[1.7rem] leading-relaxed text-ayana-secondary mt-4 sm:mt-6 max-w-xl">
                 {t("hero.subtitle")}
               </p>
 
-              <div className="mt-9 flex flex-col sm:flex-row gap-4">
+              <div className="mt-6 sm:mt-9 flex flex-col sm:flex-row gap-3 sm:gap-4">
                 <button data-testid="hero-cta" onClick={() => { trackEvent("cta_click", { id: "hero" }); setModalOpen(true); }}
-                  className="btn-saffron btn-tactile inline-flex items-center justify-center gap-2 px-8 py-4 rounded-full font-semibold text-base">
+                  className="btn-saffron btn-tactile inline-flex items-center justify-center gap-2 px-6 sm:px-8 py-3.5 sm:py-4 rounded-full font-semibold text-base shadow-md">
                   {t("hero.ctaPrimary")} <ArrowRight className="w-4 h-4" strokeWidth={2.5} />
                 </button>
                 <a 
@@ -274,19 +342,19 @@ export default function Landing() {
                   rel="noopener noreferrer"
                   data-testid="hero-cta-secondary"
                   onClick={() => trackEvent("cta_click", { id: "try_yourself_hero" })}
-                  className="btn-outline-warm inline-flex items-center justify-center px-8 py-4 rounded-full font-semibold text-base"
+                  className="btn-outline-warm inline-flex items-center justify-center px-6 sm:px-8 py-3.5 sm:py-4 rounded-full font-semibold text-base"
                 >
                   {t("hero.ctaSecondary")}
                 </a>
               </div>
-              <div className="mt-4 text-sm text-ayana-secondary font-medium pl-2">
+              <div className="mt-3 sm:mt-4 text-xs sm:text-sm text-ayana-secondary font-medium pl-1 sm:pl-2">
                 {t("hero.trialNote")}
               </div>
 
-              <div className="mt-10 flex flex-wrap gap-x-7 gap-y-3">
+              <div className="mt-6 sm:mt-10 flex flex-wrap gap-x-5 sm:gap-x-7 gap-y-2 sm:gap-y-3">
                 {[{ icon: Languages, text: t("hero.t1") }, { icon: Clock, text: t("hero.t2") }, { icon: Check, text: t("hero.t3") }].map(({ icon: Icon, text }) => (
-                  <span key={text} className="inline-flex items-center gap-2 text-sm text-ayana-secondary">
-                    <Icon className="w-4 h-4 text-ayana-gold shrink-0" /> {text}
+                  <span key={text} className="inline-flex items-center gap-1.5 sm:gap-2 text-xs sm:text-sm text-ayana-secondary">
+                    <Icon className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-ayana-gold shrink-0" /> {text}
                   </span>
                 ))}
               </div>
@@ -313,55 +381,55 @@ export default function Landing() {
 
         {/* HOW IT WORKS: editorial numbered */}
         <section id="how" className="bg-warm-cream">
-          <div className="max-w-7xl mx-auto px-5 sm:px-8 py-20 lg:py-28 grid lg:grid-cols-2 gap-14 lg:gap-20 items-center">
+          <div className="max-w-7xl mx-auto px-4 sm:px-8 py-12 sm:py-20 lg:py-28 grid lg:grid-cols-2 gap-8 sm:gap-14 lg:gap-20 items-center">
             <div className="relative order-2 lg:order-1">
               <div className="absolute -inset-3 rounded-[2.5rem] blur-2xl" style={{ background: "linear-gradient(135deg, rgba(212,150,10,0.28), rgba(10,89,64,0.10))" }} />
               <div className="relative rounded-[2rem] overflow-hidden shadow-xl ring-1 ring-ayana-gold/20">
-                <img src={IMG.hands} alt="Elderly hands holding a phone" loading="lazy" className="w-full h-[360px] sm:h-[460px] object-cover" />
+                <img src={IMG.hands} alt="Elderly hands holding a phone" loading="lazy" className="w-full h-[260px] sm:h-[460px] object-cover" />
               </div>
             </div>
 
             <div className="order-1 lg:order-2">
               <Eyebrow>{t("how.label")}</Eyebrow>
-              <h2 className="font-display font-extrabold text-3xl sm:text-4xl lg:text-5xl leading-[1.05] text-ayana-text">
+              <h2 className="font-display font-extrabold text-2xl sm:text-4xl lg:text-5xl leading-[1.05] text-ayana-text">
                 <HighlightText text={t("how.title")} ranges={[[0.5, 1.0]]} colors={["text-gradient-gold"]} />
               </h2>
-              <p className="font-serif text-xl sm:text-2xl text-ayana-secondary mt-4 leading-snug">{t("how.sub")}</p>
+              <p className="font-serif text-lg sm:text-2xl text-ayana-secondary mt-3 sm:mt-4 leading-snug">{t("how.sub")}</p>
 
-              <ol className="mt-9 divide-y divide-ayana-line/70 border-t border-ayana-line/70">
+              <ol className="mt-6 sm:mt-9 divide-y divide-ayana-line/70 border-t border-ayana-line/70">
                 {steps.map((step, i) => (
-                  <li key={i} className="flex items-start gap-5 py-5 group">
-                    <span className="font-display text-3xl font-bold text-gradient-gold w-10 shrink-0 leading-none">{`0${i + 1}`}</span>
+                  <li key={i} className="flex items-start gap-4 sm:gap-5 py-3.5 sm:py-5 group">
+                    <span className="font-display text-2xl sm:text-3xl font-bold text-gradient-gold w-8 sm:w-10 shrink-0 leading-none">{`0${i + 1}`}</span>
                     <div>
-                      <h3 className="font-display text-lg font-bold text-ayana-text">{step.title}</h3>
-                      <p className="text-[15px] text-ayana-secondary leading-relaxed mt-1">{step.desc}</p>
+                      <h3 className="font-display text-base sm:text-lg font-bold text-ayana-text">{step.title}</h3>
+                      <p className="text-sm sm:text-[15px] text-ayana-secondary leading-relaxed mt-0.5 sm:mt-1">{step.desc}</p>
                     </div>
                   </li>
                 ))}
               </ol>
-              <button type="button" data-testid="landing-watch-walkthrough" onClick={() => { trackEvent('video_walkthrough_open', { id: 'how' }); setVideoOpen(true); }} className="mt-5 inline-flex items-center gap-2 text-sm font-semibold text-ayana-primary hover:underline"><PlayCircle className="w-4 h-4" />{t('training.watchCta')}</button>
+              <button type="button" data-testid="landing-watch-walkthrough" onClick={() => { trackEvent('video_walkthrough_open', { id: 'how' }); setVideoOpen(true); }} className="mt-4 sm:mt-5 inline-flex items-center gap-2 text-xs sm:text-sm font-semibold text-ayana-primary hover:underline"><PlayCircle className="w-4 h-4" />{t('training.watchCta')}</button>
             </div>
           </div>
         </section>
 
         {/* WHAT AMMA SEES: multilingual WhatsApp button demo */}
         <section id="what-they-see" className="bg-warm-cream">
-          <div className="max-w-7xl mx-auto px-5 sm:px-8 py-20 lg:py-28">
-            <div className="text-center max-w-2xl mx-auto mb-12">
+          <div className="max-w-7xl mx-auto px-4 sm:px-8 py-12 sm:py-20 lg:py-28">
+            <div className="text-center max-w-2xl mx-auto mb-8 sm:mb-12">
               <Eyebrow center>{demoT.label}</Eyebrow>
-              <h2 className="font-display font-extrabold text-3xl sm:text-4xl lg:text-5xl leading-[1.05] text-ayana-text">
+              <h2 className="font-display font-extrabold text-2xl sm:text-4xl lg:text-5xl leading-[1.05] text-ayana-text">
                 <HighlightText text={demoT.title} ranges={[[0, 0.3]]} colors={["text-gradient-gold"]} />
               </h2>
-              <p className="font-serif text-xl sm:text-2xl text-ayana-secondary mt-4">{demoT.sub}</p>
+              <p className="font-serif text-lg sm:text-2xl text-ayana-secondary mt-3 sm:mt-4">{demoT.sub}</p>
             </div>
 
             {/* Language selector pills */}
-            <div className="flex justify-center gap-2 mb-8">
+            <div className="flex justify-center gap-2 mb-6 sm:mb-8">
               {Object.entries(demoT.langLabels).map(([code, label]) => (
                 <button
                   key={code}
                   onClick={() => setDemoLang(code)}
-                  className={`px-5 py-2 rounded-full text-sm font-semibold border transition-all ${
+                  className={`px-4 sm:px-5 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-semibold border transition-all ${
                     demoLang === code
                       ? "bg-ayana-gold text-white border-ayana-gold shadow-sm"
                       : "bg-white text-ayana-secondary border-ayana-line hover:border-ayana-gold/50"
@@ -393,34 +461,34 @@ export default function Landing() {
 
         {/* COMBINED: Mom didn't reply + What you see */}
         <section id="what-you-see" className="bg-white">
-          <div className="max-w-7xl mx-auto px-5 sm:px-8 py-20 lg:py-28 grid lg:grid-cols-[1.1fr_0.9fr] gap-14 lg:gap-20 items-center">
+          <div className="max-w-7xl mx-auto px-4 sm:px-8 py-12 sm:py-20 lg:py-28 grid lg:grid-cols-[1.1fr_0.9fr] gap-8 sm:gap-14 lg:gap-20 items-center">
             
             {/* Left Column: Mom didn't reply text */}
             <div>
               <Eyebrow>When there's no reply</Eyebrow>
-              <h2 className="font-display font-extrabold text-3xl sm:text-4xl lg:text-[2.75rem] leading-[1.05] text-ayana-text mt-4">
+              <h2 className="font-display font-extrabold text-2xl sm:text-4xl lg:text-[2.75rem] leading-[1.05] text-ayana-text mt-2 sm:mt-4">
                 Mom didn't reply. Now what?
               </h2>
-              <p className="font-serif text-xl sm:text-2xl text-ayana-secondary mt-5 leading-snug">
+              <p className="font-serif text-lg sm:text-2xl text-ayana-secondary mt-3 sm:mt-5 leading-snug">
                 Most care apps just keep sending messages. Parents ignore. Children worry — <em>"Did something happen?"</em>
                 <br className="hidden sm:block mt-2" />
                 <strong className="text-ayana-text"> Ayana doesn't leave you guessing.</strong>
               </p>
 
-              <div className="mt-10 space-y-6">
+              <div className="mt-6 sm:mt-10 space-y-4 sm:space-y-6">
                 {[
                   { time: "6 AM", icon: "☀️", color: "bg-amber-50 border border-amber-200", label: "Morning check-in", desc: "Ayana asks Amma if she slept well." },
                   { time: "2 PM", icon: "💛", color: "bg-yellow-50 border border-yellow-200", label: "Gentle nudge", desc: "If Amma hasn't replied, Ayana sends a soft follow-up." },
                   { time: "10 PM", icon: "⚠️", color: "bg-red-50 border border-red-200", label: "Real alert", desc: "If she's been silent all day, you get a notification to call her." },
                   { time: "10 PM–6 AM", icon: "🌙", color: "bg-slate-50 border border-slate-200", label: "Silent hours", desc: "No messages. Parents sleep peacefully." }
                 ].map((step, i) => (
-                  <div key={i} className="flex gap-5 items-start">
-                    <div className={`w-12 h-12 rounded-full flex items-center justify-center text-xl shrink-0 shadow-sm ${step.color}`}>
+                  <div key={i} className="flex gap-3.5 sm:gap-5 items-start">
+                    <div className={`w-10 h-10 sm:w-12 sm:h-12 rounded-full flex items-center justify-center text-lg sm:text-xl shrink-0 shadow-sm ${step.color}`}>
                       {step.icon}
                     </div>
-                    <div className="pt-1">
-                      <h4 className="font-display font-bold text-ayana-text text-lg">{step.time} — {step.label}</h4>
-                      <p className="text-[15px] text-ayana-secondary mt-1">{step.desc}</p>
+                    <div className="pt-0.5">
+                      <h4 className="font-display font-bold text-ayana-text text-base sm:text-lg">{step.time} — {step.label}</h4>
+                      <p className="text-sm sm:text-[15px] text-ayana-secondary mt-0.5 sm:mt-1">{step.desc}</p>
                     </div>
                   </div>
                 ))}
@@ -429,12 +497,12 @@ export default function Landing() {
 
             {/* Right Column: What you actually see */}
             <div className="relative">
-              <div className="text-center sm:text-left mb-10">
+              <div className="text-center sm:text-left mb-6 sm:mb-10">
                 <Eyebrow>What you actually see</Eyebrow>
-                <h2 className="font-display font-extrabold text-3xl sm:text-4xl leading-[1.05] text-ayana-text mt-4">
+                <h2 className="font-display font-extrabold text-2xl sm:text-4xl leading-[1.05] text-ayana-text mt-2 sm:mt-4">
                   <HighlightText text="Peace of mind, in one glance." ranges={[[0, 0.35]]} colors={["text-gradient-gold"]} />
                 </h2>
-                <p className="font-serif text-lg sm:text-xl text-ayana-secondary mt-4">
+                <p className="font-serif text-base sm:text-xl text-ayana-secondary mt-3 sm:mt-4">
                   Every time your parent taps a button or sends a voice note, it lands on your WhatsApp instantly. No app to open — you just know they're okay.
                 </p>
               </div>
@@ -443,7 +511,7 @@ export default function Landing() {
                 <ChildNotificationPanel />
               </div>
               
-              <div className="mt-8 flex justify-center sm:justify-start">
+              <div className="mt-6 sm:mt-8 flex justify-center sm:justify-start">
                 <span className="inline-flex items-center gap-2 text-xs font-medium text-ayana-secondary bg-amber-50 border border-amber-200 px-4 py-2 rounded-full shadow-sm">
                   <MessageCircle className="w-3.5 h-3.5 text-[#25D366]" />
                   Live updates, plus a gentle nudge if they go quiet
@@ -456,41 +524,41 @@ export default function Landing() {
 
         {/* BENEFITS: For Parents / For You */}
         <section className="bg-warm-peach relative overflow-hidden">
-          <div className="max-w-7xl mx-auto px-5 sm:px-8 py-20 lg:py-28">
-            <div className="text-center max-w-2xl mx-auto mb-16">
+          <div className="max-w-7xl mx-auto px-4 sm:px-8 py-12 sm:py-20 lg:py-28">
+            <div className="text-center max-w-2xl mx-auto mb-10 sm:mb-16">
               <Eyebrow center>{benefitsT.label}</Eyebrow>
-              <h2 className="font-display font-extrabold text-3xl sm:text-4xl lg:text-5xl leading-[1.05] text-ayana-text">
+              <h2 className="font-display font-extrabold text-2xl sm:text-4xl lg:text-5xl leading-[1.05] text-ayana-text">
                 <HighlightText text={benefitsT.title || "A daily feeling of being remembered."} ranges={[[0.4, 1.0]]} colors={["text-gradient-gold"]} />
               </h2>
-              <p className="font-serif text-xl sm:text-2xl text-ayana-secondary mt-4 leading-snug">{benefitsT.sub}</p>
+              <p className="font-serif text-lg sm:text-2xl text-ayana-secondary mt-3 sm:mt-4 leading-snug">{benefitsT.sub}</p>
             </div>
 
-            <div className="grid md:grid-cols-2 gap-10 lg:gap-16">
-              <div className="bg-white/60 rounded-3xl p-8 sm:p-10 border border-ayana-line">
-                <h3 className="font-display text-2xl font-bold text-ayana-text mb-6 flex items-center gap-3">
-                  <span className="w-10 h-10 rounded-full bg-ayana-gold/20 flex items-center justify-center text-xl">👵</span>
+            <div className="grid md:grid-cols-2 gap-6 sm:gap-10 lg:gap-16">
+              <div className="bg-white/60 rounded-3xl p-6 sm:p-10 border border-ayana-line">
+                <h3 className="font-display text-xl sm:text-2xl font-bold text-ayana-text mb-4 sm:mb-6 flex items-center gap-3">
+                  <span className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-ayana-gold/20 flex items-center justify-center text-lg sm:text-xl">👵</span>
                   {benefitsT.parentsTitle}
                 </h3>
-                <ul className="space-y-4">
+                <ul className="space-y-3 sm:space-y-4">
                   {benefitsT.parentsItems && benefitsT.parentsItems.map((item, i) => (
-                    <li key={i} className="flex items-start gap-3">
-                      <Heart className="w-5 h-5 text-ayana-gold shrink-0 mt-0.5" strokeWidth={2.5} />
-                      <span className="text-ayana-text/80 leading-relaxed text-[17px]">{item}</span>
+                    <li key={i} className="flex items-start gap-2.5 sm:gap-3">
+                      <Heart className="w-4 h-4 sm:w-5 sm:h-5 text-ayana-gold shrink-0 mt-0.5" strokeWidth={2.5} />
+                      <span className="text-ayana-text/80 leading-relaxed text-sm sm:text-[17px]">{item}</span>
                     </li>
                   ))}
                 </ul>
               </div>
 
-              <div className="bg-white/60 rounded-3xl p-8 sm:p-10 border border-ayana-line">
-                <h3 className="font-display text-2xl font-bold text-ayana-text mb-6 flex items-center gap-3">
-                  <span className="w-10 h-10 rounded-full bg-amber-500/10 flex items-center justify-center text-xl">💛</span>
+              <div className="bg-white/60 rounded-3xl p-6 sm:p-10 border border-ayana-line">
+                <h3 className="font-display text-xl sm:text-2xl font-bold text-ayana-text mb-4 sm:mb-6 flex items-center gap-3">
+                  <span className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-amber-500/10 flex items-center justify-center text-lg sm:text-xl">💛</span>
                   {benefitsT.childTitle}
                 </h3>
-                <ul className="space-y-4">
+                <ul className="space-y-3 sm:space-y-4">
                   {benefitsT.childItems && benefitsT.childItems.map((item, i) => (
-                    <li key={i} className="flex items-start gap-3">
-                      <ShieldCheck className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" strokeWidth={2.5} />
-                      <span className="text-ayana-text/80 leading-relaxed text-[17px]">{item}</span>
+                    <li key={i} className="flex items-start gap-2.5 sm:gap-3">
+                      <ShieldCheck className="w-4 h-4 sm:w-5 sm:h-5 text-amber-500 shrink-0 mt-0.5" strokeWidth={2.5} />
+                      <span className="text-ayana-text/80 leading-relaxed text-sm sm:text-[17px]">{item}</span>
                     </li>
                   ))}
                 </ul>
@@ -501,93 +569,93 @@ export default function Landing() {
 
         {/* AI GUARDIAN: safety / distress detection */}
         <section id="safety" className="bg-warm-cream">
-          <div className="max-w-7xl mx-auto px-5 sm:px-8 py-20 lg:py-28">
-            <div className="text-center max-w-2xl mx-auto mb-14">
+          <div className="max-w-7xl mx-auto px-4 sm:px-8 py-12 sm:py-20 lg:py-28">
+            <div className="text-center max-w-2xl mx-auto mb-8 sm:mb-14">
               <Eyebrow center>
                 <span className="inline-flex items-center gap-2">
                   <ShieldCheck className="w-4 h-4" /> {safetyT.label}
                 </span>
               </Eyebrow>
-              <h2 className="font-display font-extrabold text-3xl sm:text-4xl lg:text-5xl leading-[1.05] text-ayana-text">
+              <h2 className="font-display font-extrabold text-2xl sm:text-4xl lg:text-5xl leading-[1.05] text-ayana-text">
                 <HighlightText text={safetyT.title} ranges={[[0.55, 1.0]]} colors={["text-gradient-gold"]} />
               </h2>
-              <p className="font-serif text-xl sm:text-2xl text-ayana-secondary mt-4 leading-snug">{safetyT.sub}</p>
+              <p className="font-serif text-lg sm:text-2xl text-ayana-secondary mt-3 sm:mt-4 leading-snug">{safetyT.sub}</p>
             </div>
 
-            <div className="grid md:grid-cols-3 gap-6 max-w-5xl mx-auto">
+            <div className="grid md:grid-cols-3 gap-4 sm:gap-6 max-w-5xl mx-auto">
               {/* Card 1: keyword watch */}
-              <div className="rounded-2xl border border-ayana-line bg-white p-6 shadow-sm flex flex-col gap-4">
-                <span className="w-12 h-12 rounded-xl bg-amber-50 border border-amber-200 flex items-center justify-center text-xl shrink-0">🔍</span>
+              <div className="rounded-2xl border border-ayana-line bg-white p-5 sm:p-6 shadow-sm flex flex-col gap-3 sm:gap-4">
+                <span className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-amber-50 border border-amber-200 flex items-center justify-center text-lg sm:text-xl shrink-0">🔍</span>
                 <div>
-                  <h3 className="font-display text-lg font-bold text-ayana-text">{safetyT.card1Title}</h3>
-                  <p className="text-[15px] text-ayana-secondary leading-relaxed mt-2">{safetyT.card1Desc}</p>
+                  <h3 className="font-display text-base sm:text-lg font-bold text-ayana-text">{safetyT.card1Title}</h3>
+                  <p className="text-sm sm:text-[15px] text-ayana-secondary leading-relaxed mt-1 sm:mt-2">{safetyT.card1Desc}</p>
                 </div>
               </div>
 
               {/* Card 2: AI voice analysis, featured */}
-              <div className="rounded-2xl border-2 border-ayana-gold/40 bg-white p-6 shadow-lg flex flex-col gap-4 relative overflow-hidden">
+              <div className="rounded-2xl border-2 border-ayana-gold/40 bg-white p-5 sm:p-6 shadow-lg flex flex-col gap-3 sm:gap-4 relative overflow-hidden">
                 <div className="absolute top-0 right-0 w-24 h-24 rounded-full blur-2xl" style={{ background: "rgba(212,150,10,0.12)" }} />
-                <span className="relative z-10 w-12 h-12 rounded-xl flex items-center justify-center text-xl shrink-0" style={{ background: "rgba(212,150,10,0.10)", border: "1px solid rgba(212,150,10,0.25)" }}>🎤</span>
+                <span className="relative z-10 w-10 h-10 sm:w-12 sm:h-12 rounded-xl flex items-center justify-center text-lg sm:text-xl shrink-0" style={{ background: "rgba(212,150,10,0.10)", border: "1px solid rgba(212,150,10,0.25)" }}>🎤</span>
                 <div className="relative z-10">
-                  <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-ayana-gold bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full mb-2">
+                  <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-ayana-gold bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full mb-1 sm:mb-2">
                     <Sparkles className="w-2.5 h-2.5" /> AI-powered
                   </span>
-                  <h3 className="font-display text-lg font-bold text-ayana-text">{safetyT.card2Title}</h3>
-                  <p className="text-[15px] text-ayana-secondary leading-relaxed mt-2">{safetyT.card2Desc}</p>
+                  <h3 className="font-display text-base sm:text-lg font-bold text-ayana-text">{safetyT.card2Title}</h3>
+                  <p className="text-sm sm:text-[15px] text-ayana-secondary leading-relaxed mt-1 sm:mt-2">{safetyT.card2Desc}</p>
                 </div>
               </div>
 
               {/* Card 3: one tap */}
-              <div className="rounded-2xl border border-ayana-line bg-white p-6 shadow-sm flex flex-col gap-4">
-                <span className="w-12 h-12 rounded-xl bg-red-50 border border-red-200 flex items-center justify-center text-xl shrink-0">📞</span>
+              <div className="rounded-2xl border border-ayana-line bg-white p-5 sm:p-6 shadow-sm flex flex-col gap-3 sm:gap-4">
+                <span className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-red-50 border border-red-200 flex items-center justify-center text-lg sm:text-xl shrink-0">📞</span>
                 <div>
-                  <h3 className="font-display text-lg font-bold text-ayana-text">{safetyT.card3Title}</h3>
-                  <p className="text-[15px] text-ayana-secondary leading-relaxed mt-2">{safetyT.card3Desc}</p>
+                  <h3 className="font-display text-base sm:text-lg font-bold text-ayana-text">{safetyT.card3Title}</h3>
+                  <p className="text-sm sm:text-[15px] text-ayana-secondary leading-relaxed mt-1 sm:mt-2">{safetyT.card3Desc}</p>
                 </div>
               </div>
             </div>
 
             {/* Alert note */}
-            <div className="mt-8 max-w-xl mx-auto flex items-start gap-3 rounded-2xl border border-red-200/60 bg-red-50/50 px-5 py-4">
+            <div className="mt-6 sm:mt-8 max-w-xl mx-auto flex items-start gap-3 rounded-2xl border border-red-200/60 bg-red-50/50 px-4 py-3 sm:px-5 sm:py-4">
               <AlertTriangle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
-                <p className="text-sm text-ayana-secondary leading-relaxed" data-testid="care-boundary">{safetyT.note}</p>
+              <p className="text-xs sm:text-sm text-ayana-secondary leading-relaxed" data-testid="care-boundary">{safetyT.note}</p>
             </div>
           </div>
         </section>
 
         {/* TRUST */}
         <section id="trust" className="bg-warm-peach">
-          <div className="max-w-7xl mx-auto px-5 sm:px-8 py-20 lg:py-28 grid lg:grid-cols-12 gap-14 items-center">
+          <div className="max-w-7xl mx-auto px-4 sm:px-8 py-12 sm:py-20 lg:py-28 grid lg:grid-cols-12 gap-8 sm:gap-14 items-center">
             <div className="lg:col-span-6">
               <div className="relative">
                 <div className="absolute -inset-3 rounded-[2.5rem] blur-2xl" style={{ background: "linear-gradient(135deg, rgba(212,150,10,0.28), rgba(10,89,64,0.08))" }} />
                 <div className="relative rounded-[2rem] overflow-hidden shadow-xl ring-1 ring-ayana-gold/20">
-                  <img src={IMG.nanna} alt="A warm elderly Indian couple" loading="lazy" className="w-full h-[400px] sm:h-[500px] object-cover" />
+                  <img src={IMG.nanna} alt="A warm elderly Indian couple" loading="lazy" className="w-full h-[260px] sm:h-[400px] lg:h-[500px] object-cover" />
                 </div>
-                <div className="absolute -top-5 -right-5 rounded-2xl px-5 py-3.5 flex items-center gap-3 shadow-lg border border-ayana-line bg-white animate-float">
-                  <span className="w-9 h-9 rounded-full flex items-center justify-center" style={{ background: "rgba(212,150,10,0.16)" }}>
-                    <ShieldCheck className="w-4 h-4 text-ayana-gold" />
+                <div className="absolute -top-3 -right-2 sm:-top-5 sm:-right-5 rounded-2xl px-3.5 py-2 sm:px-5 sm:py-3.5 flex items-center gap-2.5 sm:gap-3 shadow-lg border border-ayana-line bg-white animate-float">
+                  <span className="w-7 h-7 sm:w-9 sm:h-9 rounded-full flex items-center justify-center" style={{ background: "rgba(212,150,10,0.16)" }}>
+                    <ShieldCheck className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-ayana-gold" />
                   </span>
                   <div>
-                    <p className="text-xs font-bold text-ayana-text">Private &amp; secure</p>
-                    <p className="text-xs text-ayana-muted">No data sold, ever</p>
+                    <p className="text-[11px] sm:text-xs font-bold text-ayana-text">Private &amp; secure</p>
+                    <p className="text-[10px] sm:text-xs text-ayana-muted">No data sold, ever</p>
                   </div>
                 </div>
               </div>
             </div>
             <div className="lg:col-span-6">
               <Eyebrow>{t("trust.label")}</Eyebrow>
-              <h2 className="font-display font-extrabold text-3xl sm:text-4xl lg:text-[3rem] leading-[1.05] text-ayana-text">
+              <h2 className="font-display font-extrabold text-2xl sm:text-4xl lg:text-[3rem] leading-[1.05] text-ayana-text">
                 <HighlightText text={t("trust.title")} ranges={[[0.45, 0.75]]} colors={["text-gradient-gold"]} />
               </h2>
-              <p className="font-serif text-xl sm:text-2xl text-ayana-secondary mt-4 leading-snug">{t("trust.sub")}</p>
-              <div className="mt-8 space-y-4">
+              <p className="font-serif text-lg sm:text-2xl text-ayana-secondary mt-3 sm:mt-4 leading-snug">{t("trust.sub")}</p>
+              <div className="mt-5 sm:mt-8 space-y-3 sm:space-y-4">
                 {["note2", "note3", "note4"].map((key) => (
-                  <div key={key} className="flex items-start gap-4 rounded-2xl border border-ayana-line bg-white p-5 shadow-sm">
-                    <span className="icon-well-gold w-9 h-9 rounded-lg flex items-center justify-center shrink-0 mt-0.5">
-                      <Heart className="w-4 h-4" strokeWidth={2} />
+                  <div key={key} className="flex items-start gap-3 sm:gap-4 rounded-2xl border border-ayana-line bg-white p-3.5 sm:p-5 shadow-sm">
+                    <span className="icon-well-gold w-8 h-8 sm:w-9 sm:h-9 rounded-lg flex items-center justify-center shrink-0 mt-0.5">
+                      <Heart className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-ayana-gold" strokeWidth={2} />
                     </span>
-                    <p className="text-ayana-text/80 leading-relaxed text-[15px]">{t(`trust.${key}`)}</p>
+                    <p className="text-ayana-text/80 leading-relaxed text-xs sm:text-[15px]">{t(`trust.${key}`)}</p>
                   </div>
                 ))}
               </div>
@@ -598,43 +666,50 @@ export default function Landing() {
 
         {/* PRICING */}
         <section id="pricing" className="bg-warm-cream">
-          <div className="max-w-5xl mx-auto px-5 sm:px-8 py-20 lg:py-28">
-            <div className="text-center max-w-2xl mx-auto mb-12">
+          <div className="max-w-5xl mx-auto px-4 sm:px-8 py-12 sm:py-20 lg:py-28">
+            <div className="text-center max-w-2xl mx-auto mb-8 sm:mb-12">
               <Eyebrow center>{t("pricing.label")}</Eyebrow>
-              <h2 className="font-display font-extrabold text-3xl sm:text-4xl lg:text-5xl leading-[1.05] text-ayana-text">
+              <h2 className="font-display font-extrabold text-2xl sm:text-4xl lg:text-5xl leading-[1.05] text-ayana-text">
                 <HighlightText text={t("pricing.title")} ranges={[[0, 0.3]]} colors={["text-gradient-gold"]} />
               </h2>
-              <p className="font-serif text-xl sm:text-2xl text-ayana-secondary mt-4">{t("pricing.sub")}</p>
+              <p className="font-serif text-lg sm:text-2xl text-ayana-secondary mt-3 sm:mt-4">{t("pricing.sub")}</p>
             </div>
             <PricingCards plans={config?.plans?.length ? config.plans : FALLBACK_PLANS} currencies={config?.currencies?.length ? config.currencies : FALLBACK_CURRENCIES} />
 
-            <div className="mt-8 text-center">
-              <Link to="/signup" data-testid="pricing-cta" onClick={() => trackEvent("cta_click", { id: "pricing" })}
-                className="btn-saffron btn-tactile inline-flex items-center gap-2 px-8 py-4 rounded-full font-semibold">
+            <div className="mt-6 sm:mt-8 text-center">
+              <button
+                type="button"
+                data-testid="pricing-cta"
+                onClick={() => {
+                  trackEvent("cta_click", { id: "pricing" });
+                  setModalOpen(true);
+                }}
+                className="btn-saffron btn-tactile inline-flex items-center gap-2 px-7 sm:px-8 py-3.5 sm:py-4 rounded-full font-semibold text-sm sm:text-base"
+              >
                 {t("pricing.cta")} <ArrowRight className="w-4 h-4" />
-              </Link>
+              </button>
             </div>
           </div>
         </section>
 
         {/* FAQ */}
         <section id="faq" className="bg-warm-gold">
-          <div className="max-w-3xl mx-auto px-5 sm:px-8 py-20 lg:py-28">
-            <div className="text-center mb-12">
+          <div className="max-w-3xl mx-auto px-4 sm:px-8 py-12 sm:py-20 lg:py-28">
+            <div className="text-center mb-8 sm:mb-12">
               <Eyebrow center>{t("faq.label")}</Eyebrow>
-              <h2 className="font-display font-extrabold text-3xl sm:text-4xl lg:text-5xl leading-[1.05] text-ayana-text">
+              <h2 className="font-display font-extrabold text-2xl sm:text-4xl lg:text-5xl leading-[1.05] text-ayana-text">
                 <HighlightText text={t("faq.title")} ranges={[[0.6, 1.0]]} colors={["text-gradient-gold"]} />
               </h2>
             </div>
-            <Accordion type="single" collapsible className="space-y-3" data-testid="faq-accordion">
+            <Accordion type="single" collapsible className="space-y-2.5 sm:space-y-3" data-testid="faq-accordion">
               {faqItems.map((item, i) => (
                 <AccordionItem key={i} value={`i-${i}`}
-                  className="rounded-xl px-5 border border-ayana-line bg-white shadow-sm transition-all hover:border-ayana-gold/50"
+                  className="rounded-xl px-4 sm:px-5 border border-ayana-line bg-white shadow-sm transition-all hover:border-ayana-gold/50"
                   data-testid={`faq-item-${i}`}>
-                  <AccordionTrigger className="text-left font-display text-lg font-semibold text-ayana-text hover:no-underline py-5">
+                  <AccordionTrigger className="text-left font-display text-base sm:text-lg font-semibold text-ayana-text hover:no-underline py-3.5 sm:py-5">
                     {item.q}
                   </AccordionTrigger>
-                  <AccordionContent className="text-ayana-secondary leading-relaxed pb-5 text-[15px]">
+                  <AccordionContent className="text-ayana-secondary leading-relaxed pb-3.5 sm:pb-5 text-sm sm:text-[15px]">
                     {item.a}
                   </AccordionContent>
                 </AccordionItem>
@@ -648,15 +723,15 @@ export default function Landing() {
           <div className="relative overflow-hidden" style={{ background: "linear-gradient(135deg, #E8B84B 0%, #D4960A 45%, #E8590C 100%)" }}>
             <div className="absolute top-0 right-0 w-96 h-96 rounded-full blur-3xl -translate-y-1/2 translate-x-1/4" style={{ background: "rgba(255,255,255,0.16)" }} />
             <div className="absolute bottom-0 left-0 w-64 h-64 rounded-full blur-3xl translate-y-1/2 -translate-x-1/4" style={{ background: "rgba(0,0,0,0.08)" }} />
-            <div className="relative max-w-4xl mx-auto px-5 sm:px-8 py-20 lg:py-28 text-center">
-              <h2 className="font-display font-black text-white text-4xl sm:text-5xl lg:text-6xl leading-[1.02]">
+            <div className="relative max-w-4xl mx-auto px-4 sm:px-8 py-12 sm:py-20 lg:py-28 text-center">
+              <h2 className="font-display font-black text-white text-3xl sm:text-5xl lg:text-6xl leading-[1.05]">
                 {t("finalCta.title")}
               </h2>
-              <p className="font-serif text-2xl text-white/90 max-w-xl mx-auto mt-5">{t("finalCta.sub")}</p>
-              <p className="text-base text-white/70 max-w-lg mx-auto mt-3">{t("finalCta.urgency")}</p>
+              <p className="font-serif text-lg sm:text-2xl text-white/90 max-w-xl mx-auto mt-3 sm:mt-5">{t("finalCta.sub")}</p>
+              <p className="text-xs sm:text-base text-white/70 max-w-lg mx-auto mt-2 sm:mt-3">{t("finalCta.urgency")}</p>
               <button data-testid="footer-cta" onClick={() => { trackEvent("cta_click", { id: "footer" }); setModalOpen(true); }}
-                className="btn-tactile mt-10 inline-flex items-center gap-2 px-9 py-4 rounded-full bg-white font-bold shadow-2xl hover:bg-[#FFF8EE] transition-colors text-ayana-accent">
-                {t("finalCta.cta")} <ArrowUpRight className="w-5 h-5" strokeWidth={2.5} />
+                className="btn-tactile mt-6 sm:mt-10 inline-flex items-center gap-2 px-7 sm:px-9 py-3.5 sm:py-4 rounded-full bg-white font-bold shadow-2xl hover:bg-[#FFF8EE] transition-colors text-ayana-accent text-sm sm:text-base">
+                {t("finalCta.cta")} <ArrowUpRight className="w-4 h-4 sm:w-5 sm:h-5" strokeWidth={2.5} />
               </button>
             </div>
           </div>
@@ -664,7 +739,7 @@ export default function Landing() {
 
         {/* FOOTER */}
         <footer className="bg-warm-cream border-t border-ayana-line">
-          <div className="max-w-7xl mx-auto px-5 sm:px-8 py-14 grid md:grid-cols-2 gap-10 items-start">
+          <div className="max-w-7xl mx-auto px-4 sm:px-8 py-10 sm:py-14 grid md:grid-cols-2 gap-8 sm:gap-10 items-start">
             <div>
               <Logo size={64} showWord={true} className="mb-5" />
               <p className="font-serif text-lg leading-snug text-ayana-secondary max-w-md">{t("footer.tagline")}</p>

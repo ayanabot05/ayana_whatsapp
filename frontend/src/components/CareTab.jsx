@@ -71,78 +71,7 @@ function EmergencyEventsHistory({ parent }) {
   );
 }
 
-function EmergencyContacts({ parent }) {
-  const qc = useQueryClient();
-  const { data, isLoading } = useQuery({
-    queryKey: ["emergency", parent.id],
-    queryFn: () => api.get(`/parents/${parent.id}/emergency-contacts`).then((r) => r.data.contacts || []),
-  });
-  const [rows, setRows] = useState(null);
-  const [saving, setSaving] = useState(false);
-  const contacts = rows ?? data ?? [];
 
-  const update = (i, key, val) => {
-    const next = contacts.map((c, idx) => (idx === i ? { ...c, [key]: val } : c));
-    setRows(next);
-  };
-  const add = () => setRows([...(contacts || []), { name: "", phone: "+91", relation: "" }]);
-  const remove = (i) => setRows(contacts.filter((_, idx) => idx !== i));
-
-  const save = async () => {
-    setSaving(true);
-    try {
-      const clean = contacts.filter((c) => c.name && c.phone && c.phone.length > 5);
-      await api.put(`/parents/${parent.id}/emergency-contacts`, { contacts: clean });
-      toast.success("Emergency contacts saved.");
-      setRows(null);
-      qc.invalidateQueries({ queryKey: ["emergency", parent.id] });
-    } catch (e) {
-      toast.error(formatApiError(e.response?.data?.detail));
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <div className="rounded-[16px] border border-[#efe8d8] bg-white p-4 sm:p-5 shadow-[0_1px_0_0_rgba(0,0,0,0.02)]" data-testid={`emergency-card-${parent.id}`}>
-      <div className="flex items-center gap-2 mb-1">
-        <span className="w-9 h-9 rounded-full flex items-center justify-center shrink-0" style={{ background: "rgba(232,89,12,0.12)" }}>
-          <ShieldAlert className="w-4 h-4 text-[#c2410c]" />
-        </span>
-        <h3 className="font-display text-[16px] font-medium text-[#1a1a1a]">Emergency contacts: {parent.name}</h3>
-      </div>
-      <p className="text-[13px] text-[#9a9183] mb-4">Alerted immediately on an emergency, or if {parent.name} doesn&apos;t reply all day. Up to 5.</p>
-
-      {isLoading ? (
-        <div className="flex justify-center py-6"><Loader2 className="w-5 h-5 animate-spin text-[#9a9183]" /></div>
-      ) : (
-        <div className="space-y-3">
-          {contacts.length === 0 && <p className="text-sm text-[#9a9183]">No emergency contacts yet.</p>}
-          {contacts.map((c, i) => (
-            <div key={i} className="grid sm:grid-cols-[1fr_1fr_auto] gap-2 items-start" data-testid={`emergency-row-${parent.id}-${i}`}>
-              <input value={c.name} onChange={(e) => update(i, "name", e.target.value)} placeholder="Name (e.g. Ravi)" className={inputCls} data-testid={`emergency-name-${i}`} />
-              <PhoneInput value={c.phone} onChange={(v) => update(i, "phone", v)} testid={`emergency-phone-${i}`} />
-              <div className="flex gap-2">
-                <input value={c.relation || ""} onChange={(e) => update(i, "relation", e.target.value)} placeholder="Relation" className={`${inputCls} sm:w-28`} data-testid={`emergency-relation-${i}`} />
-                <button onClick={() => remove(i)} className="shrink-0 w-10 h-10 rounded-xl border border-[#efe8d8] text-[#9a9183] hover:text-red-500 hover:border-red-300 flex items-center justify-center transition-colors" data-testid={`emergency-remove-${i}`}>
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-          ))}
-          <div className="flex items-center justify-between pt-1">
-            <button onClick={add} disabled={contacts.length >= 5} className="inline-flex items-center gap-1.5 text-sm font-medium text-[#0f3d2e] hover:text-black disabled:opacity-40 transition-colors" data-testid={`emergency-add-${parent.id}`}>
-              <Plus className="w-4 h-4" /> Add contact
-            </button>
-            <button onClick={save} disabled={saving} className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-[#0f3d2e] text-white text-sm font-medium hover:bg-black disabled:opacity-50 transition-colors" data-testid={`emergency-save-${parent.id}`}>
-              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Phone className="w-4 h-4" />} Save contacts
-            </button>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
 
 const optimizeImage = (file) => {
   return new Promise((resolve) => {
@@ -459,67 +388,9 @@ function RecoveryCard({ parents, schedules, planId, limits }) {
   );
 }
 
-export function VacationCard({ parent }) {
-  const qc = useQueryClient();
-  const [start, setStart] = useState(parent.vacation_start || "");
-  const [end, setEnd] = useState(parent.vacation_end || "");
-  const [busy, setBusy] = useState(false);
-  const active = !!(parent.vacation_start && parent.vacation_end);
-
-  const save = async () => {
-    if (!start || !end) { toast.error("Pick both a start and end date."); return; }
-    if (start > end) { toast.error("Start date must be on or before the end date."); return; }
-    setBusy(true);
-    try {
-      await api.put(`/parents/${parent.id}/vacation`, { start, end });
-      toast.success(`Vacation mode set for ${parent.name}. Check-ins pause during this range and resume automatically.`);
-      qc.invalidateQueries({ queryKey: ["dashboard"] });
-    } catch (e) { toast.error(formatApiError(e.response?.data?.detail)); } finally { setBusy(false); }
-  };
-  const clear = async () => {
-    setBusy(true);
-    try {
-      await api.put(`/parents/${parent.id}/vacation`, { start: null, end: null });
-      setStart(""); setEnd("");
-      toast.success("Vacation mode cleared. Check-ins resume as scheduled.");
-      qc.invalidateQueries({ queryKey: ["dashboard"] });
-    } catch (e) { toast.error(formatApiError(e.response?.data?.detail)); } finally { setBusy(false); }
-  };
-
-  return (
-    <div className="rounded-[16px] border border-[#efe8d8] bg-white p-4 sm:p-5 shadow-[0_1px_0_0_rgba(0,0,0,0.02)]" data-testid={`vacation-card-${parent.id}`}>
-      <div className="flex items-center gap-2 mb-1">
-        <span className="w-9 h-9 rounded-full flex items-center justify-center shrink-0" style={{ background: "rgba(2,132,199,0.12)" }}>
-          <Palmtree className="w-4 h-4 text-[#0284c7]" />
-        </span>
-        <h3 className="font-display text-[16px] font-medium text-[#1a1a1a]">Vacation / holiday mode: {parent.name}</h3>
-        {active && <span className="ml-1 text-xs px-2 py-0.5 rounded-full bg-[#e0f2fe] text-[#0284c7] font-medium" data-testid={`vacation-active-${parent.id}`}>Paused {parent.vacation_start} → {parent.vacation_end}</span>}
-      </div>
-      <p className="text-[13px] text-[#9a9183] mb-4">Going away or in hospital? Pause all daily check-ins for a date range. Ayana stops sending during it and resumes automatically the day after.</p>
-      <div className="grid sm:grid-cols-[1fr_1fr_auto] gap-2 items-end">
-        <div>
-          <label className="text-xs font-semibold text-[#9a9183] uppercase tracking-wider">From</label>
-          <input type="date" value={start} onChange={(e) => setStart(e.target.value)} className={`mt-1 ${inputCls}`} data-testid={`vacation-start-${parent.id}`} />
-        </div>
-        <div>
-          <label className="text-xs font-semibold text-[#9a9183] uppercase tracking-wider">To</label>
-          <input type="date" value={end} min={start || undefined} onChange={(e) => setEnd(e.target.value)} className={`mt-1 ${inputCls}`} data-testid={`vacation-end-${parent.id}`} />
-        </div>
-        <div className="flex gap-2">
-          <button onClick={save} disabled={busy} className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-[#0f3d2e] text-white text-sm font-medium hover:bg-black disabled:opacity-50 transition-colors" data-testid={`vacation-save-${parent.id}`}>
-            {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Palmtree className="w-4 h-4" />} Save
-          </button>
-          {active && <button onClick={clear} disabled={busy} className="px-4 py-2.5 rounded-full border border-[#efe8d8] text-sm font-medium text-red-500 hover:border-red-300 disabled:opacity-50 transition-colors" data-testid={`vacation-clear-${parent.id}`}>Clear</button>}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-
 export function CareTab({ parents, schedules = [], planId, limits, moments, quota, onMomentSent }) {
   if (!parents || parents.length === 0) {
-    return <EmptyState text="Add a parent first to manage moments and emergency contacts." />;
+    return <EmptyState text="Add a parent first to send moments." />;
   }
   return (
     <div className="space-y-4" data-testid="care-tab">
@@ -527,7 +398,6 @@ export function CareTab({ parents, schedules = [], planId, limits, moments, quot
       <RecoveryCard parents={parents} schedules={schedules} planId={planId} limits={limits} />
       {parents.map((p) => (
         <div key={p.id} className="space-y-4">
-          <EmergencyContacts parent={p} />
           <EmergencyEventsHistory parent={p} />
         </div>
       ))}

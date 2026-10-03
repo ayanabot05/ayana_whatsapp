@@ -30,7 +30,7 @@ export function StartConnectingModal({ open, onClose }) {
         >
           {/* Warm gradient header */}
           <div
-            className="relative px-8 pt-8 pb-6 text-white"
+            className="relative px-6 sm:px-8 pt-6 sm:pt-8 pb-5 sm:pb-6 text-white"
             style={{ background: "linear-gradient(135deg, #E8B84B 0%, #D4960A 45%, #E8590C 100%)" }}
           >
             <div className="absolute -top-10 -right-10 w-40 h-40 rounded-full blur-3xl" style={{ background: "rgba(255,255,255,0.18)" }} />
@@ -45,17 +45,17 @@ export function StartConnectingModal({ open, onClose }) {
 
             <div className="relative">
               <Logo size={36} showWord={false} />
-              <h2 className="font-display text-2xl font-bold mt-4 leading-tight">
+              <h2 className="font-display text-xl sm:text-2xl font-bold mt-3 sm:mt-4 leading-tight">
                 Start your parents' care circle today
               </h2>
-              <p className="text-white/85 text-sm mt-2 leading-relaxed">
+              <p className="text-white/85 text-xs sm:text-sm mt-1.5 sm:mt-2 leading-relaxed">
                 In a few minutes, your parent will start receiving warm daily hellos on WhatsApp, in their language.
               </p>
             </div>
           </div>
 
           {/* Body */}
-          <div className="px-8 py-6 space-y-4">
+          <div className="px-6 sm:px-8 py-5 sm:py-6 space-y-3.5 sm:space-y-4">
             <div className="flex items-start gap-3">
               <span className="icon-well-gold w-8 h-8 rounded-lg flex items-center justify-center shrink-0 mt-0.5">
                 <MessageCircle className="w-4 h-4" />

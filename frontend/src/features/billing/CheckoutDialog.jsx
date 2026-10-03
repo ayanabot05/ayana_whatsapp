@@ -12,14 +12,13 @@ const money = (amount, currency) => {
   try {
     return new Intl.NumberFormat(undefined, { style: 'currency', currency: code }).format((amount || 0) / 100);
   } catch {
-    return `₹${((amount || 0) / 100).toFixed(2)}`;
+    return `${code} ${((amount || 0) / 100).toFixed(2)}`;
   }
 };
 
 export const CheckoutDialog = ({ selection, onClose, onComplete, allowTrial = false }) => {
   const { user } = useAuth();
   const [config, setConfig] = useState(null);
-  const [currency, setCurrency] = useState(selection?.currency || 'INR');
   const [code, setCode] = useState('');
   const [quote, setQuote] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -29,36 +28,39 @@ export const CheckoutDialog = ({ selection, onClose, onComplete, allowTrial = fa
   const [localOrder, setLocalOrder] = useState(null);
   const sequence = useRef(0);
 
+  // Currency is chosen once, on the pricing cards. No second dropdown here.
+  const currency = selection?.currency;
+
   const trialEndDate = useMemo(() => {
     const d = new Date();
     d.setDate(d.getDate() + 7);
     return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
   }, []);
 
+  // Config is only needed for the checkout script and the enabled-currency check.
   useEffect(() => {
     api.get('/payment/config')
-      .then(({ data }) => {
-        setConfig(data);
-        setCurrency(data.currencies[0] || 'INR');
-      })
+      .then(({ data }) => setConfig(data))
       .catch(e => setError(formatAxiosError(e)));
   }, []);
 
+  // Quote only after config has loaded, so we never fire a request before we know what is enabled.
   useEffect(() => {
-    if (config?.currencies.includes(selection?.currency)) {
-      setCurrency(selection.currency);
-    }
-  }, [selection, config]);
-
-  useEffect(() => {
-    if (!selection || !currency) return;
+    if (!selection || !currency || !config) return;
     setCode(''); setError(''); setStatus(''); setLocalOrder(null);
     const current = ++sequence.current; setQuote(null);
+
+    const enabled = config?.currencies?.length ? config.currencies : ['INR', 'USD', 'GBP', 'EUR', 'AED', 'SGD', 'AUD', 'CAD'];
+    if (Array.isArray(enabled) && !enabled.includes(currency)) {
+      setError(`${currency} checkout is not enabled right now. Please go back and choose another currency.`);
+      return;
+    }
+
     api.post('/payment/quote', { ...selection, currency, coupon_code: '' })
       .then(({ data }) => { if (current === sequence.current) setQuote(data); })
       .catch(e => { if (current === sequence.current) setError(formatAxiosError(e)); });
     return () => { sequence.current = current + 1; };
-  }, [selection, currency]);
+  }, [selection, currency, config]);
 
   const applyCode = async () => {
     const current = ++sequence.current; setBusy(true); setError(''); setQuote(null);
@@ -134,6 +136,10 @@ export const CheckoutDialog = ({ selection, onClose, onComplete, allowTrial = fa
         trial: true,
       };
       const { data: sub } = await api.post('/subscribe', details);
+      if (sub?.international_trial) {
+        await complete(sub);
+        return;
+      }
       await loadCheckout(config?.checkout_script || 'https://checkout.razorpay.com/v1/checkout.js');
       setHosted(true);
       const result = await openSubscriptionModal(sub, user, config);
@@ -142,6 +148,26 @@ export const CheckoutDialog = ({ selection, onClose, onComplete, allowTrial = fa
       setError(formatAxiosError(e));
     } finally {
       setHosted(false);
+      setBusy(false);
+    }
+  };
+
+  const startInternationalDodoCheckout = async () => {
+    setBusy(true); setError(''); setStatus('');
+    try {
+      const returnUrl = `${window.location.origin}${window.location.pathname}?tab=plan&dodo_session_id={CHECKOUT_SESSION_ID}&plan=${selection?.plan}`;
+      const { data } = await api.post('/payment/dodo/checkout', {
+        plan: selection?.plan,
+        billing: selection?.billing || 'month',
+        return_url: returnUrl,
+      });
+      if (data?.checkout_url) {
+        window.location.href = data.checkout_url;
+      } else {
+        throw new Error('Could not initialize international payment session.');
+      }
+    } catch (e) {
+      setError(formatAxiosError(e));
       setBusy(false);
     }
   };
@@ -174,17 +200,9 @@ export const CheckoutDialog = ({ selection, onClose, onComplete, allowTrial = fa
           </DialogDescription>
         </DialogHeader>
 
-        <label className="text-sm font-medium" htmlFor="checkout-currency">Currency charged</label>
-        <select
-          id="checkout-currency"
-          value={currency}
-          disabled={busy}
-          onChange={e => setCurrency(e.target.value)}
-          data-testid="checkout-currency"
-          className="border rounded-xl p-3 bg-white"
-        >
-          {config?.currencies.map(c => <option key={c} value={c}>{c}</option>)}
-        </select>
+        <p className="text-sm text-ayana-secondary" data-testid="checkout-currency">
+          Charged in <span className="font-medium text-ayana-text">{currency}</span>
+        </p>
 
         <section className="rounded-xl border border-ayana-line p-4 space-y-3" data-testid="checkout-coupon-section">
           <label htmlFor="checkout-coupon" className="flex gap-2 items-center text-sm font-medium">
@@ -202,7 +220,7 @@ export const CheckoutDialog = ({ selection, onClose, onComplete, allowTrial = fa
             <Button
               type="button"
               variant="outline"
-              disabled={busy || !currency}
+              disabled={busy || !currency || !config}
               onClick={applyCode}
               data-testid="checkout-apply-coupon"
             >
@@ -256,7 +274,9 @@ export const CheckoutDialog = ({ selection, onClose, onComplete, allowTrial = fa
                   First auto-deduction: {trialEndDate}
                 </p>
                 <p className="text-emerald-800/90 leading-relaxed">
-                  Razorpay securely verifies your card to activate your 7-day free trial. ₹0 is deducted today. After 7 days, your subscription automatically renews at {money(quote.amount, currency)}/{selection?.billing === 'year' ? 'year' : 'month'}.
+                  {currency !== 'INR' && config?.dodo_enabled
+                    ? `Dodo Payments securely verifies your international card to activate your 7-day free trial. ${money(0, currency)} is charged today. After 7 days, your subscription automatically renews at ${money(quote.amount, currency)}/${selection?.billing === 'year' ? 'year' : 'month'}.`
+                    : `Razorpay securely verifies your card to activate your 7-day free trial. ${money(0, currency)} is deducted today. After 7 days, your subscription automatically renews at ${money(quote.amount, currency)}/${selection?.billing === 'year' ? 'year' : 'month'}.`}
                 </p>
                 <p className="text-emerald-700/80">
                   You can cancel anytime before {trialEndDate} from your dashboard with one click — zero penalty.
@@ -273,7 +293,11 @@ export const CheckoutDialog = ({ selection, onClose, onComplete, allowTrial = fa
 
         <Button
           disabled={busy || !quote}
-          onClick={isTrialMode ? startTrialAndSubscribe : pay}
+          onClick={
+            currency !== 'INR' && config?.dodo_enabled
+              ? startInternationalDodoCheckout
+              : (isTrialMode ? startTrialAndSubscribe : pay)
+          }
           data-testid="checkout-pay-button"
           className="w-full h-11 text-base font-medium shadow-md"
         >
@@ -284,6 +308,8 @@ export const CheckoutDialog = ({ selection, onClose, onComplete, allowTrial = fa
           )}
           {quote?.lifetime
             ? 'Activate lifetime access — free'
+            : currency !== 'INR' && config?.dodo_enabled
+            ? (isTrialMode ? 'Start 7-Day Free Trial (Card / Apple Pay)' : 'Pay with International Card (Dodo)')
             : isTrialMode
             ? 'Start 7-day free trial with Razorpay'
             : 'Pay securely with Razorpay'}

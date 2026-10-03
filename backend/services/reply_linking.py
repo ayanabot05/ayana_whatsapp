@@ -107,12 +107,14 @@ def summarize_days(days):
     messages = [m for day in days for m in day['messages']]
     total = len(messages)
     replied = sum(bool(m['replied']) for m in messages)
+    skipped = sum(m['reply_status'] == 'skip' for m in messages)
+    unreplied = max(0, total - replied)
     return {
-        'total': total, 'replied': replied,
+        'total': total, 'replied': replied, 'unreplied': unreplied,
         'accepted': sum(m['status'] == 'sent' for m in messages),
         'delivered': sum(m.get('delivery_status') in ('delivered', 'read') for m in messages),
         'failed': sum(m['status'] in ('failed', 'configuration_error') for m in messages),
-        'skipped': sum(m['reply_status'] == 'skip' for m in messages),
+        'skipped': skipped,
         'voice': sum(bool(r.get('is_voice')) for m in messages for r in m['replies']),
         'medicine_taken': sum(m['category'] == 'medicine' and m['reply_status'] == 'done' for m in messages),
         'medicine_skipped': sum(m['category'] == 'medicine' and m['reply_status'] == 'skip' for m in messages),

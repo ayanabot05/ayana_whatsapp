@@ -87,7 +87,7 @@ from services import inbox
 from services.delivery_stats import delivery_funnel as _delivery_funnel_shared
 from routes.replies import router as replies_router
 from routes.care import router as care_router
-from routes.billing import router as billing_router
+from routes.billing import router as billing_router, root_webhook_router
 from routes.coupon_admin import router as coupon_router
 from routes.admin import router as admin_router
 from routes.webhook import router as webhook_router, _process_meta_payload
@@ -226,10 +226,9 @@ async def _run_startup_migrations():
         # Reply Alerts: track which parent replies the child has seen in-app.
         await conn.execute("alter table parent_replies add column if not exists read_at timestamptz")
         await conn.execute("create index if not exists idx_parentreplies_user_unread on parent_replies(user_id) where read_at is null")
-        # #9 Vacation / holiday mode: a paused date range (YYYY-MM-DD, parent-local)
-        # during which the scheduler skips ALL sends and auto-resumes after.
-        await conn.execute("alter table parents add column if not exists vacation_start text")
-        await conn.execute("alter table parents add column if not exists vacation_end text")
+        # Vacation mode removed (migration 014). Parent country drives the
+        # city dropdown + timezone in the parent details form.
+        await conn.execute("alter table parents add column if not exists country text not null default 'IN'")
         # Anti-flood fix: slot_time lets the scheduler dedup by exact time
         # slot so the same category at a given hour is sent only once.
         await conn.execute("alter table message_logs add column if not exists slot_time text")
@@ -1071,6 +1070,7 @@ app.include_router(care_plan_router)
 app.include_router(replies_router)
 app.include_router(care_router)
 app.include_router(billing_router)
+app.include_router(root_webhook_router)
 app.include_router(coupon_router)
 app.include_router(admin_router)
 from routes.sanity import router as sanity_router

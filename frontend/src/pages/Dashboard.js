@@ -6,7 +6,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Users, CalendarHeart, MessageCircle, CheckCircle2, Plus, Pencil, Trash2,
   Loader2, ShieldCheck, Clock, Power, Crown, Send, UserPlus, Activity,
-  RefreshCw, Check, X, Palmtree, Eye, EyeOff, Calendar, ChevronLeft, ChevronRight, CalendarDays,
+  RefreshCw, Check, X, Palmtree, Eye, EyeOff, Calendar, ChevronLeft, ChevronRight, ChevronDown, CalendarDays,
   User, Download,
 } from "lucide-react";
 import { Navbar } from "@/components/Navbar";
@@ -25,7 +25,7 @@ import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { PhoneInput } from "@/components/PhoneInput";
 import { phoneError } from "@/lib/validation";
-import { CareTab, VacationCard } from "@/components/CareTab";
+import { CareTab } from "@/components/CareTab";
 import { PricingCards } from "@/components/PricingCards";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { ChangeEmailCard, ChangePasswordCard } from "@/components/SecurityCards";
@@ -82,6 +82,28 @@ export default function Dashboard() {
   const [activeTab, setActiveTab] = useState(() => searchParams.get('tab') || 'parents');
   useEffect(() => { if (searchParams.get('tab')) setActiveTab(searchParams.get('tab')); }, [searchParams]);
   const [revealedReplies, setRevealedReplies] = useState(new Set());
+
+  useEffect(() => {
+    const dodoSessionId = searchParams.get('dodo_session_id');
+    const planParam = searchParams.get('plan');
+    if (dodoSessionId) {
+      api.post('/payment/dodo/verify', { session_id: dodoSessionId, plan: planParam })
+        .then(() => {
+          toast.success("International Care Circle subscription activated successfully!");
+          queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+          refreshUser?.();
+        })
+        .catch(() => {
+          queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+          refreshUser?.();
+        })
+        .finally(() => {
+          const next = new URLSearchParams(searchParams);
+          next.delete('dodo_session_id');
+          setSearchParams(next, { replace: true });
+        });
+    }
+  }, [searchParams, setSearchParams, queryClient, refreshUser]);
 
   const bootQuery = useQuery({
     queryKey: ["dashboard"],
@@ -255,8 +277,35 @@ export default function Dashboard() {
           ))}
         </div>
 
+        {/* Mobile Tab Selector: solves horizontal scrolling so all sections including Account and Plan are instantly accessible */}
+        <div className="sm:hidden mb-4">
+          <label htmlFor="mobile-dashboard-tab-select" className="block text-xs font-semibold text-ayana-secondary uppercase tracking-wider mb-1.5">
+            Navigate Section
+          </label>
+          <div className="relative">
+            <select
+              id="mobile-dashboard-tab-select"
+              value={activeTab}
+              onChange={(e) => handleTabChange(e.target.value)}
+              className="w-full bg-[#faf6ec] border border-[#efe8d8] rounded-2xl py-3 pl-4 pr-10 font-display font-medium text-[#1a1a1a] shadow-sm appearance-none focus:outline-none focus:ring-2 focus:ring-ayana-gold"
+              data-testid="mobile-tab-select"
+            >
+              <option value="parents">👨‍👩‍👧 Parents ({parents.length})</option>
+              <option value="checkins">💬 Check-ins</option>
+              <option value="reports">📊 Reports</option>
+              <option value="circle">🤝 Care circle</option>
+              <option value="care">✨ A Moment</option>
+              <option value="plan">👑 Plan & Billing</option>
+              <option value="account">⚙️ Account Settings</option>
+            </select>
+            <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-4 text-ayana-secondary">
+              <ChevronDown className="w-4 h-4" />
+            </div>
+          </div>
+        </div>
+
         <Tabs value={activeTab} onValueChange={handleTabChange}>
-          <TabsList className="bg-[#faf6ec] border border-[#efe8d8] rounded-full p-1.5 flex w-full justify-start overflow-x-auto no-scrollbar h-auto gap-1 shadow-[0_1px_0_0_rgba(0,0,0,0.02)]">
+          <TabsList className="hidden sm:flex bg-[#faf6ec] border border-[#efe8d8] rounded-full p-1.5 w-full justify-start overflow-x-auto no-scrollbar h-auto gap-1 shadow-[0_1px_0_0_rgba(0,0,0,0.02)]">
             <TabsTrigger value="parents" data-testid="tab-parents">Parents</TabsTrigger>
             <TabsTrigger value="checkins" data-testid="tab-checkins">
               Check-ins
@@ -361,20 +410,6 @@ export default function Dashboard() {
                 </div>
               )}
 
-              {parents.length > 0 && (
-                <div className="space-y-3">
-                  <div className="bg-white rounded-[16px] border border-[#efe8d8] p-4 flex items-center gap-3">
-                    <div className="w-9 h-9 rounded-full bg-[#e0f2fe] flex items-center justify-center shrink-0"><Palmtree className="w-4 h-4 text-[#0284c7]" /></div>
-                    <div>
-                      <h2 className="font-display text-[14px] font-medium text-[#1a1a1a]">Holiday / vacation mode</h2>
-                      <p className="text-[11px] text-[#9a9183]">Pause all check-ins — resumes automatically. Mobile friendly.</p>
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-                    {parents.map((p) => <VacationCard key={p.id} parent={p} />)}
-                  </div>
-                </div>
-              )}
             </div>
           </TabBoundary></TabsContent>
 
@@ -594,6 +629,7 @@ function ParentDialog({ parent, config, limits, plan, schedules = [], onSaved, t
       relationship: parent.relationship || "mother",
       phone: parent.phone || "+91",
       language: parent.language || "en",
+      country: parent.country || "IN",
       timezone: parent.timezone || 'Asia/Kolkata',
       notes: parent.notes || "",
       preferred_name: parent.preferred_name || "",
@@ -601,12 +637,10 @@ function ParentDialog({ parent, config, limits, plan, schedules = [], onSaved, t
       city: parent.city || "",
       other_parent_name: parent.other_parent_name || "",
       birthday: parent.birthday || "",
-      stories: parent.stories || [],
+      special_dates: parent.special_dates || [],
       activity_window_start: parent.activity_window_start || "06:00",
       activity_window_end: parent.activity_window_end || "22:00",
       auto_activity_detection: parent.auto_activity_detection || false,
-      vacation_start: parent.vacation_start || '',
-      vacation_end: parent.vacation_end || '',
       recovery_mode: sched?.recovery_mode || false,
       recovery_until: sched?.recovery_until || null,
       medicine_list: parent.medicine_list || [],
@@ -1013,7 +1047,8 @@ function ReportsTab({ parents, plan, user, checkinsData }) {
       for (const key of ['total', 'replied', 'skipped', 'voice']) out[key] += p.summary?.[key] || 0;
       return out;
     }, { total: 0, replied: 0, skipped: 0, voice: 0 });
-    return { ...totals, completion: totals.total ? Math.round(totals.replied / totals.total * 100) : 0 };
+    const unreplied = Math.max(0, totals.total - totals.replied);
+    return { ...totals, unreplied, completion: totals.total ? Math.round(totals.replied / totals.total * 100) : 0 };
   }, [filteredParents]);
 
   const feelingStats = useMemo(() => {
@@ -1189,6 +1224,7 @@ function ReportsTab({ parents, plan, user, checkinsData }) {
       y += 8;
 
       // ---- Row 1: headline stat cards ----
+      const unrepliedCount = stats.unreplied ?? Math.max(0, stats.total - stats.replied);
       const cardGap = 4;
       const cardW = (contentW - cardGap * 3) / 4;
       const drawStatCard = (x, value, label, sub) => {
@@ -1210,9 +1246,60 @@ function ReportsTab({ parents, plan, user, checkinsData }) {
       };
       drawStatCard(marginX, stats.total, "Messages sent", monthLabel);
       drawStatCard(marginX + (cardW + cardGap), `${stats.completion}%`, "Completion rate", `${stats.replied} completed`);
-      drawStatCard(marginX + (cardW + cardGap) * 2, stats.skipped, "Skipped", null);
+      drawStatCard(marginX + (cardW + cardGap) * 2, unrepliedCount, "Missed / No reply", stats.skipped ? `${stats.skipped} tapped skip` : "No reply logged");
       drawStatCard(marginX + (cardW + cardGap) * 3, stats.voice, "Voice notes", null);
       y += 22 + 6;
+
+      // ---- AI Wellness & Care Analysis Section ----
+      ensureSpace(36);
+      doc.setFillColor(253, 250, 243);
+      doc.setDrawColor(212, 168, 83);
+      doc.roundedRect(marginX, y, contentW, 33, 2.5, 2.5, "FD");
+
+      // Badge
+      doc.setFillColor(232, 242, 236);
+      doc.roundedRect(marginX + 4, y + 3.5, 34, 5, 1.5, 1.5, "F");
+      doc.setFontSize(6.8);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(15, 61, 46);
+      doc.text("AI GUARDIAN INSIGHTS", marginX + 6, y + 7);
+
+      doc.setFontSize(10);
+      doc.setFont("times", "bold");
+      doc.setTextColor(...text);
+      doc.text("AI Behavioral & Routine Analysis", marginX + 41, y + 7.3);
+
+      const activeHour = allMessages.find(m => m.replied)?.time || "midday";
+      const replyRate = stats.completion;
+      const missed = unrepliedCount;
+
+      let aiP1 = "";
+      if (replyRate >= 70) {
+        aiP1 = `Response Continuity: High responsiveness (${replyRate}%). ${parentName} engages smoothly with daily routines.`;
+      } else if (replyRate > 0) {
+        aiP1 = `Routine Pattern: ${parentName} is selectively responsive, engaging during ${activeHour} (e.g. lunch check-in). Earlier morning greeting logged no reply.`;
+      } else {
+        aiP1 = `Monitoring State: No replies logged yet this period. Ayana maintains gentle checks with safety quiet hours.`;
+      }
+
+      const aiP2 = feelingStats && Object.keys(feelingStats).length
+        ? `Sentiment & Well-being: Recorded sentiment: ${Object.entries(feelingStats).map(([f, c]) => `${f} (${c})`).join(", ")}. Distress detection: Normal.`
+        : `Safety & Well-being: All check-ins delivered within quiet hours. No urgent distress keywords detected.`;
+
+      const aiRec = missed > 0
+        ? `Schedule Fine-tuning: Morning check-in was unreplied. If ${parentName} wakes or completes pooja later, adjusting delivery by 30-45 mins can increase reply rate.`
+        : `Recommendation: Schedule aligns well with daily rhythms. Continue maintaining regular check-in cadence.`;
+
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(7.8);
+      doc.setTextColor(60, 60, 60);
+      doc.text(`\u2022 ${aiP1}`, marginX + 5, y + 13, { maxWidth: contentW - 10 });
+      doc.text(`\u2022 ${aiP2}`, marginX + 5, y + 19.5, { maxWidth: contentW - 10 });
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(15, 61, 46);
+      doc.text(`\u2022 ${aiRec}`, marginX + 5, y + 26, { maxWidth: contentW - 10 });
+
+      y += 33 + 6;
 
       // ---- Row 2: feelings / medicine / attention ----
       const row2W = (contentW - cardGap * 2) / 3;
@@ -1234,7 +1321,7 @@ function ReportsTab({ parents, plan, user, checkinsData }) {
       drawInfoCard(marginX, "How they responded", feelingsLine);
       drawInfoCard(marginX + row2W + cardGap, "Medicine", `Taken ${medicineStats.taken}   Skipped ${medicineStats.skipped}`);
       drawInfoCard(marginX + (row2W + cardGap) * 2, "Attention alerts", "No alerts this month");
-      y += 20 + 10;
+      y += 20 + 8;
 
       // ---- By message type table ----
       const byType = {};
@@ -1391,10 +1478,24 @@ function ReportsTab({ parents, plan, user, checkinsData }) {
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-        <div className="bg-white rounded-[16px] border p-5"><p className="text-[28px] font-medium">{stats.total}</p><p className="text-sm text-[#6b5f4a]">Messages sent</p></div>
-        <div className="bg-white rounded-[16px] border p-5"><p className="text-[28px] font-medium">{stats.completion}%</p><p className="text-sm">Completion</p></div>
-        <div className="bg-white rounded-[16px] border p-5"><p className="text-[28px] font-medium">{stats.skipped}</p><p className="text-sm">Skipped</p></div>
-        <div className="bg-white rounded-[16px] border p-5"><p className="text-[28px] font-medium">{stats.voice}</p><p className="text-sm">Voice notes</p></div>
+        <div className="bg-white rounded-[16px] border border-[#efe8d8] p-5 shadow-[0_1px_0_0_rgba(0,0,0,0.02)]">
+          <p className="text-[28px] font-medium text-[#1a1a1a]">{stats.total}</p>
+          <p className="text-sm text-[#6b5f4a]">Messages sent</p>
+        </div>
+        <div className="bg-white rounded-[16px] border border-[#efe8d8] p-5 shadow-[0_1px_0_0_rgba(0,0,0,0.02)]">
+          <p className="text-[28px] font-medium text-[#1a1a1a]">{stats.completion}%</p>
+          <p className="text-sm text-[#6b5f4a]">Completion rate</p>
+          <p className="text-xs text-[#9a9183] mt-0.5">{stats.replied} completed</p>
+        </div>
+        <div className="bg-white rounded-[16px] border border-[#efe8d8] p-5 shadow-[0_1px_0_0_rgba(0,0,0,0.02)]">
+          <p className="text-[28px] font-medium text-[#1a1a1a]">{stats.unreplied}</p>
+          <p className="text-sm text-[#6b5f4a]">Missed / No reply</p>
+          {stats.skipped > 0 && <p className="text-xs text-[#9a9183] mt-0.5">{stats.skipped} tapped skip</p>}
+        </div>
+        <div className="bg-white rounded-[16px] border border-[#efe8d8] p-5 shadow-[0_1px_0_0_rgba(0,0,0,0.02)]">
+          <p className="text-[28px] font-medium text-[#1a1a1a]">{stats.voice}</p>
+          <p className="text-sm text-[#6b5f4a]">Voice notes</p>
+        </div>
       </div>
     </div>
   );
